@@ -1,0 +1,63 @@
+{
+  "expo": {
+    "name": "Tenka",
+    "slug": "tenka",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "tenka",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "studio.tenka.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#11151D",
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "monochromeImage": "./assets/images/monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "studio.tenka.app"
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#11151D",
+          "dark": {
+            "image": "./assets/images/icon.png",
+            "backgroundColor": "#090B10"
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "onesignal-expo-plugin",
+        {
+          "mode": "development"
+        }
+      ],
+      "expo-sharing"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9a35dabe-a62f-43de-87a7-10523f7a07ff"
+      }
+    }
+  }
+}
