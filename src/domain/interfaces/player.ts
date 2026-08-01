@@ -76,3 +76,12 @@ export interface UpdateJugadorInput {
   equipoId?: string
   dorsal?: number
 }
+
+export interface UpdateMyProfileInput {
+  nombre?: string
+  posicion?: PosicionJugador
+  foto?: string | null
+  fotoPublicId?: string | null
+  edad?: number | null
+  showPhoneInPublicProfile?: boolean
+}

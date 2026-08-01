@@ -1,10 +1,11 @@
 import { Stack } from "expo-router"
+import { AuthGate } from "@/shared/components/AuthGate"
 
 export default function MyProfileLayout() {
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <AuthGate><Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="form" />
-    </Stack>
+    </Stack></AuthGate>
   )
 }

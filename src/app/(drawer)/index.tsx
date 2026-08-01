@@ -253,7 +253,7 @@ export default function Home() {
                   placeholderTextColor={Palette.textMuted}
                   value={search}
                   onChangeText={setSearch}
-                  style={{ flex: 1, paddingVertical: Pad.md, fontSize: 14, color: Palette.text, outlineStyle: "none" }}
+                  style={{ flex: 1, paddingVertical: Pad.md, fontSize: 14, color: Palette.text }}
                 />
                 {search ? (
                   <TouchableOpacity onPress={() => setSearch("")} style={{ padding: 4 }}>

@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { View, Text, Image, ActivityIndicator, TouchableOpacity } from "react-native"
+import { useState, useCallback } from "react"
+import { View, Text, Image, ActivityIndicator, TouchableOpacity, Share } from "react-native"
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { MaterialIcons } from "@expo/vector-icons"
@@ -34,6 +34,11 @@ export default function PublicTeamScreen() {
   const selectedDivision = divisionLinks.find((link) => link.divisionId === selectedDivisionId)?.division
   const { data: divisionPlayers = [], isLoading: loadingDivisionPlayers } = useDivisionJugadores(selectedDivisionId ?? undefined, selectedDivisionId ? id : undefined)
 
+  const handleShare = useCallback(() => {
+    const texto = `${team?.nombre ?? "Equipo"} - Tenka`
+    Share.share({ message: `${texto}\n\nhttps://tenka.studio/equipo/${id}`, title: texto })
+  }, [team, id])
+
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
@@ -56,7 +61,7 @@ export default function PublicTeamScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title="Información" />
+      <CustomHeader title="Información" rightActions={[{ icon: "share", onPress: handleShare }]} />
       <PullToRefresh refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.xl, alignItems: "center", gap: Gap.md }}>

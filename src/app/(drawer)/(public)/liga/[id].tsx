@@ -1,9 +1,9 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react"
-import { View, Text, TouchableOpacity, Image, ActivityIndicator, Linking, ScrollView } from "react-native"
+import { View, Text, TouchableOpacity, Image, ActivityIndicator, Linking, Share } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet"
-import { useQueryClient, useQuery } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
@@ -14,7 +14,6 @@ import { useTourGuide } from "@wrack/react-native-tour-guide"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { useLeague } from "@/features/league/hooks/useLeagues"
-import { useLookups } from "@/features/league/hooks/useLookups"
 import { useDivisionEquipos } from "@/features/division-equipo/hooks/useDivisionEquipo"
 import { useJornadasInfinitas } from "@/features/jornada/hooks/useJornadasInfinitas"
 import { useTablaPosiciones } from "@/features/tabla-posicion/hooks/useTablaPosiciones"
@@ -22,21 +21,18 @@ import StandingsTable from "@/features/tabla-posicion/components/StandingsTable"
 import CustomHeader from "@/shared/components/CustomHeader"
 import { useRondasPlayoff } from "@/features/ronda-playoff/hooks/useRondasPlayoff"
 import BracketView from "@/features/ronda-playoff/components/BracketView"
-import { partidoApi } from "@/features/partido/api/partidos"
-import type { PartidoResponse } from "@/features/partido/api/partidos"
 import type { JornadaResponse } from "@/features/jornada/api/jornadas"
-import QrCard from "@/shared/components/QrCard"
 import { useLigaFavoritaStore } from "@/stores/ligaFavoritaStore"
 import { useDivisionNotificationStore } from "@/stores/divisionNotificationStore"
 import { useToast } from "@/shared/components/Toast"
-import { authClient } from "@/infrastructure/auth/client"
 import { OneSignal } from "react-native-onesignal"
 import { env } from "@/infrastructure/config/env"
 import { notificationSubscriptionApi } from "@/features/notification/api/notificationSubscription"
+import { formatLocalTime, toLocalDateKey } from "@/shared/utils/date-time"
+import { getPlayoffRoundMatchCounts } from "@/features/division/utils/playoff"
 
 function fmtHora(f: string) {
-  const d = new Date(f)
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+  return formatLocalTime(f)
 }
 
 function toLocalDateDisplay(dateStr: string): string {
@@ -46,7 +42,7 @@ function toLocalDateDisplay(dateStr: string): string {
 }
 
 function fmtFecha(f: string) {
-  const [y, m, d] = f.split("-").map(Number)
+  const [, m, d] = f.split("-").map(Number)
   const meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
   return `${d} ${meses[m - 1]}`
 }
@@ -94,7 +90,6 @@ export default function PublicLeagueScreen() {
     tab?: "posiciones" | "horario"
   }>()
   const router = useRouter()
-  const { data: session } = authClient.useSession()
   const toggleFav = useLigaFavoritaStore((s) => s.toggle)
   const removeFav = useLigaFavoritaStore((s) => s.remove)
   const esFav = useLigaFavoritaStore((s) => s.esFavorito(id!))
@@ -112,7 +107,7 @@ export default function PublicLeagueScreen() {
       removeFav(id!)
       toast.info("La liga ya no existe y se eliminó de favoritos")
     }
-  }, [leagueError])
+  }, [esFav, id, leagueError, removeFav, toast])
 
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(initialDiv ?? null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -121,9 +116,7 @@ export default function PublicLeagueScreen() {
   )
 
   const rangePickerRef = useRef<BottomSheetModal>(null)
-  const shareQrRef = useRef<BottomSheetModal>(null)
   const rangeSnapPoints = useMemo(() => ["50%"], [])
-  const shareQrSnapPoints = useMemo(() => ["55%"], [])
   const insets = useSafeAreaInsets()
 
   const scrollViewRef = useRef<any>(null)
@@ -139,12 +132,9 @@ export default function PublicLeagueScreen() {
   const isFocused = useIsFocused()
   const { startTour } = useTourGuide()
 
-  const lookups = useLookups()
   const publicOwnerPhone = league?.user?.showPhoneInPublicLeague ? league.user.phoneNumber : null
   const ownerWhatsappUrl = publicOwnerPhone && league ? whatsappUrl(publicOwnerPhone, league.nombre) : null
-  const ubicacionNombre = league?.ubicacionId
-    ? lookups.ubicaciones.find((u) => u.id === league.ubicacionId)?.nombreCompleto ?? null
-    : null
+  const ubicacionNombre = league?.ubicacion?.nombreCompleto ?? null
 
   const divisiones = league?.divisiones ?? []
   const currentDivision = selectedDivisionId
@@ -168,54 +158,59 @@ export default function PublicLeagueScreen() {
     <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.5} />
   ), [])
 
+  const handleShareLeague = useCallback(() => {
+    const text = `${league?.nombre ?? "Liga"} - Tenka`
+    Share.share({ message: `${text}\n\nhttps://tenka.studio/liga/${id}`, title: text })
+  }, [league, id])
+
   const qc = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
+  const currentDivisionId = currentDivision?.id
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     await Promise.all([
       qc.invalidateQueries({ queryKey: ["leagues", id] }),
-      currentDivision?.id ? qc.invalidateQueries({ queryKey: ["division-equipos", currentDivision.id] }) : Promise.resolve(),
-      currentDivision?.id ? qc.invalidateQueries({ queryKey: ["tabla-posiciones", currentDivision.id] }) : Promise.resolve(),
-      currentDivision?.id ? qc.invalidateQueries({ queryKey: ["jornadas-infinitas", currentDivision.id] }) : Promise.resolve(),
+      currentDivisionId ? qc.invalidateQueries({ queryKey: ["division-equipos", currentDivisionId] }) : Promise.resolve(),
+      currentDivisionId ? qc.invalidateQueries({ queryKey: ["tabla-posiciones", currentDivisionId] }) : Promise.resolve(),
+      currentDivisionId ? qc.invalidateQueries({ queryKey: ["jornadas-infinitas", currentDivisionId] }) : Promise.resolve(),
+      currentDivisionId ? qc.invalidateQueries({ queryKey: ["rondas-playoff", currentDivisionId] }) : Promise.resolve(),
     ])
     setRefreshing(false)
-  }, [qc, id, currentDivision?.id])
+  }, [qc, id, currentDivisionId])
 
-  const { data: links = [], error: linksError, refetch: refetchLinks } = useDivisionEquipos(currentDivision?.id ?? "")
+  const { data: links = [] } = useDivisionEquipos(currentDivision?.id ?? "")
   const teamCount = links.length
 
-  const { data: standings = [], isLoading: standingsLoading, error: standingsError, refetch: refetchStandings } = useTablaPosiciones(currentDivision?.id ?? null)
-  const { data, isLoading: jornadasLoading, fetchNextPage, isFetchingNextPage, error: jornadasError, refetch: refetchJornadas } = useJornadasInfinitas(currentDivision?.id ?? null)
+  const { data: standings = [], isLoading: standingsLoading } = useTablaPosiciones(currentDivision?.id ?? null)
+  const { data, isLoading: jornadasLoading, fetchNextPage, error: jornadasError, refetch: refetchJornadas } = useJornadasInfinitas(currentDivision?.id ?? null)
 
   const { data: rondas = [] } = useRondasPlayoff(currentDivision?.id ?? null)
 
   const jornadas = useMemo(() => data?.pages.flatMap((p) => p.rows) ?? [], [data])
   const totalJornadas = data?.pages[0]?.total ?? 0
 
-  const [selectedJornadaId, setSelectedJornadaId] = useState<string | null>(null)
+  const [jornadaSelection, setJornadaSelection] = useState<{
+    divisionId: string
+    jornadaId: string
+  } | null>(null)
   const [fetchingNext, setFetchingNext] = useState(false)
-  const prevDivisionRef = useRef(currentDivision?.id)
 
-  useEffect(() => {
-    if (prevDivisionRef.current !== currentDivision?.id) {
-      setSelectedJornadaId(null)
-      prevDivisionRef.current = currentDivision?.id
-    }
-  }, [currentDivision?.id])
+  const defaultJornada = jornadas.find((j) =>
+    j.partidos?.some((p) => p.estado !== "FINALIZADO")
+  ) ?? jornadas[0] ?? null
+  const selectedJornadaId = jornadaSelection?.divisionId === currentDivisionId
+    && jornadas.some((j) => j.id === jornadaSelection.jornadaId)
+    ? jornadaSelection.jornadaId
+    : defaultJornada?.id ?? null
+  const selectJornada = (jornadaId: string) => {
+    if (!currentDivisionId) return
+    setJornadaSelection({ divisionId: currentDivisionId, jornadaId })
+  }
 
   const selectedIdx = selectedJornadaId ? jornadas.findIndex((j) => j.id === selectedJornadaId) : -1
   const pageStart = selectedIdx >= 0 ? Math.floor(selectedIdx / 4) * 4 : 0
   const pageJornadas = jornadas.slice(pageStart, pageStart + 4)
-
-  useEffect(() => {
-    if (jornadas.length === 0 || selectedJornadaId) return
-    const pendingIdx = jornadas.findIndex((j) =>
-      j.partidos?.some((p) => p.estado !== "FINALIZADO")
-    )
-    const targetId = (pendingIdx >= 0 ? jornadas[pendingIdx] : jornadas[0])?.id
-    if (targetId) setSelectedJornadaId(targetId)
-  }, [jornadas, selectedJornadaId])
 
   const selectedJornada = selectedJornadaId ? jornadas.find((j) => j.id === selectedJornadaId) ?? null : null
 
@@ -224,7 +219,7 @@ export default function PublicLeagueScreen() {
 
   const handlePrevJornada = () => {
     if (selectedIdx <= 0) return
-    setSelectedJornadaId(jornadas[selectedIdx - 1].id)
+    selectJornada(jornadas[selectedIdx - 1].id)
   }
 
   const handleNextJornada = async () => {
@@ -237,7 +232,7 @@ export default function PublicLeagueScreen() {
           const result = await fetchNextPage()
           const all = result.data?.pages.flatMap((p) => p.rows) ?? []
           if (all.length > nextIdx) {
-            setSelectedJornadaId(all[nextIdx].id)
+            selectJornada(all[nextIdx].id)
           }
         } catch {
           // fetch failed silently
@@ -247,7 +242,7 @@ export default function PublicLeagueScreen() {
       }
       return
     }
-    setSelectedJornadaId(jornadas[nextIdx].id)
+    selectJornada(jornadas[nextIdx].id)
   }
 
   const goToTeam = useCallback((teamId?: string | null) => {
@@ -261,32 +256,12 @@ export default function PublicLeagueScreen() {
     return map
   }, [rondas])
 
-  const bracketRondaQueries = useQuery({
-    queryKey: ["partidos-ronda-bracket", rondas.map((r) => r.id)],
-    queryFn: async () => {
-      const results = await Promise.all(
-        rondas.map(async (ronda) => {
-          const partidos = await partidoApi.findByRondaPlayoff(ronda.id)
-          return { rondaId: ronda.id, partidos }
-        }),
-      )
-      return results
-    },
-    enabled: rondas.length > 0,
-  })
-
   const bracketRounds = useMemo(() => {
-    if (!bracketRondaQueries.data) return []
-    const porRonda = new Map<string, PartidoResponse[]>()
-    for (const { rondaId, partidos } of bracketRondaQueries.data) {
-      porRonda.set(rondaId, partidos)
-    }
     const sorted = [...rondas].sort((a, b) => a.orden - b.orden)
-    const totalTeams = Math.pow(2, sorted.length)
-    const firstCount = totalTeams / 2
+    const matchCounts = getPlayoffRoundMatchCounts(sorted.length)
     return sorted.map((r, ri) => {
-      const expected = firstCount / Math.pow(2, ri)
-      const partidos = porRonda.get(r.id) ?? []
+      const expected = matchCounts[ri]
+      const partidos = r.partidos
       const matches: import("@/features/ronda-playoff/components/BracketView").BracketMatchData[] = []
       for (let i = 0; i < expected; i++) {
         const llave = i + 1
@@ -317,13 +292,13 @@ export default function PublicLeagueScreen() {
       }
       return { nombre: r.nombre, matches }
     })
-  }, [bracketRondaQueries.data, rondas])
+  }, [rondas])
 
   const renderJornada = useCallback(({ item }: { item: JornadaResponse }) => {
     const partidos = item.partidos ?? []
     const groups: Record<string, typeof partidos> = {}
     for (const p of partidos) {
-      const key = p.fecha ? p.fecha.slice(0, 10) : "sin-fecha"
+      const key = p.fecha ? toLocalDateKey(p.fecha) : "sin-fecha"
       if (!groups[key]) groups[key] = []
       groups[key].push(p)
     }
@@ -372,9 +347,9 @@ export default function PublicLeagueScreen() {
                   const badgeTipo = p.tipoPartido === 'ELIMINATORIA'
                     ? { bg: Palette.playoff10, border: Palette.playoff, text: Palette.playoff, label: rondaMap[p.rondaPlayoffId ?? ""] ?? "Eliminatoria" }
                     : p.tipoPartido === 'AMISTOSO'
-                    ? { bg: Palette.warning10, border: Palette.warning, text: Palette.warning, label: "Amistoso" }
+                    ? { bg: Palette.success10, border: Palette.success, text: Palette.success, label: "Amistoso" }
                     : p.tipoPartido === 'COMPLEMENTO'
-                    ? { bg: Palette.danger10, border: Palette.danger, text: Palette.danger, label: "Completar" }
+                    ? { bg: Palette.warning10, border: Palette.warning, text: Palette.warning, label: "Completar" }
                     : p.tipoPartido === 'REGULAR'
                     ? { bg: Palette.cyan10, border: Palette.cyan, text: Palette.cyan, label: "Liga" }
                     : null
@@ -718,15 +693,7 @@ export default function PublicLeagueScreen() {
             <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
               <StandingsTable rows={standings} isLoading={standingsLoading} onTeamPress={goToTeam} />
             </View>
-            {bracketRounds.length > 0 ? (
-              bracketRondaQueries.isLoading ? (
-                <View style={{ paddingVertical: Pad.base, alignItems: "center" }}>
-                  <ActivityIndicator size="small" color={Palette.cyan} />
-                </View>
-              ) : (
-                <BracketView rounds={bracketRounds} />
-              )
-            ) : null}
+            {bracketRounds.length > 0 ? <BracketView rounds={bracketRounds} /> : null}
           </View>
         ) : null}
       </View>
@@ -872,7 +839,7 @@ export default function PublicLeagueScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title="Información" rightActions={[{ icon: "qr-code-2", onPress: () => shareQrRef.current?.present() }]} />
+      <CustomHeader title="Información" rightActions={[{ icon: "share", onPress: handleShareLeague }]} />
       <PullToRefresh scrollRef={scrollViewRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
         <View style={{ paddingBottom: 48 }}>
           {headerContent}
@@ -894,7 +861,7 @@ export default function PublicLeagueScreen() {
                         return (
                           <TouchableOpacity
                             key={j.id}
-                            onPress={() => setSelectedJornadaId(j.id)}
+                            onPress={() => selectJornada(j.id)}
                             activeOpacity={0.7}
                             style={{
                               paddingHorizontal: Pad.md,
@@ -959,23 +926,7 @@ export default function PublicLeagueScreen() {
           </TouchableOpacity>
         </BottomSheetView>
       </BottomSheetModal>
-      <BottomSheetModal
-        ref={shareQrRef}
-        snapPoints={shareQrSnapPoints}
-        enablePanDownToClose
-        backdropComponent={renderRangeBackdrop}
-        handleIndicatorStyle={{ backgroundColor: Palette.borderActive, width: 40, height: 4 }}
-        backgroundStyle={{ backgroundColor: Palette.dark, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border }}
-      >
-        <BottomSheetView style={{ padding: Pad.xl, paddingBottom: insets.bottom + Pad.xl, gap: Gap.md, alignItems: "center" }}>
-          <Text style={{ color: Palette.text, fontSize: 18, fontFamily: Fonts.display }}>Compartir liga</Text>
-          <Text style={{ color: Palette.textSecondary, fontSize: 13, textAlign: "center" }}>Escanea este código QR para abrir la liga en Tenka</Text>
-          <QrCard value={`tenka:///liga/${id}`} />
-          <TouchableOpacity onPress={() => shareQrRef.current?.dismiss()} style={{ paddingVertical: Pad.md, paddingHorizontal: Pad.xl, borderRadius: Radius.md, backgroundColor: Palette.cyan, alignItems: "center" }}>
-            <Text style={{ color: Palette.black, fontSize: 15, fontFamily: Fonts.semiBold }}>Cerrar</Text>
-          </TouchableOpacity>
-        </BottomSheetView>
-      </BottomSheetModal>
+
     </View>
   )
 }

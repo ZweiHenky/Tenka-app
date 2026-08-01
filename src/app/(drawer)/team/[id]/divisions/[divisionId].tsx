@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Image, ActivityIndicator } from "react-na
 import { router, useLocalSearchParams, useIsFocused } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
+import type { TourStep } from "@wrack/react-native-tour-guide"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
@@ -71,7 +72,7 @@ export default function TeamDivisionPlayersScreen() {
       const seen = await AsyncStorage.getItem("@tour_guide:team-division-players-v1")
       if (seen === "completed") { tourStartedRef.current = true; return }
       tourStartedRef.current = true
-      const habStep = habilitados.length > 0
+      const habStep: TourStep = habilitados.length > 0
         ? {
             id: "division-habilitados",
             targetRef: habSectionRef,

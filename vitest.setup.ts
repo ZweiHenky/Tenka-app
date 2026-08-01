@@ -1,0 +1,6 @@
+process.env.EXPO_PUBLIC_APP_ENV = "local"
+process.env.EXPO_PUBLIC_API_URL = "https://test.example.com"
+process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY = "test-google-places-key"
+process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID = "test-onesignal-app-id"
+process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME = "test-cloud"
+process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET = "test-upload-preset"

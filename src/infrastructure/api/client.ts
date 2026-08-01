@@ -1,11 +1,13 @@
-import axios from "axios"
+import { create } from "axios"
 import { authClient } from "@/infrastructure/auth/client"
 import { env } from "@/infrastructure/config/env"
 
-export const api = axios.create({
+export const api = create({
   baseURL: env.API_URL,
   headers: { "Content-Type": "application/json" },
 })
+
+let sessionRefresh: Promise<unknown> | null = null
 
 api.interceptors.request.use((config) => {
   const cookies = authClient.getCookie()
@@ -18,7 +20,14 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (error) => {
-    const message = error.response?.data?.error || error.message
-    return Promise.reject(new Error(message))
+    if (error.response?.status === 401 && !sessionRefresh) {
+      sessionRefresh = authClient
+        .getSession({ query: { disableCookieCache: true } })
+        .finally(() => { sessionRefresh = null })
+    }
+
+    const message = error.response?.data?.error || error.response?.data?.message
+    if (message) error.message = message
+    return Promise.reject(error)
   },
 )

@@ -20,7 +20,7 @@ export interface PartidoResponse {
   estado: string | null
   llave: number | null
   rondaPlayoffId: string | null
-  tipoPartido?: string
+  tipoPartido?: 'REGULAR' | 'AMISTOSO' | 'COMPLEMENTO' | 'ELIMINATORIA'
   exhibicionLocal?: boolean
   exhibicionVisitante?: boolean
   jornadaId: string | null
@@ -30,6 +30,7 @@ export interface PartidoResponse {
   equipoLocal?: { id: string; nombre: string; logo: string | null }
   equipoVisitante?: { id: string; nombre: string; logo: string | null }
   cancha?: { id: string; nombre: string } | null
+  arbitros?: { id: string; nombre: string }[]
 }
 
 interface ApiRes<T> {

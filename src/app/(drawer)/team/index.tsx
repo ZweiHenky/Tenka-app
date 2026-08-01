@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
 import QRCode from "react-native-qrcode-svg"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
-import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
+import { Radius, Pad, Gap, Palette } from "@/constants/theme"
 import { useUserTeams, useDeleteTeam } from "@/features/team/hooks/useTeams"
 import { authClient } from "@/infrastructure/auth/client"
 import TeamCard from "@/features/team/components/TeamCard"
@@ -19,11 +19,13 @@ import PullToRefresh from "@/shared/components/PullToRefresh"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { divisionEquipoApi } from "@/features/division-equipo/api/division-equipo"
 import { useToast } from "@/shared/components/Toast"
+import { canCreateTeam, type UserRole } from "@/domain/interfaces/user"
 
 export default function TeamScreen() {
   const toast = useToast()
   const { data: session } = authClient.useSession()
   const userId = session?.user?.id ?? ""
+  const canCreate = canCreateTeam((session?.user as { rol?: UserRole } | undefined)?.rol)
   const { data: teams = [], isLoading, error, refetch } = useUserTeams(userId)
   const deleteTeam = useDeleteTeam()
   const [qrTeamId, setQrTeamId] = useState<string | null>(null)
@@ -82,7 +84,7 @@ export default function TeamScreen() {
 
   useEffect(() => {
     if (hasSeenCreateTour.current || hasSeenManagementTour.current) return
-    if (!isFocused || isLoading || teams.length > 0) return
+    if (!isFocused || isLoading || teams.length > 0 || !canCreate) return
     if (!addButtonRef.current) return
 
     const init = async () => {
@@ -123,7 +125,7 @@ export default function TeamScreen() {
       hasSeenCreateTour.current = true
     }
     init()
-  }, [isFocused, isLoading, teams.length, startTour, insets.top, insets.bottom])
+  }, [isFocused, isLoading, teams.length, startTour, insets.top, insets.bottom, canCreate])
 
   useEffect(() => {
     if (hasSeenManagementTour.current) return
@@ -191,7 +193,7 @@ export default function TeamScreen() {
   if (isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Equipo" rightActions={[{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/team/team-form" }), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }]} />
+        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/team/team-form" }), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
         <LoadingScreen />
       </View>
     )
@@ -200,7 +202,7 @@ export default function TeamScreen() {
   return (
     <AuthGate>
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Equipo" rightActions={[{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/team/team-form" }), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }]} />
+        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/team/team-form" }), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
         <PullToRefresh scrollRef={scrollViewRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ paddingHorizontal: Pad.xl, paddingTop: Gap.base, paddingBottom: 48, gap: Gap.md }}>
           {error ? (

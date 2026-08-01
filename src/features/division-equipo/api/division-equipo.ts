@@ -4,6 +4,7 @@ import type { Division } from "@/domain/interfaces/league"
 export interface DivisionEquipoLink {
   divisionId: string
   equipoId: string
+  saldoPendiente?: string
   division?: Division
 }
 
@@ -22,4 +23,6 @@ export const divisionEquipoApi = {
     api.post<ApiRes<DivisionEquipoLink>>("/api/divisiones-equipos", data).then((r) => r.data.data!),
   remove: (divisionId: string, equipoId: string) =>
     api.delete(`/api/divisiones-equipos/${divisionId}/${equipoId}`),
+  updateSaldo: (divisionId: string, equipoId: string, saldoPendiente: string) =>
+    api.patch<ApiRes<DivisionEquipoLink>>(`/api/divisiones-equipos/${divisionId}/${equipoId}`, { saldoPendiente }).then((r) => r.data.data!),
 }

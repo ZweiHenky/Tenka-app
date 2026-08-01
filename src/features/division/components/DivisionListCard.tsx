@@ -1,3 +1,4 @@
+import type { RefObject } from "react"
 import { View, Text, TouchableOpacity } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
@@ -5,22 +6,33 @@ import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 interface DivisionItem {
   id: string
   nombre: string
+  categoriaId: string
+}
+
+interface CategoriaItem {
+  id: string
+  nombre: string
 }
 
 interface Props {
   divisions: DivisionItem[]
+  categorias: CategoriaItem[]
   onNavigate: (id: string) => void
   onEdit: (division: DivisionItem) => void
   onDelete: (id: string, nombre: string) => void
   onAdd: () => void
+  addButtonRef?: RefObject<any>
+  firstDivisionRef?: RefObject<any>
+  onAddButtonLayout?: () => void
+  onFirstDivisionLayout?: () => void
 }
 
-export default function DivisionListCard({ divisions, onNavigate, onEdit, onDelete, onAdd }: Props) {
+export default function DivisionListCard({ divisions, categorias, onNavigate, onEdit, onDelete, onAdd, addButtonRef, firstDivisionRef, onAddButtonLayout, onFirstDivisionLayout }: Props) {
   return (
     <View style={{ gap: Gap.md }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingBottom: Pad.sm, borderBottomWidth: 1, borderBottomColor: Palette.border }}>
         <Text style={{ fontSize: 15, fontFamily: Fonts.semiBold, color: Palette.text }}>Divisiones ({divisions.length})</Text>
-        <TouchableOpacity onPress={onAdd} style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan, alignItems: "center", justifyContent: "center" }}>
+        <TouchableOpacity ref={addButtonRef} onLayout={onAddButtonLayout} onPress={onAdd} style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan, alignItems: "center", justifyContent: "center" }}>
           <MaterialIcons name="add" size={16} color={Palette.black} />
         </TouchableOpacity>
       </View>
@@ -33,10 +45,16 @@ export default function DivisionListCard({ divisions, onNavigate, onEdit, onDele
           </TouchableOpacity>
         </View>
       ) : (
-        divisions.map((d) => (
-          <TouchableOpacity key={d.id} activeOpacity={0.7} onPress={() => onNavigate(d.id)} style={{ flexDirection: "row", alignItems: "center", backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.sm, gap: Gap.sm }}>
+        divisions.map((d, index) => {
+          const categoriaNombre = categorias.find((categoria) => categoria.id === d.categoriaId)?.nombre ?? "Categoría"
+          return (
+          <TouchableOpacity ref={index === 0 ? firstDivisionRef : undefined} onLayout={index === 0 ? onFirstDivisionLayout : undefined} key={d.id} activeOpacity={0.7} onPress={() => onNavigate(d.id)} style={{ flexDirection: "row", alignItems: "center", backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.sm, gap: Gap.sm }}>
             <View style={{ flex: 1, paddingLeft: Pad.sm }}>
-              <Text style={{ fontSize: 15, fontFamily: Fonts.bold, color: Palette.text }}>{d.nombre}</Text>
+              <Text style={{ fontSize: 15, fontFamily: Fonts.bold, color: Palette.text }} numberOfLines={1}>
+                {d.nombre}
+                <Text style={{ color: Palette.cyan, fontSize: 16, fontFamily: Fonts.medium }}>  ·  </Text>
+                <Text style={{ color: Palette.cyan, fontSize: 11, fontFamily: Fonts.semiBold }}>{categoriaNombre}</Text>
+              </Text>
             </View>
             <View style={{ flexDirection: "row", gap: Gap.sm }}>
               <TouchableOpacity onPress={() => onEdit(d)} style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.surface, alignItems: "center", justifyContent: "center" }}>
@@ -48,7 +66,8 @@ export default function DivisionListCard({ divisions, onNavigate, onEdit, onDele
             </View>
             <MaterialIcons name="chevron-right" size={20} color={Palette.textMuted} />
           </TouchableOpacity>
-        ))
+          )
+        })
       )}
     </View>
   )

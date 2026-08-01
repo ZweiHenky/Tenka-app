@@ -1,51 +1,46 @@
 import { useState, useMemo, useRef, useCallback } from "react"
-import { View, Text, TouchableOpacity, Alert, ActivityIndicator, Modal, Platform } from "react-native"
-import { useSafeAreaInsets } from "react-native-safe-area-context"
-import { useLocalSearchParams, router } from "expo-router"
-import { MaterialIcons } from "@expo/vector-icons"
+import { View, Text } from "react-native"
+import type { TourStep } from "@wrack/react-native-tour-guide"
+import { useIsFocused, useLocalSearchParams, router } from "expo-router"
 import { Palette, Pad, Gap, Fonts, Radius } from "@/constants/theme"
-import type { BarcodeScanningResult } from "expo-camera"
-import { useDivisionEquipos, useAssignTeam, useRemoveTeam } from "@/features/division-equipo/hooks/useDivisionEquipo"
+import { useDivisionEquipos, useRemoveTeam } from "@/features/division-equipo/hooks/useDivisionEquipo"
 import { useTeams } from "@/features/team/hooks/useTeams"
-import { useJornadas, useGenerateNextJornada, useDeleteJornada } from "@/features/jornada/hooks/useJornadas"
+import { useJornadas, useDeleteJornada } from "@/features/jornada/hooks/useJornadas"
 import { useLookups } from "@/features/league/hooks/useLookups"
 import { resolveNombre } from "@/shared/utils/resolve-lookup"
 import { divisionApi } from "@/features/division/api/divisions"
-import DivisionInfoCard from "@/features/division/components/DivisionInfoCard"
-import TeamListCard from "@/features/division/components/TeamListCard"
-import JornadaListCard from "@/features/jornada/components/JornadaListCard"
+import EquiposTab from "@/features/division/components/EquiposTab"
+import JornadasTab from "@/features/division/components/JornadasTab"
+import DivisionInfoSheet from "@/features/division/components/DivisionInfoSheet"
+import DivisionActionSheet from "@/features/division/components/DivisionActionSheet"
 import QRScannerModal from "@/shared/components/QRScannerModal"
-import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import { AuthGate } from "@/shared/components/AuthGate"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import CustomHeader from "@/shared/components/CustomHeader"
 import PullToRefresh from "@/shared/components/PullToRefresh"
-import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
+
 import { useToast } from "@/shared/components/Toast"
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
-import { useDivisionScheduleStore, getActiveSlots } from "@/stores/divisionSchedule"
+import { useDivisionScheduleStore } from "@/stores/divisionSchedule"
 import { useRondasPlayoff, useGenerateRondas, useDeleteRondasByDivision } from "@/features/ronda-playoff/hooks/useRondasPlayoff"
+import EliminatoriasTab from "@/features/division/components/EliminatoriasTab"
+import PlayoffTeamSelectorModal from "@/features/division/components/PlayoffTeamSelectorModal"
+import DivisionConfirmDialogs from "@/features/division/components/DivisionConfirmDialogs"
 import { useResetDivision } from "@/features/division/hooks/useDivisions"
-import { partidoApi } from "@/features/partido/api/partidos"
-import { parseDiasPartido } from "@/shared/utils/parse-dias-partido"
 import { TabBar } from "@/shared/components/TabBar"
 import DivisionScheduleManager from "@/features/division/components/DivisionScheduleManager"
-import StandingsTable from "@/features/tabla-posicion/components/StandingsTable"
+import PosicionesTab from "@/features/division/components/PosicionesTab"
 import { useTablaPosiciones } from "@/features/tabla-posicion/hooks/useTablaPosiciones"
-import { downloadPdf, standingsHtml } from "@/shared/utils/print-pdf"
-
-function formatDateLocal(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-}
+import { useDivisionScanner } from "@/features/division/hooks/useDivisionScanner"
+import { authClient } from "@/infrastructure/auth/client"
+import { useTour } from "@/shared/hooks/useTour"
+import { useJornadaGeneration } from "@/features/division/hooks/useJornadaGeneration"
+import { preparePlayoffSlots } from "@/features/division/utils/preparePlayoffSlots"
+import { getPlayoffTeamOptions } from "@/features/division/utils/playoff"
 
 export default function DivisionDetailScreen() {
   const toast = useToast()
-  const insets = useSafeAreaInsets()
-  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 32 : 0)
   const { id: ligaId, divisionId } = useLocalSearchParams<{ id: string; divisionId: string }>()
 
   const { data: division, isLoading: loadDiv, error: divError, refetch: refetchDiv } = useQuery({
@@ -54,48 +49,59 @@ export default function DivisionDetailScreen() {
     enabled: !!divisionId,
   })
   const lookups = useLookups()
-  const { data: links = [], error: linksError, refetch: refetchLinks } = useDivisionEquipos(divisionId!)
-  const { data: allTeams = [] } = useTeams()
-  const assignTeam = useAssignTeam()
+  const { data: links = [], isLoading: linksLoading, error: linksError, refetch: refetchLinks } = useDivisionEquipos(divisionId!)
+  const { data: allTeams = [], isLoading: teamsLoading, error: teamsError } = useTeams()
   const removeTeam = useRemoveTeam()
-  const [scannerOpen, setScannerOpen] = useState(false)
-  const [scannerError, setScannerError] = useState("")
-  const scanningLocked = useRef(false)
-  const { data: jornadas = [], error: jornadasError, refetch: refetchJornadas } = useJornadas(divisionId!)
-  const generateNext = useGenerateNextJornada()
+  const { data: jornadas = [], isLoading: jornadasLoading, error: jornadasError, refetch: refetchJornadas } = useJornadas(divisionId!)
   const deleteJornada = useDeleteJornada()
-  const schedule = useDivisionScheduleStore((s) => (divisionId ? s.schedules[divisionId] : undefined))
   const setHabilitados = useDivisionScheduleStore((s) => s.setHabilitados)
   const habilitados = useDivisionScheduleStore((s) => (divisionId ? s.habilitados[divisionId] : undefined))
   const schedules = useDivisionScheduleStore((s) => s.schedules)
-  const guardarProgramacion = useDivisionScheduleStore((s) => s.guardarProgramacion)
-  const advanceSchedule = useDivisionScheduleStore((s) => s.advanceSchedule)
   const rewindSchedule = useDivisionScheduleStore((s) => s.rewindSchedule)
-  const { data: rondas = [] } = useRondasPlayoff(divisionId!)
-  const { data: standings = [], isLoading: standingsLoading } = useTablaPosiciones(divisionId!)
+  const { data: rondas = [], isLoading: rondasLoading, error: rondasError } = useRondasPlayoff(divisionId!)
+  const { data: standings = [], isLoading: standingsLoading, error: standingsError } = useTablaPosiciones(divisionId!)
   const playoffMode = rondas.length > 0
   const generateRondas = useGenerateRondas()
   const deleteRondas = useDeleteRondasByDivision()
   const resetDivision = useResetDivision()
   const generatingLlaves = useRef(false)
   const clearEliminatoriaSlots = useDivisionScheduleStore((s) => s.clearEliminatoriaSlots)
+  const setPlayoffMode = useDivisionScheduleStore((s) => s.setPlayoffMode)
   const resetSchedule = useDivisionScheduleStore((s) => s.resetSchedule)
   const qc = useQueryClient()
   const [modalRondas, setModalRondas] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [showDeletePlayoffsConfirm, setShowDeletePlayoffsConfirm] = useState(false)
+  const [pendingTeamRemoval, setPendingTeamRemoval] = useState<{ nombre: string; equipoId: string } | null>(null)
+  const [pendingJornadaDelete, setPendingJornadaDelete] = useState<{ jornadaId: string; numero: number } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [tab, setTab] = useState("equipos")
+  const [infoSheetOpen, setInfoSheetOpen] = useState(false)
+  const [actionSheetOpen, setActionSheetOpen] = useState(false)
+  const infoActionRef = useRef<any>(null)
+  const optionsActionRef = useRef<any>(null)
+  const tabBarRef = useRef<any>(null)
+  const teamsSectionRef = useRef<any>(null)
+  const scheduleSectionRef = useRef<any>(null)
+  const jornadasSectionRef = useRef<any>(null)
+  const standingsSectionRef = useRef<any>(null)
+  const playoffsSectionRef = useRef<any>(null)
+  const scrollRef = useRef<any>(null)
+  const scrollOffsetRef = useRef(0)
+  const [infoActionReady, setInfoActionReady] = useState(false)
+  const [optionsActionReady, setOptionsActionReady] = useState(false)
+  const [tabBarReady, setTabBarReady] = useState(false)
+  const [teamsSectionReady, setTeamsSectionReady] = useState(false)
+  const isFocused = useIsFocused()
+  const { data: session } = authClient.useSession()
   const tipoCompNombre = resolveNombre(lookups.tiposCompetencia, division?.tipoCompetenciaId ?? "")
   const tieneEliminatorias = tipoCompNombre.includes("Eliminatorias")
+  const hasPlayoffs = tieneEliminatorias && rondas.length > 0
   const ultimaRonda = useMemo(() =>
     rondas.length > 0 ? rondas.reduce((max, r) => r.orden > max.orden ? r : max, rondas[0]) : null,
     [rondas],
   )
-  const { data: partidosUltimaRonda = [] } = useQuery({
-    queryKey: ["partidos-ultima-ronda", ultimaRonda?.id],
-    queryFn: () => partidoApi.findByRondaPlayoff(ultimaRonda!.id),
-    enabled: !!ultimaRonda,
-  })
+  const partidosUltimaRonda = ultimaRonda?.partidos ?? []
   const ligaCompletada = partidosUltimaRonda.length > 0 &&
     partidosUltimaRonda.every((p: any) => p.estado === "FINALIZADO")
 
@@ -122,8 +128,6 @@ export default function DivisionDetailScreen() {
         qc.invalidateQueries({ queryKey: ["jornadas", divisionId] }),
         qc.invalidateQueries({ queryKey: ["jornadas-infinitas", divisionId] }),
         qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] }),
-        qc.invalidateQueries({ queryKey: ["partidos-ultima-ronda"] }),
-        qc.invalidateQueries({ queryKey: ["partidos-ronda"] }),
         qc.invalidateQueries({ queryKey: ["tabla-posiciones", divisionId] }),
         qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] }),
       ])
@@ -132,67 +136,75 @@ export default function DivisionDetailScreen() {
     }
   }, [qc, divisionId])
 
-  const handleBarcodeScanned = ({ data }: BarcodeScanningResult) => {
-    if (scanningLocked.current) return
-    scanningLocked.current = true
-    const equipoId = data.trim()
-    const teamExists = allTeams.find((t) => t.id === equipoId)
-    if (teamExists) {
-      if (links.some((l) => l.equipoId === equipoId)) {
-        setScannerError(`"${teamExists.nombre}" ya está en esta división`)
-        return
-      }
-      handleAssign(equipoId)
-      handleScannerClose()
-    } else {
-      setScannerError("No se encontró ningún equipo con ese código")
-    }
-  }
-
-  const handleScannerRetry = () => {
-    setScannerError("")
-    scanningLocked.current = false
-  }
-
-  const handleScannerClose = () => {
-    setScannerOpen(false)
-    setScannerError("")
-    scanningLocked.current = false
-  }
-
-  const handleScannerOpen = () => {
-    setScannerError("")
-    scanningLocked.current = false
-    setScannerOpen(true)
-  }
+  const {
+    scannerOpen,
+    scannerError,
+    assignTeamIsPending,
+    handleBarcodeScanned,
+    handleScannerRetry,
+    handleScannerClose,
+    handleScannerOpen,
+  } = useDivisionScanner(divisionId!, allTeams, links)
 
   const assignedTeams = useMemo(
-    () => allTeams.filter((t) => links.some((l) => l.equipoId === t.id)),
+    () => allTeams.flatMap((team) => {
+      const link = links.find((item) => item.equipoId === team.id)
+      return link ? [{ ...team, saldoPendiente: link.saldoPendiente }] : []
+    }),
     [allTeams, links],
   )
-  const opcionesEquipos = useMemo(() => {
-    const total = assignedTeams.length
-    return [4, 8, 16].filter((n) => n <= total)
-  }, [assignedTeams.length])
-  const handleAssign = (equipoId: string) => {
-    assignTeam.mutate(
-      { divisionId: divisionId!, equipoId },
-      { onSuccess: () => toast.success("Equipo asignado"), onError: (e: any) => toast.error(e.message) },
-    )
-  }
+  const opcionesEquipos = useMemo(
+    () => getPlayoffTeamOptions(assignedTeams.length),
+    [assignedTeams.length],
+  )
+
+  const { handleGenerateJornada, isGeneratingJornada } = useJornadaGeneration({
+    divisionId: divisionId!,
+    ligaCompletada,
+    playoffMode,
+    onGenerated: () => setTab("jornadas"),
+  })
+
+  const tourBlocked = refreshing || scannerOpen || modalRondas || infoSheetOpen || actionSheetOpen || pendingTeamRemoval !== null || pendingJornadaDelete !== null || showDeletePlayoffsConfirm || showResetConfirm || assignTeamIsPending || removeTeam.isPending || isGeneratingJornada || deleteJornada.isPending || generateRondas.isPending || deleteRondas.isPending || resetDivision.isPending || cambioEstadoMutation.isPending
+  const tourDataLoading = loadDiv || linksLoading || teamsLoading || jornadasLoading || rondasLoading || standingsLoading || lookups.isLoading
+  const tourDataError = divError || linksError || teamsError || jornadasError || rondasError || standingsError
+
+  const switchTourTab = useCallback((nextTab: string) => {
+    setTab(nextTab)
+    requestAnimationFrame(() => scrollRef.current?.scrollTo?.({ y: 0, animated: false }))
+  }, [])
+
+  const getCurrentTourScrollOffset = useCallback(() => scrollOffsetRef.current, [])
+  const handleTourEnd = useCallback(() => switchTourTab("equipos"), [switchTourTab])
+
+  const tourSteps = useMemo<TourStep[]>(() => {
+    const steps: TourStep[] = [
+      { id: "division-detail-info", targetRef: infoActionRef, title: "Consulta la configuración", description: "Aquí revisas el estado, la categoría, el tipo de competencia, el arbitraje y los horarios de esta división.", spotlightPadding: 8, tooltipPosition: "bottom" },
+      { id: "division-detail-options", targetRef: optionsActionRef, title: "Administra la división", description: "Desde aquí puedes publicar o volver a borrador, crear o eliminar eliminatorias y reiniciar la temporada.", spotlightPadding: 8, tooltipPosition: "bottom" },
+      { id: "division-detail-tabs", targetRef: tabBarRef, title: "Tu flujo de competencia", description: "Trabaja en orden: agrega equipos, configura la programación, consulta las jornadas y revisa las posiciones.", spotlightPadding: 8, tooltipPosition: "bottom" },
+      { id: "division-detail-teams", targetRef: teamsSectionRef, title: assignedTeams.length === 0 ? "Agrega equipos" : "Elige quién juega", description: assignedTeams.length === 0 ? "Escanea el código QR de un equipo para incorporarlo a esta división." : "Marca los equipos con arbitraje pagado. Solo los seleccionados participarán en la próxima jornada.", spotlightPadding: 8, tooltipPosition: "top", onNext: () => switchTourTab("programacion") },
+      { id: "division-detail-schedule", targetRef: scheduleSectionRef, title: "Prepara la jornada", description: "Configura fechas, horarios, equipos y, cuando aplique, cancha y árbitro antes de generar la jornada.", spotlightPadding: 8, tooltipPosition: "top", delayBefore: 500, onPrev: () => switchTourTab("equipos"), onNext: () => switchTourTab("jornadas") },
+      { id: "division-detail-rounds", targetRef: jornadasSectionRef, title: jornadas.length === 0 ? "Consulta las jornadas" : "Captura resultados", description: jornadas.length === 0 ? "Las jornadas que generes aparecerán aquí para consultar y capturar sus partidos." : "Abre una jornada para actualizar sus partidos. Solo la jornada más reciente puede eliminarse.", spotlightPadding: 8, tooltipPosition: "top", delayBefore: 350, onPrev: () => switchTourTab("programacion"), onNext: () => switchTourTab("posiciones") },
+      { id: "division-detail-standings", targetRef: standingsSectionRef, title: "Sigue la tabla", description: standings.length === 0 ? "Las posiciones aparecerán cuando existan resultados registrados." : "La tabla se calcula con los resultados y también puedes descargarla en PDF.", spotlightPadding: 8, tooltipPosition: "top", delayBefore: 350, onPrev: () => switchTourTab("jornadas"), onNext: hasPlayoffs ? () => switchTourTab("eliminatorias") : undefined },
+      ...(hasPlayoffs ? [{ id: "division-detail-playoffs", targetRef: playoffsSectionRef, title: "Sigue las eliminatorias", description: "Abre cada ronda para revisar sus cruces y entra a un partido para registrar el resultado.", spotlightPadding: 8, tooltipPosition: "top" as const, delayBefore: 400, onPrev: () => switchTourTab("posiciones") }] : []),
+    ]
+    return steps
+  }, [assignedTeams.length, jornadas.length, standings.length, hasPlayoffs, switchTourTab])
+
+  useTour({
+    tourId: "division-detail-v1",
+    isFocused,
+    isBlocked: tourBlocked,
+    isEnabled: !tourDataLoading && !tourDataError && !!division && !!session?.user && tab === "equipos",
+    allRefsReady: infoActionReady && optionsActionReady && tabBarReady && teamsSectionReady,
+    steps: tourSteps,
+    scrollRef,
+    getCurrentScrollOffset: getCurrentTourScrollOffset,
+    onTourEnd: handleTourEnd,
+  })
 
   const handleRemove = (nombre: string, equipoId: string) => {
-    Alert.alert("Quitar equipo", `¿Quitar "${nombre}" de la división?`, [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Quitar",
-        style: "destructive",
-        onPress: () => removeTeam.mutate(
-          { divisionId: divisionId!, equipoId },
-          { onSuccess: () => toast.success("Equipo quitado") },
-        ),
-      },
-    ])
+    setPendingTeamRemoval({ nombre, equipoId })
   }
 
   const handleToggleArbitraje = (id: string) => {
@@ -201,76 +213,126 @@ export default function DivisionDetailScreen() {
     setHabilitados(divisionId!, next)
   }
 
-  const handleGenerateJornada = () => {
-    if (ligaCompletada) {
-      toast.info("Temporada completada. Reinicia la división para continuar.")
+  const handlePublish = useCallback(() => {
+    setActionSheetOpen(false)
+    const enCursoId = lookups.estadosLiga.find((e) => e.nombre === "En Curso")?.id
+    if (enCursoId) cambioEstadoMutation.mutate(enCursoId)
+  }, [lookups, cambioEstadoMutation])
+
+  const handleRevertToBorrador = useCallback(() => {
+    setActionSheetOpen(false)
+    const borradorId = lookups.estadosLiga.find((e) => e.nombre === "Borrador")?.id
+    if (borradorId) cambioEstadoMutation.mutate(borradorId)
+  }, [lookups, cambioEstadoMutation])
+
+  const handleGeneratePlayoffs = useCallback(() => {
+    if (opcionesEquipos.length === 0) {
+      toast.error("Se necesitan al menos 2 equipos para generar eliminatorias")
       return
     }
-    if (!schedule) {
-      toast.error("Primero configura la programación de la jornada")
-      return
-    }
-    if (!habilitados || habilitados.length < 2) {
-      toast.error("Marca al menos 2 equipos que pagaron arbitraje para generar una jornada")
-      return
-    }
+    setActionSheetOpen(false)
+    setModalRondas(true)
+  }, [opcionesEquipos, toast])
 
-    const oddCount = habilitados.length % 2 !== 0
-    const hasExtraSlots = schedule.slots.some((slot) =>
-      slot.id.startsWith('extra-') || slot.tipo === 'amistoso' || slot.tipo === 'complemento'
-    )
-    if (!playoffMode && oddCount && !hasExtraSlots && !schedule.descansoEquipoId) {
-      toast.error("Selecciona qué equipo descansa antes de generar la jornada")
-      return
-    }
+  const handleDeletePlayoffs = useCallback(() => {
+    setActionSheetOpen(false)
+    setShowDeletePlayoffsConfirm(true)
+  }, [])
 
-    const habSet = new Set(habilitados)
-    const activeSlots = getActiveSlots(schedule.slots, habilitados.length, playoffMode)
-    const eliminatoriaTeamIds = new Set<string>()
-    for (const slot of schedule.slots) {
-      if (slot.tipo !== 'eliminatoria') continue
-      if (slot.equipoLocalId) eliminatoriaTeamIds.add(slot.equipoLocalId)
-      if (slot.equipoVisitanteId) eliminatoriaTeamIds.add(slot.equipoVisitanteId)
-    }
+  const handleReset = useCallback(() => {
+    setActionSheetOpen(false)
+    setShowResetConfirm(true)
+  }, [])
 
-    const slotsParaJornada = activeSlots.map((slot) => ({
-      ...slot,
-      equipoLocalId: slot.tipo === 'eliminatoria'
-        ? slot.equipoLocalId
-        : slot.equipoLocalId && habSet.has(slot.equipoLocalId) && !eliminatoriaTeamIds.has(slot.equipoLocalId)
-          ? slot.equipoLocalId
-          : undefined,
-      equipoVisitanteId: slot.tipo === 'eliminatoria'
-        ? slot.equipoVisitanteId
-        : slot.equipoVisitanteId && habSet.has(slot.equipoVisitanteId) && !eliminatoriaTeamIds.has(slot.equipoVisitanteId)
-          ? slot.equipoVisitanteId
-          : undefined,
-    }))
-
-    generateNext.mutate(
-      {
-        divisionId: divisionId!,
-        slots: slotsParaJornada,
-        equipoIds: habilitados,
-        descansoEquipoId: schedule.descansoEquipoId,
+  const handleSelectPlayoffTeams = useCallback((n: number) => {
+    if (generatingLlaves.current || !division) return
+    generatingLlaves.current = true
+    setModalRondas(false)
+    generateRondas.mutate({ divisionId: divisionId!, cantidadEquipos: n }, {
+      onSuccess: async () => {
+        try {
+          await qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] })
+          const rondasData = qc.getQueryData<typeof rondas>(["rondas-playoff", divisionId]) ?? []
+          const eliminados: { id: string; nombre: string; llave: number }[] = []
+          for (const r of rondasData) {
+            for (const p of r.partidos) {
+              eliminados.push({ id: p.id, nombre: r.nombre, llave: p.llave ?? 0 })
+            }
+          }
+          let existing = schedules[divisionId!]
+          if (!existing) {
+            const st = useDivisionScheduleStore.getState()
+            st.initSchedule(divisionId!, division.diasPartido ?? "sab", division.horarioPartido ?? "08:00-20:00", division.duracionPartido ?? 60, division.descanso ?? 0, undefined, 0, [])
+            existing = useDivisionScheduleStore.getState().schedules[divisionId!]
+          }
+          if (existing) {
+            const newSlots = preparePlayoffSlots(existing.slots, division, eliminados)
+            const store = useDivisionScheduleStore.getState()
+            store.setScheduleTipoSlots(divisionId!, newSlots)
+          }
+          setTab("eliminatorias")
+          toast.success("Eliminatorias generadas")
+        } finally {
+          generatingLlaves.current = false
+        }
       },
+      onError: (e: any) => {
+        generatingLlaves.current = false
+        toast.error(e.message)
+      },
+    })
+  }, [divisionId, division, schedules, generateRondas, qc, setTab, toast])
+
+
+  const handleConfirmRemoveTeam = useCallback(() => {
+    if (!pendingTeamRemoval) return
+    removeTeam.mutate(
+      { divisionId: divisionId!, equipoId: pendingTeamRemoval.equipoId },
       {
-        onSuccess: (jornadaCreada) => {
-          guardarProgramacion(divisionId!)
-          clearEliminatoriaSlots(divisionId!)
-          const jornadaFecha = jornadaCreada.fechaInicio ?? (() => {
-            const fechas = slotsParaJornada.map((slot) => slot.fecha).filter(Boolean) as string[]
-            return fechas.length > 0 ? [...fechas].sort()[0] : undefined
-          })()
-          advanceSchedule(divisionId!, jornadaFecha)
-          setHabilitados(divisionId!, [])
-          setTab("jornadas")
-          toast.success("Jornada generada")
+        onSuccess: () => {
+          toast.success("Equipo quitado")
+          setPendingTeamRemoval(null)
         },
         onError: (error: Error) => toast.error(error.message),
       },
     )
-  }
+  }, [divisionId, pendingTeamRemoval, removeTeam, toast])
+
+  const handleConfirmDeleteJornada = useCallback(() => {
+    if (!pendingJornadaDelete) return
+    deleteJornada.mutate(
+      { id: pendingJornadaDelete.jornadaId, divisionId: divisionId! },
+      {
+        onSuccess: () => {
+          rewindSchedule(divisionId!)
+          setPendingJornadaDelete(null)
+        },
+        onError: (error: Error) => toast.error(error.message),
+      },
+    )
+  }, [divisionId, pendingJornadaDelete, deleteJornada, rewindSchedule, toast])
+
+  const handleConfirmDeletePlayoffs = useCallback(() => {
+    deleteRondas.mutate(divisionId!, {
+      onSuccess: () => {
+        clearEliminatoriaSlots(divisionId!)
+        setPlayoffMode(divisionId!, false)
+        setShowDeletePlayoffsConfirm(false)
+        setTab("jornadas")
+      },
+      onError: (error: Error) => toast.error(error.message),
+    })
+  }, [divisionId, deleteRondas, clearEliminatoriaSlots, setPlayoffMode, setTab, toast])
+
+  const handleConfirmReset = useCallback(() => {
+    resetDivision.mutate(divisionId!, {
+      onSuccess: () => {
+        resetSchedule(divisionId!)
+        setShowResetConfirm(false)
+      },
+      onError: (error: Error) => toast.error(error.message),
+    })
+  }, [divisionId, resetDivision, resetSchedule, toast])
 
   if (loadDiv) {
     return <LoadingScreen />
@@ -294,12 +356,6 @@ export default function DivisionDetailScreen() {
     )
   }
 
-  const scheduleItems: { icon: string; label: string; text: string }[] = []
-  if (division.diasPartido) scheduleItems.push({ icon: "calendar-today", label: "Días", text: division.diasPartido })
-  if (division.horarioPartido) scheduleItems.push({ icon: "access-time", label: "Horario", text: division.horarioPartido })
-  if (division.duracionPartido != null) scheduleItems.push({ icon: "timer", label: "Duración", text: `${division.duracionPartido} min por partido` })
-  if (division.descanso != null) scheduleItems.push({ icon: "coffee", label: "Descanso", text: `${division.descanso} min de descanso` })
-
   const tabs = [
     { key: "equipos", label: "Equipo" },
     { key: "programacion", label: "Programación" },
@@ -313,373 +369,150 @@ export default function DivisionDetailScreen() {
   return (
     <AuthGate>
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="División" />
-        <PullToRefresh onRefresh={handleRefresh} refreshing={refreshing}>
+        <CustomHeader
+          title={division.nombre}
+          rightActions={[
+            { icon: "info-outline", onPress: () => setInfoSheetOpen(true), ref: infoActionRef, onLayout: () => setInfoActionReady(true) },
+            { icon: "more-vert", onPress: () => setActionSheetOpen(true), ref: optionsActionRef, onLayout: () => setOptionsActionReady(true) },
+          ]}
+        />
+        <PullToRefresh
+          keyboardAware
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
+          scrollRef={scrollRef}
+          onScroll={(event) => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y }}
+        >
           <View style={{ padding: Pad.base, gap: Gap.xl, paddingBottom: 48 }}>
-            <Text style={{ fontSize: 24, fontFamily: Fonts.displayBold, color: Palette.text, textAlign: "center", paddingBottom: Pad.sm }}>{division.nombre}</Text>
-
-            <DivisionInfoCard
-              etiquetas={[
-                { icon: "category", label: resolveNombre(lookups.categorias, division.categoriaId) },
-                { icon: "sports-soccer", label: resolveNombre(lookups.tipos, division.tipoId) },
-                { gold: true, label: estadoNombre },
-                { icon: "emoji-events", label: resolveNombre(lookups.tiposCompetencia, division.tipoCompetenciaId) },
-              ]}
-              stats={[
-                { icon: "groups", label: "Máx", value: String(division.maxEquipos) },
-                { icon: "attach-money", label: "Arb", value: `$${division.arbitraje}` },
-                { icon: "how-to-reg", label: "Eq", value: String(assignedTeams.length) },
-              ]}
-              schedule={scheduleItems}
-            >
-              <View style={{ gap: Gap.sm }}>
-                <Text style={{ fontSize: 12, color: Palette.textSecondary, textAlign: "center", fontFamily: Fonts.sans }}>
-                  {isBorrador
-                    ? "Presiona publicar para que los usuarios puedan visualizar tu división"
-                    : isEnCurso
-                      ? "Regresa la división a borrador para ocultarla de los usuarios"
-                      : ""}
-                </Text>
-                <View style={{ flexDirection: "row", gap: Gap.md }}>
-                  {isBorrador ? (
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        const enCursoId = lookups.estadosLiga.find((e) => e.nombre === "En Curso")?.id
-                        if (enCursoId) cambioEstadoMutation.mutate(enCursoId)
-                      }}
-                      disabled={cambioEstadoMutation.isPending}
-                      style={{ flex: 1, backgroundColor: Palette.success, borderRadius: 12, paddingVertical: Pad.md, alignItems: "center", opacity: cambioEstadoMutation.isPending ? 0.6 : 1 }}
-                    >
-                      <Text style={{ color: Palette.dark, fontSize: 15, fontFamily: Fonts.semiBold }}>Publicar</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {isEnCurso ? (
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        const borradorId = lookups.estadosLiga.find((e) => e.nombre === "Borrador")?.id
-                        if (borradorId) cambioEstadoMutation.mutate(borradorId)
-                      }}
-                      disabled={cambioEstadoMutation.isPending}
-                      style={{ flex: 1, backgroundColor: Palette.danger, borderRadius: 12, paddingVertical: Pad.md, alignItems: "center", opacity: cambioEstadoMutation.isPending ? 0.6 : 1 }}
-                    >
-                      <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold }}>Regresar a borrador</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => setShowResetConfirm(true)}
-                    style={{ flex: 1, backgroundColor: Palette.danger, borderRadius: 12, paddingVertical: Pad.md, alignItems: "center" }}
-                  >
-                    <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold }}>Reiniciar división</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </DivisionInfoCard>
-
-            <TabBar tabs={tabs} activeTab={tab} onTabChange={setTab} />
+            <View ref={tabBarRef} collapsable={false} onLayout={() => setTabBarReady(true)}>
+              <TabBar tabs={tabs} activeTab={tab} onTabChange={setTab} />
+            </View>
 
             {tab === "equipos" ? (
-              <View style={{ gap: Gap.sm }}>
-                <Text style={{ color: Palette.textSecondary, fontSize: 12, textAlign: "center", paddingHorizontal: Pad.md, paddingTop: Pad.sm }}>Marca los equipos que ya pagaron el arbitraje - solo esos participarán en la próxima jornada</Text>
-                {linksError ? (
-                  <ErrorState message={(linksError as Error).message} onRetry={() => refetchLinks()} />
-                ) : (
-                  <TeamListCard assigned={assignedTeams} arbitrajePagado={habilitados ?? []} onRemove={handleRemove} onToggleArbitraje={handleToggleArbitraje} onQrScan={handleScannerOpen} onToggleSelectAll={() => { const all = assignedTeams.map((t) => t.id); const current = habilitados ?? []; setHabilitados(divisionId!, current.length === all.length ? [] : all) }} flat />
-                )}
-
+              <View ref={teamsSectionRef} collapsable={false} onLayout={() => setTeamsSectionReady(true)}>
+                <EquiposTab
+                  divisionId={divisionId!}
+                  assignedTeams={assignedTeams}
+                  habilitados={habilitados ?? []}
+                  onToggleArbitraje={handleToggleArbitraje}
+                  onRemove={handleRemove}
+                  onScannerOpen={handleScannerOpen}
+                  onToggleSelectAll={() => { const all = assignedTeams.map((t) => t.id); const current = habilitados ?? []; setHabilitados(divisionId!, current.length === all.length ? [] : all) }}
+                  linksError={linksError}
+                  refetchLinks={refetchLinks}
+                />
               </View>
             ) : null}
 
             {tab === "jornadas" ? (
-              <View style={{ gap: Gap.md }}>
-                {tieneEliminatorias && rondas.length === 0 ? (
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      if (opcionesEquipos.length === 0) {
-                        toast.error("Se necesitan al menos 4 equipos para generar eliminatorias")
-                        return
-                      }
-                      setModalRondas(true)
-                    }}
-                    style={{
-                      backgroundColor: Palette.cyan,
-                      borderRadius: Radius.md,
-                      paddingVertical: Pad.md,
-                      alignItems: "center",
-                      flexDirection: "row",
-                      justifyContent: "center",
-                      gap: Gap.sm,
-                    }}
-                  >
-                    <MaterialIcons name="emoji-events" size={20} color={Palette.dark} />
-                    <Text style={{ color: Palette.dark, fontSize: 15, fontFamily: Fonts.semiBold }}>
-                      Generar eliminatorias
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-                {jornadasError ? (
-                  <ErrorState message={(jornadasError as Error).message} onRetry={() => refetchJornadas()} />
-                ) : (
-                  <JornadaListCard
-                    jornadas={jornadas}
-                    disabled={ligaCompletada}
-                    disabledMessage="Temporada completada. Reinicia la liga para continuar."
-                    onNavigate={(jornadaId) => router.push(`/(drawer)/leagues/${ligaId}/divisions/${divisionId}/jornadas/${jornadaId}`)}
-                    onDelete={(jornadaId, numero) => {
-                      Alert.alert("Eliminar jornada", `¿Eliminar Jornada ${numero} y sus partidos?`, [
-                        { text: "Cancelar", style: "cancel" },
-                        { text: "Eliminar", style: "destructive", onPress: () => {
-                          deleteJornada.mutate(
-                            { id: jornadaId, divisionId: divisionId! },
-                            { onSuccess: () => rewindSchedule(divisionId!) }
-                          )
-                        } },
-                      ])
-                    }}
-                    flat
-                  />
-                )}
+              <View ref={jornadasSectionRef} collapsable={false}>
+                <JornadasTab
+                  divisionId={divisionId!}
+                  ligaId={ligaId!}
+                  jornadas={jornadas}
+                  jornadasError={jornadasError}
+                  refetchJornadas={refetchJornadas}
+                  ligaCompletada={ligaCompletada}
+                  onDelete={(jornadaId, numero) => setPendingJornadaDelete({ jornadaId, numero })}
+                />
               </View>
             ) : null}
 
             {tab === "posiciones" ? (
-              <View style={{ gap: Gap.md }}>
-                <StandingsTable rows={standings} isLoading={standingsLoading} />
-                {standings.length > 0 ? (
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={async () => {
-                      try {
-                        const rows = standings.map((r, i) => ({
-                          pos: i + 1,
-                          equipo: r.equipo?.nombre ?? "—",
-                          pj: r.partidosJugados,
-                          g: r.ganados,
-                          e: r.empatados,
-                          p: r.perdidos,
-                          dg: r.diferenciaGoles,
-                          pts: r.puntos,
-                        }))
-                        const html = standingsHtml(division.nombre, rows)
-                        await downloadPdf(html, `Tabla-${division.nombre}.pdf`)
-                      } catch {
-                        toast.error("Error al generar PDF")
-                      }
-                    }}
-                    style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
-                  >
-                    <MaterialIcons name="picture-as-pdf" size={20} color={Palette.dark} />
-                    <Text style={{ color: Palette.dark, fontSize: 15, fontFamily: Fonts.semiBold }}>Descargar PDF</Text>
-                  </TouchableOpacity>
-                ) : null}
+              <View ref={standingsSectionRef} collapsable={false}>
+                <PosicionesTab
+                  divisionNombre={division.nombre}
+                  standings={standings}
+                  standingsLoading={standingsLoading}
+                />
               </View>
             ) : null}
 
             {tab === "eliminatorias" && tieneEliminatorias && rondas.length > 0 ? (
-              <View style={{ gap: Gap.md }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, paddingBottom: Pad.sm, borderBottomWidth: 1, borderBottomColor: Palette.border }}>
-                  <MaterialIcons name="emoji-events" size={20} color={Palette.cyan} />
-                  <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold }}>Eliminatorias</Text>
-                </View>
-                {[...rondas].sort((a, b) => a.orden - b.orden).map((ronda) => (
-                  <TouchableOpacity
-                    key={ronda.id}
-                    activeOpacity={0.7}
-                    onPress={() => router.push(`/(drawer)/leagues/${ligaId}/divisions/${divisionId}/eliminatorias?rondaId=${ronda.id}`)}
-                    style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.base }}
-                  >
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <Text style={{ fontSize: 15, fontFamily: Fonts.bold, color: Palette.text }}>{ronda.nombre}</Text>
-                      <MaterialIcons name="chevron-right" size={20} color={Palette.textMuted} />
-                    </View>
-                  </TouchableOpacity>
-                ))}
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    Alert.alert("Eliminar eliminatorias", "¿Seguro? Se borrarán todas las rondas y partidos de eliminatoria.", [
-                      { text: "Cancelar", style: "cancel" },
-                      {
-                        text: "Eliminar",
-                        style: "destructive",
-                        onPress: () => {
-                          deleteRondas.mutate(divisionId!, {
-                            onSuccess: () => {
-                              clearEliminatoriaSlots(divisionId!)
-                              setTab("jornadas")
-                            },
-                          })
-                        },
-                      },
-                    ])
-                  }}
-                  style={{ backgroundColor: Palette.danger, borderRadius: 12, paddingVertical: Pad.md, alignItems: "center" }}
-                >
-                  <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold }}>Eliminar eliminatorias</Text>
-                </TouchableOpacity>
+              <View ref={playoffsSectionRef} collapsable={false}>
+                <EliminatoriasTab
+                  rondas={rondas}
+                  onPartidoPress={(partido) => router.push(`/(drawer)/leagues/${ligaId}/divisions/${divisionId}/partidos/${partido.id}`)}
+                />
               </View>
             ) : null}
 
             {tab === "programacion" ? (
-              <DivisionScheduleManager
-                divisionId={divisionId!}
-                embedded
-                isGeneratingJornada={generateNext.isPending}
-                onGenerateJornada={handleGenerateJornada}
-              />
+              <View ref={scheduleSectionRef} collapsable={false}>
+                <DivisionScheduleManager
+                  divisionId={divisionId!}
+                  embedded
+                  isGeneratingJornada={isGeneratingJornada}
+                  onGenerateJornada={handleGenerateJornada}
+                />
+              </View>
             ) : null}
           </View>
         </PullToRefresh>
       </View>
 
-      <AppBottomSheetModal visible={modalRondas} onClose={() => setModalRondas(false)} title="¿Cuántos equipos pasan?" snapPoints={["45%"]}>
-        <View style={{ alignItems: "center", gap: 20 }}>
-          <View style={{ flexDirection: "row", gap: Gap.md }}>
-            {opcionesEquipos.map((n) => (
-              <TouchableOpacity
-                key={n}
-                activeOpacity={0.7}
-                onPress={() => {
-                  if (generatingLlaves.current) return
-                  generatingLlaves.current = true
-                  setModalRondas(false)
-                  generateRondas.mutate({ divisionId: divisionId!, cantidadEquipos: n }, {
-                    onSuccess: async () => {
-                      try {
-                        await qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] })
-                        const rondasData = qc.getQueryData<{ id: string; nombre: string }[]>(["rondas-playoff", divisionId]) ?? []
-                        const eliminados: { id: string; nombre: string; llave: number }[] = []
-                        for (const r of rondasData) {
-                          const partidos = await partidoApi.findByRondaPlayoff(r.id)
-                          for (const p of partidos) {
-                            eliminados.push({ id: p.id, nombre: r.nombre, llave: p.llave ?? 0 })
-                          }
-                        }
-                        let existing = schedules[divisionId!]
-                        if (!existing) {
-                          const st = useDivisionScheduleStore.getState()
-                          st.initSchedule(divisionId!, division.diasPartido ?? "sab", division.horarioPartido ?? "08:00-20:00", division.duracionPartido ?? 60, division.descanso ?? 0, undefined, 0, [])
-                          existing = useDivisionScheduleStore.getState().schedules[divisionId!]
-                        }
-                        if (existing) {
-                          const validDays = parseDiasPartido(division.diasPartido ?? "sab")
-                          const ranges = (division.horarioPartido ?? "08:00-20:00").split("-").map((s) => s.trim()).filter((s) => s)
-                          const slotTotal = (division.duracionPartido ?? 60) + (division.descanso ?? 0)
-                          const duracion = division.duracionPartido ?? 60
-
-                          const dayTimeSlots: { horaInicio: string; horaFin: string }[] = []
-                          for (const range of ranges) {
-                            const parseM = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + (m || 0) }
-                            let current = parseM(range.split("-")[0])
-                            const finMin = parseM(range.includes("-") ? range.split("-")[1] : range)
-                            while (current + duracion <= finMin) {
-                              dayTimeSlots.push({
-                                horaInicio: `${String(Math.floor(current / 60)).padStart(2, "0")}:${String(current % 60).padStart(2, "0")}`,
-                                horaFin: `${String(Math.floor((current + duracion) / 60)).padStart(2, "0")}:${String((current + duracion) % 60).padStart(2, "0")}`,
-                              })
-                              current += slotTotal
-                            }
-                          }
-
-                          const ocupadosMap = new Map<string, Set<string>>()
-                          for (const sl of existing.slots) {
-                            if (!ocupadosMap.has(sl.fecha)) ocupadosMap.set(sl.fecha, new Set())
-                            ocupadosMap.get(sl.fecha)!.add(sl.horaInicio)
-                          }
-
-                          const refDate = existing.slots[0]?.fecha ?? formatDateLocal(new Date())
-                          const refParts = refDate.split("-").map(Number)
-                          const cursor = new Date(refParts[0], refParts[1] - 1, refParts[2])
-                          const newSlots: typeof existing.slots = []
-
-                          for (let d = 0; d < 60 && newSlots.length < eliminados.length; d++) {
-                            if (validDays.includes(cursor.getDay())) {
-                              const fecha = formatDateLocal(cursor)
-                              const ocupados = ocupadosMap.get(fecha) ?? new Set()
-                              for (const ts of dayTimeSlots) {
-                                if (newSlots.length >= eliminados.length) break
-                                if (!ocupados.has(ts.horaInicio)) {
-                                  ocupados.add(ts.horaInicio)
-                                  const e = eliminados[newSlots.length]
-                                  newSlots.push({
-                                    id: `slot-${existing.slots.length + newSlots.length}-elim`,
-                                    fecha,
-                                    horaInicio: ts.horaInicio,
-                                    horaFin: ts.horaFin,
-                                    equipoLocalId: undefined,
-                                    equipoVisitanteId: undefined,
-                                    tipo: "eliminatoria" as const,
-                                    partidoId: e.id,
-                                    rondaNombre: e.nombre,
-                                    llave: e.llave,
-                                  })
-                                }
-                              }
-                            }
-                            cursor.setDate(cursor.getDate() + 1)
-                          }
-
-                          const store = useDivisionScheduleStore.getState()
-                          store.setScheduleTipoSlots(divisionId!, newSlots)
-                        }
-                        setTab("eliminatorias")
-                        toast.success("Eliminatorias generadas")
-                      } finally {
-                        generatingLlaves.current = false
-                      }
-                    },
-                    onError: (e: any) => {
-                      generatingLlaves.current = false
-                      toast.error(e.message)
-                    },
-                  })
-                }}
-                disabled={generateRondas.isPending}
-                style={{
-                  width: 80, height: 80, borderRadius: 16,
-                  backgroundColor: Palette.cyan,
-                  alignItems: "center", justifyContent: "center",
-                  opacity: generateRondas.isPending ? 0.6 : 1,
-                }}
-              >
-                <Text style={{ fontSize: 28, fontFamily: Fonts.displayBold, color: Palette.black }}>{n}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <TouchableOpacity onPress={() => setModalRondas(false)} style={{ paddingVertical: Pad.sm }}>
-            <Text style={{ color: Palette.textMuted, fontFamily: Fonts.medium, fontSize: 14 }}>Cancelar</Text>
-          </TouchableOpacity>
-          {generateRondas.isPending ? (
-            <ActivityIndicator size="small" color={Palette.cyan} />
-          ) : null}
-        </View>
-      </AppBottomSheetModal>
+      <PlayoffTeamSelectorModal
+        visible={modalRondas}
+        onClose={() => setModalRondas(false)}
+        opcionesEquipos={opcionesEquipos}
+        generateRondasIsPending={generateRondas.isPending}
+        onSelect={handleSelectPlayoffTeams}
+      />
 
       <QRScannerModal visible={scannerOpen} onBarcodeScanned={handleBarcodeScanned} onClose={handleScannerClose} scannerError={scannerError} onRetry={handleScannerRetry} />
-      <ConfirmationModal
-        visible={showResetConfirm}
-        title="Reiniciar división"
-        message="¿Seguro? Se borrarán todas las jornadas, partidos, eliminatorias y estadísticas. Los equipos se conservan."
-        variant="danger"
-        confirmLabel="Reiniciar"
-        loading={resetDivision.isPending}
-        onConfirm={() => {
-          resetDivision.mutate(divisionId!, { onSuccess: () => resetSchedule(divisionId!) })
-          setShowResetConfirm(false)
-        }}
-        onClose={() => setShowResetConfirm(false)}
+      <DivisionConfirmDialogs
+        pendingTeamRemoval={pendingTeamRemoval}
+        onConfirmRemoveTeam={handleConfirmRemoveTeam}
+        onCloseRemoveTeam={() => setPendingTeamRemoval(null)}
+        removeTeamIsPending={removeTeam.isPending}
+        pendingJornadaDelete={pendingJornadaDelete}
+        onConfirmDeleteJornada={handleConfirmDeleteJornada}
+        onCloseDeleteJornada={() => setPendingJornadaDelete(null)}
+        deleteJornadaIsPending={deleteJornada.isPending}
+        showDeletePlayoffsConfirm={showDeletePlayoffsConfirm}
+        onConfirmDeletePlayoffs={handleConfirmDeletePlayoffs}
+        onCloseDeletePlayoffs={() => setShowDeletePlayoffsConfirm(false)}
+        deleteRondasIsPending={deleteRondas.isPending}
+        showResetConfirm={showResetConfirm}
+        onConfirmReset={handleConfirmReset}
+        onCloseReset={() => setShowResetConfirm(false)}
+        resetDivisionIsPending={resetDivision.isPending}
+        isGeneratingJornada={isGeneratingJornada}
       />
-      <Modal visible={generateNext.isPending} transparent animationType="slide">
-        <View style={{ flex: 1, backgroundColor: Palette.overlay, justifyContent: "flex-end" }}>
-          <View style={{ backgroundColor: Palette.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 32, paddingTop: 48, paddingBottom: 48, marginBottom: bottomInset, alignItems: "center", gap: 16, borderTopWidth: 1, borderColor: Palette.border }}>
-            <ActivityIndicator size="large" color={Palette.cyan} />
-            <Text style={{ color: Palette.cyan, fontSize: 18, fontWeight: "700" }}>Generando jornada...</Text>
-          </View>
-        </View>
-      </Modal>
+
+      <DivisionInfoSheet
+        visible={infoSheetOpen}
+        onClose={() => setInfoSheetOpen(false)}
+        nombre={division.nombre}
+        assignedTeamCount={assignedTeams.length}
+        maxEquipos={division.maxEquipos}
+        estadoNombre={estadoNombre}
+        isBorrador={isBorrador}
+        tipoCompNombre={tipoCompNombre}
+        categoriaNombre={resolveNombre(lookups.categorias, division.categoriaId)}
+        tipoNombre={resolveNombre(lookups.tipos, division.tipoId)}
+        arbitraje={division.arbitraje}
+        diasPartido={division.diasPartido}
+        horarioPartido={division.horarioPartido}
+        duracionPartido={division.duracionPartido}
+        descanso={division.descanso}
+      />
+
+      <DivisionActionSheet
+        visible={actionSheetOpen}
+        onClose={() => setActionSheetOpen(false)}
+        isBorrador={isBorrador}
+        isEnCurso={isEnCurso}
+        estadoNombre={estadoNombre}
+        tieneEliminatorias={tieneEliminatorias}
+        hasRondas={rondas.length > 0}
+        isPending={cambioEstadoMutation.isPending}
+        onPublish={handlePublish}
+        onRevertToBorrador={handleRevertToBorrador}
+        onGeneratePlayoffs={handleGeneratePlayoffs}
+        onDeletePlayoffs={handleDeletePlayoffs}
+        onReset={handleReset}
+      />
     </AuthGate>
   )
 }

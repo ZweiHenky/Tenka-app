@@ -1,4 +1,3 @@
-import { Alert } from "react-native"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { jornadaApi, type SlotInput } from "@/features/jornada/api/jornadas"
 
@@ -20,6 +19,7 @@ export function useGenerateNextJornada() {
       qc.invalidateQueries({ queryKey: [KEY, divisionId] })
       qc.invalidateQueries({ queryKey: ["jornadas-infinitas", divisionId] })
       qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] })
+      qc.invalidateQueries({ queryKey: ["referee-candidates"] })
     },
   })
 }
@@ -32,7 +32,8 @@ export function useDeleteJornada() {
       qc.invalidateQueries({ queryKey: [KEY, divisionId] })
       qc.invalidateQueries({ queryKey: ["jornadas-infinitas", divisionId] })
       qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] })
-      qc.invalidateQueries({ queryKey: ["partidos-ultima-ronda"] })
+      qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] })
+      qc.invalidateQueries({ queryKey: ["referee-candidates"] })
     },
   })
 }

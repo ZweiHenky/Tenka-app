@@ -1,5 +1,5 @@
 import { api } from "@/infrastructure/api/client"
-import type { CreateJugadorInput, DivisionJugador, DivisionJugadorConRel, EquipoJugador, Jugador, PosicionJugador, UpdateJugadorInput } from "@/domain/interfaces/player"
+import type { CreateJugadorInput, DivisionJugador, DivisionJugadorConRel, EquipoJugador, Jugador, PosicionJugador, UpdateJugadorInput, UpdateMyProfileInput } from "@/domain/interfaces/player"
 
 interface ApiRes<T> {
   success: boolean
@@ -15,7 +15,7 @@ export const jugadorApi = {
     api.post<ApiRes<Jugador>>("/api/jugadores/me", data).then((r) => r.data.data!),
 
 
-  updateMe: (data: { nombre?: string; posicion?: PosicionJugador; foto?: string | null; fotoPublicId?: string | null; edad?: number | null }) =>
+  updateMe: (data: UpdateMyProfileInput) =>
     api.patch<ApiRes<Jugador>>("/api/jugadores/me", data).then((r) => r.data.data!),
 
 

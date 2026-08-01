@@ -2,7 +2,7 @@ import { useState } from "react"
 import { View, Text, TouchableOpacity, FlatList } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons"
-import { Radius, Pad, Gap, Palette } from "@/constants/theme"
+import { Radius, Pad, Palette } from "@/constants/theme"
 import AppBottomSheetModal from "./AppBottomSheetModal"
 
 interface Option {

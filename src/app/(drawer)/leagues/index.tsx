@@ -1,13 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from "react"
-import { View, Text, ActivityIndicator } from "react-native"
+import { View, Text, ActivityIndicator, TouchableOpacity } from "react-native"
 import { router, useIsFocused } from "expo-router"
+import { MaterialIcons } from "@expo/vector-icons"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
-import { Radius, Pad, Gap, Palette } from "@/constants/theme"
+import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { api } from "@/infrastructure/api/client"
-import { useUserLeagues, useCreateLeague, useUpdateLeague, useDeleteLeague } from "@/features/league/hooks/useLeagues"
-import { useLookups } from "@/features/league/hooks/useLookups"
+import { useUserLeagues, useDeleteLeague } from "@/features/league/hooks/useLeagues"
 import { authClient } from "@/infrastructure/auth/client"
 import LeagueCard from "@/features/league/components/LeagueCard"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
@@ -18,16 +18,22 @@ import EmptyState from "@/shared/components/EmptyState"
 import CustomHeader from "@/shared/components/CustomHeader"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import { useToast } from "@/shared/components/Toast"
+import { canCreateLeague, type UserRole } from "@/domain/interfaces/user"
+import { userApi } from "@/features/users/api/users"
+import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 
 export default function LeaguesScreen() {
   const toast = useToast()
-  const { data: session } = authClient.useSession()
+  const { data: session, refetch: refetchSession } = authClient.useSession()
   const userId = session?.user?.id ?? ""
+  const role = (session?.user as { rol?: UserRole } | undefined)?.rol
+  const canCreate = canCreateLeague(role)
   const { data: leagues = [], isLoading, error, refetch } = useUserLeagues(userId)
   const deleteLeague = useDeleteLeague()
   const [refreshing, setRefreshing] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string; divisionCount: number } | null>(null)
   const [checkingDelete, setCheckingDelete] = useState(false)
+  const [activatingRole, setActivatingRole] = useState(false)
 
   const createBtnRef = useRef<any>(null)
   const detailBtnRef = useRef<any>(null)
@@ -51,7 +57,7 @@ export default function LeaguesScreen() {
   }, [blocked, endTour])
 
   useEffect(() => {
-    if (!isFocused || isLoading || error || blocked) return
+    if (!isFocused || isLoading || error || blocked || !canCreate) return
     if (leagues.length === 0) {
       if (createTourStartedRef.current) return
       const init = async () => {
@@ -151,7 +157,7 @@ export default function LeaguesScreen() {
       if (createTimerRef.current) clearTimeout(createTimerRef.current)
       if (manageTimerRef.current) clearTimeout(manageTimerRef.current)
     }
-  }, [isFocused, isLoading, error, leagues.length, startTour, endTour, insets.top, insets.bottom, blocked, firstCardReady])
+  }, [isFocused, isLoading, error, leagues.length, startTour, endTour, insets.top, insets.bottom, blocked, firstCardReady, canCreate])
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -161,6 +167,19 @@ export default function LeaguesScreen() {
       setRefreshing(false)
     }
   }, [refetch])
+
+  const handleActivateLeagueRole = async () => {
+    setActivatingRole(true)
+    try {
+      await userApi.activateLeagueRole()
+      await refetchSession({ query: { disableCookieCache: true } })
+      toast.success("Tu cuenta ya puede administrar ligas.")
+    } catch (activationError) {
+      toast.error(getAuthErrorMessage(activationError, "No se pudo activar el rol de liga."))
+    } finally {
+      setActivatingRole(false)
+    }
+  }
 
   const handleDelete = async (id: string, nombre: string) => {
     setCheckingDelete(true)
@@ -193,7 +212,7 @@ export default function LeaguesScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader
           title="Ligas"
-          rightActions={[{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/leagues/league-form" }), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }]}
+          rightActions={canCreate ? [{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/leagues/league-form" }), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
         />
         <LoadingScreen />
       </View>
@@ -205,14 +224,41 @@ export default function LeaguesScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader
           title="Ligas"
-          rightActions={[{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/leagues/league-form" }), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }]}
+          rightActions={canCreate ? [{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/leagues/league-form" }), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
         />
         <PullToRefresh scrollRef={scrollRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ paddingHorizontal: Pad.xl, paddingTop: Gap.base, paddingBottom: 48, gap: Gap.md }}>
+          {role === "CAPITAN" ? (
+            <View style={{ backgroundColor: Palette.cyan10, borderWidth: 1, borderColor: Palette.cyan, borderRadius: Radius.xl, padding: Pad.lg, gap: Gap.md }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+                <View style={{ width: 42, height: 42, borderRadius: Radius.lg, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                  <MaterialIcons name="emoji-events" size={24} color={Palette.cyan} />
+                </View>
+                <View style={{ flex: 1, gap: Gap.micro }}>
+                  <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.bold }}>Administra tus propias ligas</Text>
+                  <Text style={{ color: Palette.textSecondary, fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 }}>
+                    Activa el rol de liga para crear divisiones, jornadas, resultados y eliminatorias.
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                accessibilityRole="button"
+                disabled={activatingRole}
+                onPress={handleActivateLeagueRole}
+                style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, minHeight: 44, alignItems: "center", justifyContent: "center", opacity: activatingRole ? 0.6 : 1 }}
+              >
+                {activatingRole ? (
+                  <ActivityIndicator color={Palette.black} />
+                ) : (
+                  <Text style={{ color: Palette.black, fontSize: 14, fontFamily: Fonts.bold }}>Activar administración de ligas</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null}
           {error ? (
             <ErrorState message={(error as Error).message} onRetry={() => refetch()} />
           ) : leagues.length === 0 ? (
-            <EmptyState message="No hay ligas registradas" icon="emoji-events" />
+            role === "CAPITAN" ? null : <EmptyState message="No hay ligas registradas" icon="emoji-events" />
           ) : (
             leagues.map((l, i) => {
               const card = (

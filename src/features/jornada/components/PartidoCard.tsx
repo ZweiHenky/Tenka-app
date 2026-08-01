@@ -1,44 +1,47 @@
 import { TouchableOpacity, View, Text, Image } from "react-native"
+import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import type { PartidoResponse } from "@/features/jornada/api/jornadas"
+import { formatLocalTime } from "@/shared/utils/date-time"
 
-function formatHora(fechaStr: string): string {
-  const d = new Date(fechaStr)
-  const h = String(d.getHours()).padStart(2, "0")
-  const m = String(d.getMinutes()).padStart(2, "0")
-  return `${h}:${m}`
+function bordeColor(tipo: string | undefined): string {
+  if (tipo === 'AMISTOSO') return Palette.success
+  if (tipo === 'COMPLEMENTO') return Palette.warning
+  if (tipo === 'ELIMINATORIA') return Palette.playoff
+  return Palette.cyan
 }
 
 interface Props {
   partido: PartidoResponse
   onPress: (partido: PartidoResponse) => void
+  targetRef?: React.RefObject<any>
+  onLayout?: () => void
 }
 
-export default function PartidoCard({ partido: p, onPress }: Props) {
+export default function PartidoCard({ partido: p, onPress, targetRef, onLayout }: Props) {
+  const barColor = bordeColor(p.tipoPartido)
+  const arbitros = p.arbitros?.map((arbitro) => arbitro.nombre).filter(Boolean).join(", ") ?? ""
+
   return (
     <TouchableOpacity
-      activeOpacity={0.7}
+      ref={targetRef}
+      onLayout={onLayout}
       onPress={() => onPress(p)}
-      style={{ borderRadius: Radius.md, paddingVertical: Pad.sm, paddingHorizontal: Pad.sm }}
+      activeOpacity={0.7}
+      style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, borderLeftWidth: 4, borderLeftColor: barColor, paddingVertical: Pad.sm, paddingHorizontal: Pad.base, opacity: p.estado === "FINALIZADO" ? 0.55 : 1 }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
-        <View style={{ width: 60, alignItems: "center", gap: 2 }}>
+        <View style={{ width: 56, alignItems: "center", gap: 2 }}>
           <View style={{
             width: 8, height: 8, borderRadius: 4,
-            backgroundColor: p.estado === "FINALIZADO" ? Palette.cyan
-              : p.estado === "EN_JUEGO" ? Palette.success
-              : p.estado === "SUSPENDIDO" ? Palette.danger
-              : Palette.warning,
+            backgroundColor: Palette.text,
           }} />
           <Text style={{
             fontSize: 7, fontFamily: Fonts.semiBold,
-            color: p.estado === "FINALIZADO" ? Palette.cyan
-              : p.estado === "EN_JUEGO" ? Palette.success
-              : p.estado === "SUSPENDIDO" ? Palette.danger
-              : Palette.warning,
+            color: Palette.text,
           }}>{p.estado === "PROGRAMADO" ? "PROG" : p.estado}</Text>
           {p.fecha ? (
-            <Text style={{ color: Palette.warning, fontSize: 13, fontFamily: Fonts.semiBold }}>{formatHora(p.fecha)}</Text>
+            <Text style={{ color: Palette.text, fontSize: 13, fontFamily: Fonts.semiBold }}>{formatLocalTime(p.fecha)}</Text>
           ) : null}
         </View>
         <View style={{ flex: 1, gap: 6 }}>
@@ -58,23 +61,31 @@ export default function PartidoCard({ partido: p, onPress }: Props) {
         <View style={{ width: 50, alignItems: "center", justifyContent: "center" }}>
           {p.estado === "FINALIZADO" ? (
             <View style={{ alignItems: "center" }}>
-              <Text style={{ fontSize: 16, fontFamily: Fonts.displayBold, color: Palette.warning }}>{p.golesLocal}</Text>
+              <Text style={{ fontSize: 16, fontFamily: Fonts.displayBold, color: Palette.text }}>{p.golesLocal}</Text>
               <View style={{ width: 20, height: 1, backgroundColor: Palette.textMuted, marginVertical: 1 }} />
               <Text style={{ fontSize: 16, fontFamily: Fonts.displayBold, color: Palette.textSecondary }}>{p.golesVisitante}</Text>
-            </View>
-          ) : p.estado === "EN_JUEGO" ? (
-            <View style={{ backgroundColor: Palette.success, borderRadius: Radius.sm, paddingHorizontal: 6, paddingVertical: 3 }}>
-              <Text style={{ fontSize: 9, fontFamily: Fonts.semiBold, color: Palette.dark }}>EN VIVO</Text>
-            </View>
-          ) : p.estado === "SUSPENDIDO" ? (
-            <View style={{ backgroundColor: Palette.danger, borderRadius: Radius.sm, paddingHorizontal: 6, paddingVertical: 3 }}>
-              <Text style={{ fontSize: 9, fontFamily: Fonts.semiBold, color: Palette.text }}>SUSP</Text>
             </View>
           ) : (
             <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.textMuted }}>VS</Text>
           )}
         </View>
       </View>
+      {p.cancha?.nombre || arbitros ? (
+        <View style={{ flexDirection: "row", gap: Gap.md, marginTop: 4, paddingLeft: 56 }}>
+          {p.cancha?.nombre ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+              <MaterialIcons name="place" size={12} color={Palette.cyan} />
+              <Text style={{ color: Palette.textMuted, fontSize: 10, fontFamily: Fonts.sans }}>{p.cancha.nombre}</Text>
+            </View>
+          ) : null}
+          {arbitros ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+              <MaterialIcons name="sports" size={12} color={Palette.success} />
+              <Text style={{ color: Palette.textMuted, fontSize: 10, fontFamily: Fonts.sans }}>{arbitros}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </TouchableOpacity>
   )
 }

@@ -60,7 +60,6 @@ export function useResetDivision() {
     onSuccess: (_, divisionId) => {
       qc.invalidateQueries({ queryKey: ["jornadas", divisionId] })
       qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] })
-      qc.invalidateQueries({ queryKey: ["partidos-ronda"] })
       qc.invalidateQueries({ queryKey: ["tabla-posiciones", divisionId] })
       qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] })
     },

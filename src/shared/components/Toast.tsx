@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useRef } from "react"
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
 import type { ReactNode } from "react"
 import { View, Text, TouchableOpacity, Animated } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
@@ -31,11 +31,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false)
   const [message, setMessage] = useState("")
   const [type, setType] = useState<ToastType>("info")
-  const opacity = useRef(new Animated.Value(0)).current
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const [opacity] = useState(() => new Animated.Value(0))
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+  }, [])
 
   const hide = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = null
     Animated.timing(opacity, {
       toValue: 0,
       duration: 250,

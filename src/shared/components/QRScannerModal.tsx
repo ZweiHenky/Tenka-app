@@ -16,22 +16,25 @@ interface Props {
 export default function QRScannerModal({ visible, onBarcodeScanned, onClose, scannerError, onRetry }: Props) {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const [restarting, setRestarting] = useState(false)
-  const retryTimer = useRef<ReturnType<typeof setTimeout>>()
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (!visible) {
+    return () => {
       if (retryTimer.current) clearTimeout(retryTimer.current)
-      setRestarting(false)
     }
-  }, [visible])
+  }, [])
 
   const handleRetry = () => {
     onRetry?.()
     setRestarting(true)
-    retryTimer.current = setTimeout(() => setRestarting(false), 1000)
+    if (retryTimer.current) clearTimeout(retryTimer.current)
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null
+      setRestarting(false)
+    }, 1000)
   }
 
-  const shouldPause = scannerError || restarting
+  const shouldPause = Boolean(scannerError) || restarting
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

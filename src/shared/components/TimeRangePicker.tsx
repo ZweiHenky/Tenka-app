@@ -2,53 +2,71 @@ import { useState } from "react"
 import { View, Text, TouchableOpacity, ScrollView, Keyboard } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
+import {
+  calculateTimeRangeCapacity,
+  parseTimeRanges,
+  setTimeHour,
+  setTimeMinute,
+  TIME_HOURS,
+  TIME_MINUTES,
+  validateTimeRange,
+} from "@/shared/utils/time-range"
 import AppBottomSheetModal from "./AppBottomSheetModal"
 import { useToast } from "./Toast"
 
 interface Props {
   value: string
   onChange: (val: string) => void
+  matchDuration?: number
+  breakDuration?: number
 }
 
-const HOURS = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`)
-
-function timeToMinutes(t: string): number {
-  const [h, m] = t.split(":").map(Number)
-  return h * 60 + (m || 0)
+interface TimeSelectorProps {
+  label: string
+  value: string
+  onChange: (value: string) => void
 }
 
-function parseRanges(value: string): { start: string; end: string }[] {
-  if (!value) return []
-  return value.split(" / ").map((r) => {
-    let parts = r.split(" - ").map((s) => s.trim())
-    if (parts.length === 2) return { start: parts[0], end: parts[1] }
-    parts = r.split("-").map((s) => s.trim())
-    if (parts.length === 2) return { start: parts[0], end: parts[1] }
-    return null
-  }).filter(Boolean) as { start: string; end: string }[]
+function TimeSelector({ label, value, onChange }: TimeSelectorProps) {
+  const [selectedHour = "00", selectedMinute = "00"] = value.split(":")
+
+  return (
+    <View style={{ flex: 1, gap: Gap.sm }}>
+      <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, textAlign: "center" }}>{label}</Text>
+      <Text style={{ fontSize: 20, fontFamily: Fonts.displayBold, color: Palette.cyan, textAlign: "center" }}>{value}</Text>
+      <Text style={{ fontSize: 11, fontFamily: Fonts.medium, color: Palette.textMuted, textAlign: "center", textTransform: "uppercase" }}>Hora</Text>
+      <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+        {TIME_HOURS.map((hour) => (
+          <TouchableOpacity key={hour} onPress={() => onChange(setTimeHour(value, hour))} style={{ paddingVertical: Pad.sm, paddingHorizontal: Pad.md, borderRadius: Radius.md, backgroundColor: selectedHour === hour ? Palette.cyan : "transparent" }}>
+            <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: selectedHour === hour ? Palette.black : Palette.text, textAlign: "center" }}>{hour}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+      <Text style={{ fontSize: 11, fontFamily: Fonts.medium, color: Palette.textMuted, textAlign: "center", textTransform: "uppercase" }}>Minutos</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: Gap.micro }}>
+        {TIME_MINUTES.map((minute) => (
+          <TouchableOpacity key={minute} onPress={() => onChange(setTimeMinute(value, minute))} style={{ minWidth: 42, paddingVertical: Pad.sm, paddingHorizontal: Pad.sm, borderRadius: Radius.md, backgroundColor: selectedMinute === minute ? Palette.cyan : Palette.surfaceLight, borderWidth: 1, borderColor: selectedMinute === minute ? Palette.cyan : Palette.border }}>
+            <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: selectedMinute === minute ? Palette.black : Palette.text, textAlign: "center" }}>{minute}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  )
 }
 
-function validateRange(start: string, end: string, allRanges: { start: string; end: string }[], index: number): string | null {
-  const s = timeToMinutes(start)
-  const e = timeToMinutes(end)
-  if (e <= s) return "La hora de fin debe ser posterior a la hora de inicio"
-  for (let i = 0; i < allRanges.length; i++) {
-    if (i === index) continue
-    const a = timeToMinutes(allRanges[i].start)
-    const b = timeToMinutes(allRanges[i].end)
-    if (s < b && e > a) return "Los rangos de horario no deben superponerse"
-  }
-  return null
+function capacityLabel(matchCount: number, remainingMinutes: number): string {
+  const matches = `${matchCount} ${matchCount === 1 ? "partido" : "partidos"}`
+  return remainingMinutes > 0 ? `${matches} · ${remainingMinutes} min libres` : `${matches} · sin tiempo sobrante`
 }
 
-export function TimeRangePicker({ value, onChange }: Props) {
+export function TimeRangePicker({ value, onChange, matchDuration, breakDuration = 0 }: Props) {
   const [open, setOpen] = useState(false)
   const [editingIndex, setEditingIndex] = useState(-1)
   const [tempStart, setTempStart] = useState("")
   const [tempEnd, setTempEnd] = useState("")
   const toast = useToast()
 
-  const ranges = parseRanges(value)
+  const ranges = parseTimeRanges(value)
 
   const openPickerForIndex = (index: number) => {
     Keyboard.dismiss()
@@ -59,8 +77,17 @@ export function TimeRangePicker({ value, onChange }: Props) {
   }
 
   const confirmRange = () => {
-    const error = validateRange(tempStart, tempEnd, ranges, editingIndex)
+    if (!matchDuration || matchDuration <= 0) {
+      toast.error("Primero ingresa la duración del partido")
+      return
+    }
+    const error = validateTimeRange(tempStart, tempEnd, ranges, editingIndex)
     if (error) { toast.error(error); return }
+    const capacity = calculateTimeRangeCapacity(tempStart, tempEnd, matchDuration, breakDuration)
+    if (capacity.matchCount === 0) {
+      toast.error("El rango no alcanza para un partido completo")
+      return
+    }
     const newRanges = [...ranges]
     newRanges[editingIndex] = { start: tempStart, end: tempEnd }
     onChange(newRanges.map((r) => `${r.start} - ${r.end}`).join(" / "))
@@ -69,10 +96,7 @@ export function TimeRangePicker({ value, onChange }: Props) {
   }
 
   const addRange = () => {
-    const error = validateRange("14:00", "22:00", ranges, -1)
-    if (error) { toast.error(error); return }
-    const newRanges = [...ranges, { start: "14:00", end: "22:00" }]
-    onChange(newRanges.map((r) => `${r.start} - ${r.end}`).join(" / "))
+    openPickerForIndex(ranges.length)
   }
 
   const removeRange = (index: number) => {
@@ -86,7 +110,17 @@ export function TimeRangePicker({ value, onChange }: Props) {
         <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
           <TouchableOpacity onPress={() => openPickerForIndex(i)} style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.md, paddingVertical: Pad.sm, gap: Gap.sm }}>
             <MaterialIcons name="access-time" size={20} color={Palette.cyan} />
-            <Text style={{ flex: 1, fontSize: 14, fontFamily: Fonts.sans, color: Palette.text }}>{range.start} - {range.end}</Text>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={{ fontSize: 14, fontFamily: Fonts.sans, color: Palette.text }}>{range.start} - {range.end}</Text>
+              {matchDuration && matchDuration > 0 ? (() => {
+                const capacity = calculateTimeRangeCapacity(range.start, range.end, matchDuration, breakDuration)
+                return (
+                  <Text style={{ fontSize: 11, fontFamily: Fonts.sans, color: capacity.matchCount > 0 ? Palette.textMuted : Palette.danger }}>
+                    {capacity.matchCount > 0 ? capacityLabel(capacity.matchCount, capacity.remainingMinutes) : "No alcanza para un partido completo"}
+                  </Text>
+                )
+              })() : null}
+            </View>
             <MaterialIcons name="edit" size={18} color={Palette.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => removeRange(i)} style={{ padding: 4 }}>
@@ -102,27 +136,20 @@ export function TimeRangePicker({ value, onChange }: Props) {
       <AppBottomSheetModal visible={open} onClose={() => { setOpen(false); setEditingIndex(-1) }} title="Horario de partido" snapPoints={["65%"]} scrollable={false} enableContentPanningGesture={false}>
 
             <View style={{ flexDirection: "row", gap: Gap.md }}>
-              <View style={{ flex: 1, gap: Gap.sm }}>
-                <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, textAlign: "center" }}>Inicio</Text>
-                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                  {HOURS.map((h) => (
-                    <TouchableOpacity key={h} onPress={() => setTempStart(h)} style={{ paddingVertical: Pad.sm, paddingHorizontal: Pad.md, borderRadius: Radius.md, backgroundColor: tempStart === h ? Palette.cyan : "transparent" }}>
-                      <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: tempStart === h ? Palette.black : Palette.text, textAlign: "center" }}>{h}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-              <View style={{ flex: 1, gap: Gap.sm }}>
-                <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, textAlign: "center" }}>Fin</Text>
-                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                  {HOURS.map((h) => (
-                    <TouchableOpacity key={h} onPress={() => setTempEnd(h)} style={{ paddingVertical: Pad.sm, paddingHorizontal: Pad.md, borderRadius: Radius.md, backgroundColor: tempEnd === h ? Palette.cyan : "transparent" }}>
-                      <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: tempEnd === h ? Palette.black : Palette.text, textAlign: "center" }}>{h}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
+              <TimeSelector label="Inicio" value={tempStart} onChange={setTempStart} />
+              <TimeSelector label="Fin" value={tempEnd} onChange={setTempEnd} />
             </View>
+
+            {matchDuration && matchDuration > 0 && tempStart && tempEnd ? (() => {
+              const capacity = calculateTimeRangeCapacity(tempStart, tempEnd, matchDuration, breakDuration)
+              return (
+                <View style={{ backgroundColor: capacity.matchCount > 0 ? Palette.cyan10 : Palette.danger10, borderRadius: Radius.md, padding: Pad.sm, borderWidth: 1, borderColor: capacity.matchCount > 0 ? Palette.cyan : Palette.danger }}>
+                  <Text style={{ color: capacity.matchCount > 0 ? Palette.cyan : Palette.danger, fontFamily: Fonts.semiBold, fontSize: 13, textAlign: "center" }}>
+                    {capacity.matchCount > 0 ? capacityLabel(capacity.matchCount, capacity.remainingMinutes) : "El rango no alcanza para un partido completo"}
+                  </Text>
+                </View>
+              )
+            })() : null}
 
             <View style={{ flexDirection: "row", gap: Gap.sm }}>
               <TouchableOpacity onPress={() => { setOpen(false); setEditingIndex(-1) }} style={{ flex: 1, paddingVertical: Pad.sm, borderRadius: Radius.md, backgroundColor: Palette.danger10, borderWidth: 1, borderColor: Palette.danger, alignItems: "center" }}>

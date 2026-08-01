@@ -7,9 +7,8 @@ export default function LeagueDetailLayout() {
       <Stack.Screen name="division-form" />
       <Stack.Screen name="manage" />
       <Stack.Screen name="divisions/[divisionId]" />
-      <Stack.Screen name="divisions/[divisionId]/eliminatorias" />
       <Stack.Screen name="divisions/[divisionId]/jornadas/[jornadaId]" />
-      <Stack.Screen name="divisions/[divisionId]/jornadas/[jornadaId]/partidos/[partidoId]" />
+      <Stack.Screen name="divisions/[divisionId]/partidos/[partidoId]" />
     </Stack>
   )
 }

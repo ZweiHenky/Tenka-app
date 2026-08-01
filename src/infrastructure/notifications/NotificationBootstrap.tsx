@@ -7,9 +7,10 @@ import { authClient } from "@/infrastructure/auth/client"
 import { env } from "../config/env"
 import { useDivisionNotificationStore } from "@/stores/divisionNotificationStore"
 import { notificationSubscriptionApi } from "@/features/notification/api/notificationSubscription"
+import { parseNotificationHref } from "./notificationRoute"
 
 export function NotificationBootstrap() {
-  const { data: session } = authClient.useSession()
+  const { data: session, isPending } = authClient.useSession()
   const subscriptions = useDivisionNotificationStore((s) => s.subscriptions)
   const onesignalIdRef = useRef<string | null>(null)
   const subscriptionsRef = useRef(subscriptions)
@@ -31,12 +32,13 @@ export function NotificationBootstrap() {
 
   useEffect(() => {
     if (!env.ONESIGNAL_APP_ID) return
+    if (isPending) return
     if (session?.user?.id) {
       OneSignal.login(session.user.id)
     } else {
       OneSignal.logout()
     }
-  }, [session?.user?.id])
+  }, [isPending, session?.user?.id])
 
   useEffect(() => {
     if (!env.ONESIGNAL_APP_ID) return
@@ -74,10 +76,8 @@ export function NotificationBootstrap() {
     if (!env.ONESIGNAL_APP_ID) return
 
     const onClick = (event: any) => {
-      const url = event?.notification?.additionalData?.url as string | undefined
-      if (url) {
-        router.navigate(url)
-      }
+      const href = parseNotificationHref(event?.notification?.additionalData?.url)
+      if (href) router.navigate(href)
     }
 
     OneSignal.Notifications.addEventListener("click", onClick)

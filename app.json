@@ -18,6 +18,53 @@
         "monochromeImage": "./assets/images/monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "tenka.studio",
+              "pathPrefix": "/liga"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "tenka.studio",
+              "pathPrefix": "/arbitro"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "tenka.studio",
+              "pathPrefix": "/equipo"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
       "package": "studio.tenka.app"
     },
     "web": {
@@ -47,7 +94,8 @@
           "mode": "development"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -56,8 +104,26 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "9a35dabe-a62f-43de-87a7-10523f7a07ff"
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "OneSignalNotificationServiceExtension",
+                  "bundleIdentifier": "studio.tenka.app.OneSignalNotificationServiceExtension",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.studio.tenka.app.onesignal"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "cdf4ecbf-c8e0-4a41-8cb8-99993b37163c"
       }
-    }
+    },
+    "owner": "ronnhy7"
   }
 }

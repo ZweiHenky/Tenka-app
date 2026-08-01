@@ -16,6 +16,7 @@ export function useGenerateRondas() {
       rondaPlayoffApi.generate(data),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["rondas-playoff", vars.divisionId] })
+      qc.invalidateQueries({ queryKey: ["referee-candidates"] })
     },
   })
 }
@@ -25,8 +26,9 @@ export function useDeleteRondasByDivision() {
   return useMutation({
     mutationFn: (divisionId: string) => rondaPlayoffApi.deleteByDivision(divisionId),
     onSuccess: (_data, divisionId) => {
+      qc.setQueryData(["rondas-playoff", divisionId], [])
       qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] })
-      qc.invalidateQueries({ queryKey: ["partidos-ultima-ronda"] })
+      qc.invalidateQueries({ queryKey: ["referee-candidates"] })
     },
   })
 }

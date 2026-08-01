@@ -29,6 +29,13 @@ export interface DivisionConRelaciones {
   descanso: number | null
   fechaInicio: string | null
   fechaFin: string | null
+  createdAt: string
+  updatedAt: string
+  ligaId: string
+  estadoLigaId: string
+  categoriaId: string
+  tipoId: string
+  tipoCompetenciaId: string
   categoria: CategoriaRef
   tipo: TipoRef
   estadoLiga: EstadoLigaRef
@@ -81,7 +88,6 @@ export interface CreateLeagueInput {
   multiplesCanchas?: boolean
   canchas?: { nombre: string }[]
   ubicacionId: string
-  userId: string
 }
 
 export interface Division {

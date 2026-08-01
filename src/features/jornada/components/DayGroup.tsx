@@ -1,4 +1,5 @@
-import { View, Text } from "react-native"
+import { View, Text, TouchableOpacity } from "react-native"
+import { MaterialIcons } from "@expo/vector-icons"
 import { Gap, Pad, Palette, Fonts } from "@/constants/theme"
 import PartidoCard from "./PartidoCard"
 import type { PartidoResponse } from "@/features/jornada/api/jornadas"
@@ -8,10 +9,16 @@ const DIA_NOMBRES_FULL = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", 
 interface Props {
   dateKey: string
   partidos: PartidoResponse[]
+  expanded: boolean
+  onToggle: () => void
   onPartidoPress: (partido: PartidoResponse) => void
+  headerRef?: React.RefObject<any>
+  onHeaderLayout?: () => void
+  firstPartidoRef?: React.RefObject<any>
+  onFirstPartidoLayout?: () => void
 }
 
-export default function DayGroup({ dateKey, partidos, onPartidoPress }: Props) {
+export default function DayGroup({ dateKey, partidos, expanded, onToggle, onPartidoPress, headerRef, onHeaderLayout, firstPartidoRef, onFirstPartidoLayout }: Props) {
   let fechaFormateada = ""
   let diaNombre = ""
   if (dateKey !== "sin-fecha") {
@@ -19,18 +26,42 @@ export default function DayGroup({ dateKey, partidos, onPartidoPress }: Props) {
     fechaFormateada = `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`
     diaNombre = DIA_NOMBRES_FULL[new Date(y, m - 1, d).getDay()]
   }
+  const finalizados = partidos.filter((partido) => partido.estado === "FINALIZADO").length
+
   return (
-    <View style={{ gap: Gap.sm }}>
-      {dateKey !== "sin-fecha" ? (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, paddingTop: Pad.sm }}>
-          <Text style={{ fontSize: 13, fontFamily: Fonts.sans, color: Palette.textMuted }}>{fechaFormateada}</Text>
-          <View style={{ flex: 1, height: 1, backgroundColor: Palette.border }} />
-          <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.warning }}>{diaNombre}</Text>
+    <View style={{ gap: Gap.md }}>
+      <TouchableOpacity
+        ref={headerRef}
+        onLayout={onHeaderLayout}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${dateKey === "sin-fecha" ? "Sin fecha" : `${diaNombre} ${fechaFormateada}`}, ${finalizados} de ${partidos.length} partidos finalizados`}
+        onPress={onToggle}
+        style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, paddingVertical: Pad.sm, borderBottomWidth: 1, borderBottomColor: expanded ? Palette.cyan : Palette.textMuted }}
+      >
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.text }}>
+            {dateKey === "sin-fecha" ? "Sin fecha" : diaNombre}
+          </Text>
+          {dateKey !== "sin-fecha" ? (
+            <Text style={{ fontSize: 12, fontFamily: Fonts.sans, color: Palette.textMuted }}>{fechaFormateada}</Text>
+          ) : null}
         </View>
-      ) : null}
-      {partidos.map((p) => (
-        <PartidoCard key={p.id} partido={p} onPress={onPartidoPress} />
-      ))}
+        <Text style={{ fontSize: 12, fontFamily: Fonts.medium, color: finalizados === partidos.length ? Palette.success : Palette.textSecondary }}>
+          {finalizados} de {partidos.length} finalizados
+        </Text>
+        <MaterialIcons name={expanded ? "expand-less" : "expand-more"} size={24} color={expanded ? Palette.cyan : Palette.textMuted} />
+      </TouchableOpacity>
+      {expanded ? partidos.map((p, index) => (
+        <PartidoCard
+          key={p.id}
+          partido={p}
+          onPress={onPartidoPress}
+          targetRef={index === 0 ? firstPartidoRef : undefined}
+          onLayout={index === 0 ? onFirstPartidoLayout : undefined}
+        />
+      )) : null}
     </View>
   )
 }

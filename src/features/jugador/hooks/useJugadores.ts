@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { jugadorApi } from "@/features/jugador/api/jugadores"
-import type { CreateJugadorInput, PosicionJugador, UpdateJugadorInput } from "@/domain/interfaces/player"
+import type { CreateJugadorInput, PosicionJugador, UpdateJugadorInput, UpdateMyProfileInput } from "@/domain/interfaces/player"
 
 const KEY = "jugadores"
 
@@ -26,7 +26,7 @@ export function useCreateMyProfile() {
 export function useUpdateMyProfile() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { nombre?: string; posicion?: PosicionJugador; foto?: string | null; fotoPublicId?: string | null; edad?: number | null }) =>
+    mutationFn: (data: UpdateMyProfileInput) =>
       jugadorApi.updateMe(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY, "me"] }),
   })

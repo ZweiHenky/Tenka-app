@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, Keyboard, Platform, ActivityIndicator } from "react-native"
 import { useEffect, useState } from "react"
-import GooglePlacesTextInput from "react-native-google-places-textinput"
+import GooglePlacesTextInput, { type Place, type PlaceDetailsFields } from "react-native-google-places-textinput"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { env } from "@/infrastructure/config/env"
 import AppBottomSheetModal from "./AppBottomSheetModal"
@@ -23,7 +23,18 @@ interface Props {
 
 const DETAILS_FIELDS = ["addressComponents", "formattedAddress", "location", "displayName"]
 
-async function fetchDetails(placeId: string, apiKey: string): Promise<any | null> {
+interface AddressComponent {
+  longText?: string
+  types?: string[]
+}
+
+interface PlaceDetails extends PlaceDetailsFields {
+  addressComponents?: AddressComponent[]
+  formattedAddress?: string
+  location?: { latitude?: number; longitude?: number }
+}
+
+async function fetchDetails(placeId: string, apiKey: string): Promise<PlaceDetails | null> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const ac = new AbortController()
@@ -39,7 +50,7 @@ async function fetchDetails(placeId: string, apiKey: string): Promise<any | null
       })
       clearTimeout(timer)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
+      const data: PlaceDetails & { error?: { message?: string } } = await res.json()
       if (data.error) throw new Error(data.error.message)
       return data
     } catch {
@@ -49,8 +60,8 @@ async function fetchDetails(placeId: string, apiKey: string): Promise<any | null
   return null
 }
 
-function extractComp(components: any[], type: string): string {
-  return components?.find((c: any) => c.types?.includes(type))?.longText ?? ""
+function extractComp(components: AddressComponent[], type: string): string {
+  return components.find((component) => component.types?.includes(type))?.longText ?? ""
 }
 
 export default function LocationPickerModal({ visible, currentText, onSelect, onClose }: Props) {
@@ -64,20 +75,19 @@ export default function LocationPickerModal({ visible, currentText, onSelect, on
     return () => { show.remove(); hide.remove() }
   }, [])
 
-  useEffect(() => {
-    if (!visible) {
-      setSelecting(false)
-      setError("")
-    }
-  }, [visible])
+  const handleClose = () => {
+    setSelecting(false)
+    setError("")
+    onClose()
+  }
 
-  const handleSelect = async (place: any) => {
+  const handleSelect = async (place: Place) => {
     if (selecting) return
     setError("")
     setSelecting(true)
 
     try {
-      let details = place.details
+      let details: PlaceDetails | null | undefined = place.details as PlaceDetails | undefined
       if (!details && place.placeId) {
         details = await fetchDetails(place.placeId, env.GOOGLE_PLACES_API_KEY)
       }
@@ -93,7 +103,7 @@ export default function LocationPickerModal({ visible, currentText, onSelect, on
       const lat = details.location?.latitude
       const lng = details.location?.longitude
 
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      if (typeof lat !== "number" || !Number.isFinite(lat) || typeof lng !== "number" || !Number.isFinite(lng)) {
         setError("No se pudo determinar la ubicación exacta. Intenta con otra dirección.")
         return
       }
@@ -104,14 +114,14 @@ export default function LocationPickerModal({ visible, currentText, onSelect, on
         : st?.mainText?.text ?? details.formattedAddress ?? ""
 
       onSelect({ texto, lat, lng, estado, municipio, nombreCompleto: details.formattedAddress || texto })
-      onClose()
+      handleClose()
     } finally {
       setSelecting(false)
     }
   }
 
   return (
-    <AppBottomSheetModal visible={visible} onClose={onClose} title="Ubicación" snapPoints={["85%"]} scrollable={false} stackBehavior="push">
+    <AppBottomSheetModal visible={visible} onClose={handleClose} title="Ubicación" snapPoints={["85%"]} scrollable={false} enableContentPanningGesture={false}>
       <View style={{ gap: Gap.md, marginBottom: keyboardH }}>
         {currentText ? (
           <Text style={{ fontSize: 13, color: Palette.textMuted, fontFamily: Fonts.medium, marginTop: Gap.sm }}>Actual: {currentText}</Text>
@@ -123,6 +133,8 @@ export default function LocationPickerModal({ visible, currentText, onSelect, on
           detailsFields={DETAILS_FIELDS}
           onPlaceSelect={handleSelect}
           includedRegionCodes={["mx"]}
+          scrollEnabled
+          nestedScrollEnabled
           suggestionTextProps={{
             mainTextNumberOfLines: 2,
             secondaryTextNumberOfLines: 2,
@@ -161,7 +173,7 @@ export default function LocationPickerModal({ visible, currentText, onSelect, on
         {error ? (
           <Text style={{ color: Palette.danger, fontSize: 13, fontFamily: Fonts.medium }}>{error}</Text>
         ) : null}
-        <TouchableOpacity onPress={onClose} disabled={selecting} style={{ paddingVertical: Pad.md, borderRadius: Radius.md, backgroundColor: Palette.danger10, borderWidth: 1, borderColor: Palette.danger, alignItems: "center", opacity: selecting ? 0.5 : 1 }}>
+        <TouchableOpacity onPress={handleClose} disabled={selecting} style={{ paddingVertical: Pad.md, borderRadius: Radius.md, backgroundColor: Palette.danger10, borderWidth: 1, borderColor: Palette.danger, alignItems: "center", opacity: selecting ? 0.5 : 1 }}>
           <Text style={{ color: Palette.danger, fontFamily: Fonts.medium, fontSize: 15 }}>Cancelar</Text>
         </TouchableOpacity>
       </View>

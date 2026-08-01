@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Image, ActivityIndicator, ScrollView } fr
 import { router, useIsFocused } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
+import type { TourStep } from "@wrack/react-native-tour-guide"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
@@ -142,7 +143,7 @@ export default function MyProfileScreen() {
         const seen = await AsyncStorage.getItem("@tour_guide:player-profile-management-v1")
         if (seen === "completed") { manageTourStartedRef.current = true; return }
         manageTourStartedRef.current = true
-        const teamStep = jugador.equipos && jugador.equipos.length > 0
+        const teamStep: TourStep = jugador.equipos && jugador.equipos.length > 0
           ? {
               id: "profile-teams",
               targetRef: teamsRef,

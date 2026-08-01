@@ -2,7 +2,7 @@ import { View, Text, TouchableOpacity } from "react-native"
 import { useNavigation } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons"
-import { Radius, Pad, Palette, Fonts } from "@/constants/theme"
+import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 
 interface HeaderAction {
   icon: keyof typeof MaterialIcons.glyphMap
@@ -44,11 +44,15 @@ export default function CustomHeader({ title, titleFontFamily, titleLetterSpacin
       <Text style={{ flex: 1, fontSize: 18, fontFamily: titleFontFamily ?? Fonts.display, color: titleColor ?? Palette.text, letterSpacing: titleLetterSpacing ?? 0, textAlign: rightActions && rightActions.length > 0 ? "center" : "right" }} numberOfLines={1}>
         {title}
       </Text>
-      {rightActions?.map((a, i) => (
-        <TouchableOpacity key={i} ref={a.ref} onLayout={a.onLayout} onPress={a.onPress} style={{ width: 36, height: 36, borderRadius: Radius.full, backgroundColor: a.bg ?? Palette.cyan20, alignItems: "center", justifyContent: "center" }}>
-          <MaterialIcons name={a.icon} size={22} color={a.color ?? Palette.cyan} />
-        </TouchableOpacity>
-      ))}
+      {rightActions && rightActions.length > 0 ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+          {rightActions.map((a, i) => (
+            <TouchableOpacity key={i} ref={a.ref} onLayout={a.onLayout} onPress={a.onPress} style={{ width: 36, height: 36, borderRadius: Radius.full, backgroundColor: a.bg ?? Palette.cyan20, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name={a.icon} size={22} color={a.color ?? Palette.cyan} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
     </View>
   )
 }

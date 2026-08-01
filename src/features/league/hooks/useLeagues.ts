@@ -24,6 +24,7 @@ export function useLeague(id: string) {
     queryKey: [KEY, id],
     queryFn: () => leagueApi.getById(id),
     enabled: !!id,
+    staleTime: 1000 * 60 * 2,
   })
 }
 

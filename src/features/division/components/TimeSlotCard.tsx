@@ -19,15 +19,15 @@ interface Props {
 }
 
 function tipoColor(tipo: string | undefined): string {
-  if (tipo === 'amistoso') return Palette.warning
-  if (tipo === 'complemento') return Palette.danger
+  if (tipo === 'amistoso') return Palette.success
+  if (tipo === 'complemento') return Palette.warning
   if (tipo === 'eliminatoria') return Palette.playoff
   return Palette.cyan
 }
 
 function tipoBg(tipo: string | undefined): string {
-  if (tipo === 'amistoso') return Palette.warning10
-  if (tipo === 'complemento') return Palette.danger10
+  if (tipo === 'amistoso') return Palette.success10
+  if (tipo === 'complemento') return Palette.warning10
   if (tipo === 'eliminatoria') return Palette.playoff10
   return Palette.cyan10
 }

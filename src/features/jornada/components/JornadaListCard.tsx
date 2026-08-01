@@ -6,6 +6,7 @@ import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 interface JornadaItem {
   id: string
   numero: number
+  partidos?: { estado: string | null }[]
 }
 
 interface Props {
@@ -50,10 +51,31 @@ export default function JornadaListCard({ jornadas, disabled, disabledMessage, o
               <Text key={`msg-${j.id}`} style={{ color: Palette.warning, fontSize: 13, fontFamily: Fonts.medium, textAlign: "center", paddingVertical: Pad.sm }}>{disabledMessage}</Text>
             )
           }
+          const total = j.partidos?.length ?? 0
+          const finalizados = j.partidos?.filter((p) => p.estado === "FINALIZADO" || p.estado === "SUSPENDIDO").length ?? 0
+          const todosFinalizados = total > 0 && finalizados === total
+
           items.push(
             <TouchableOpacity key={j.id} activeOpacity={0.7} onPress={() => onNavigate(j.id)} style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.base }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={{ fontSize: 15, fontFamily: Fonts.bold, color: Palette.text }}>Jornada {j.numero}</Text>
+                <View style={{ flex: 1, gap: Gap.sm }}>
+                  <View style={{ flexDirection: "row", alignItems: "baseline", gap: Gap.sm }}>
+                    <Text style={{ fontSize: 15, fontFamily: Fonts.bold, color: Palette.text }}>Jornada {j.numero}</Text>
+                    {total > 0 ? (
+                      <>
+                        <Text style={{ fontSize: 14, color: Palette.textMuted }}>·</Text>
+                        <Text style={{ fontSize: 12, fontFamily: Fonts.sans, color: todosFinalizados ? Palette.success : Palette.textMuted }}>
+                          {finalizados} de {total} finalizados
+                        </Text>
+                      </>
+                    ) : null}
+                  </View>
+                  {total > 0 ? (
+                    <View style={{ height: 4, borderRadius: 2, backgroundColor: Palette.border, overflow: "hidden" }}>
+                      <View style={{ width: `${(finalizados / total) * 100}%`, height: 4, borderRadius: 2, backgroundColor: todosFinalizados ? Palette.success : Palette.cyan }} />
+                    </View>
+                  ) : null}
+                </View>
                 {j.numero === maxNumero ? (
                   <TouchableOpacity onPress={() => onDelete(j.id, j.numero)} style={{ padding: 4 }}>
                     <MaterialIcons name="delete" size={20} color={Palette.danger} />

@@ -1,35 +1,41 @@
 import { useState } from "react"
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, Image } from "react-native"
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Image } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import type { PartidoResponse } from "@/features/jornada/api/jornadas"
+import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { useToast } from "@/shared/components/Toast"
 
-const ESTADO_DESCS: Record<string, string> = {
-  PROGRAMADO: "No se ha jugado",
-  EN_JUEGO: "En curso",
-  FINALIZADO: "Terminado, cuenta para la tabla",
-  SUSPENDIDO: "Suspendido, no cuenta",
+const ESTADO_LABELS: Record<string, string> = {
+  PROGRAMADO: "Programado",
+  EN_JUEGO: "En juego",
+  FINALIZADO: "Finalizado",
+  SUSPENDIDO: "Suspendido",
 }
 
-function buttonLabel(estado: string | null): string {
-  if (estado === "FINALIZADO" || estado === "SUSPENDIDO") return "Guardar cambios"
-  return "Finalizar"
-}
+const TIPO_INFO = {
+  REGULAR: { label: "Regular", color: Palette.cyan, background: Palette.cyan10 },
+  AMISTOSO: { label: "Amistoso", color: Palette.success, background: Palette.success10 },
+  COMPLEMENTO: { label: "Completar", color: Palette.warning, background: Palette.warning10 },
+  ELIMINATORIA: { label: "Eliminatoria", color: Palette.playoff, background: Palette.playoff10 },
+} as const
 
-function secondaryActions(estado: string | null): { label: string; targetEstado: string }[] {
+const ACTION_HELP: { icon: keyof typeof MaterialIcons.glyphMap; title: string; description: string; color: string; background: string }[] = [
+  { icon: "check-circle", title: "Finalizar partido", description: "Guarda el resultado final y, cuando corresponde, actualiza la tabla de posiciones.", color: Palette.cyan, background: Palette.cyan10 },
+  { icon: "pause-circle-outline", title: "Suspender", description: "Marca el partido como suspendido para que no cuente en la tabla.", color: Palette.danger, background: Palette.danger10 },
+  { icon: "replay", title: "Reabrir", description: "Regresa el partido a programado y limpia el resultado para poder corregirlo.", color: Palette.cyan, background: Palette.cyan10 },
+  { icon: "flag", title: "Penales", description: "Aparecen en empates no amistosos para definir un ganador.", color: Palette.warning, background: Palette.warning10 },
+]
+
+function secondaryActions(estado: string | null): { label: string; targetEstado: string; icon: keyof typeof MaterialIcons.glyphMap }[] {
   if (estado === "FINALIZADO") {
     return [
-      { label: "Suspender", targetEstado: "SUSPENDIDO" },
-      { label: "Reabrir", targetEstado: "PROGRAMADO" },
+      { label: "Suspender", targetEstado: "SUSPENDIDO", icon: "pause-circle-outline" },
+      { label: "Reabrir", targetEstado: "PROGRAMADO", icon: "replay" },
     ]
   }
-  if (estado === "SUSPENDIDO") {
-    return [{ label: "Reabrir", targetEstado: "PROGRAMADO" }]
-  }
-  if (estado === "EN_JUEGO") {
-    return [{ label: "Suspender", targetEstado: "SUSPENDIDO" }]
-  }
+  if (estado === "SUSPENDIDO") return [{ label: "Reabrir", targetEstado: "PROGRAMADO", icon: "replay" }]
+  if (estado === "EN_JUEGO") return [{ label: "Suspender", targetEstado: "SUSPENDIDO", icon: "pause-circle-outline" }]
   return []
 }
 
@@ -37,14 +43,18 @@ interface Props {
   partido: PartidoResponse
   isUpdating: boolean
   onSave: (golesLocal: number, golesVisitante: number, estado: string, penalesLocal?: number, penalesVisitante?: number, tipoPartido?: string) => void
+  onReplaceTeam?: (side: "local" | "visitor") => void
+  canReplaceTeams?: boolean
 }
 
-export default function PartidoResultEditor({ partido, isUpdating, onSave }: Props) {
+export default function PartidoResultEditor({ partido, isUpdating, onSave, onReplaceTeam, canReplaceTeams = false }: Props) {
   const toast = useToast()
-  const [golesLocal, setGolesLocal] = useState(() => String(partido.golesLocal))
-  const [golesVisitante, setGolesVisitante] = useState(() => String(partido.golesVisitante))
+  const arbitros = partido.arbitros?.map((arbitro) => arbitro.nombre).filter(Boolean).join(", ") ?? ""
+  const [golesLocal, setGolesLocal] = useState(() => partido.estado === "PROGRAMADO" || !partido.estado ? "" : String(partido.golesLocal))
+  const [golesVisitante, setGolesVisitante] = useState(() => partido.estado === "PROGRAMADO" || !partido.estado ? "" : String(partido.golesVisitante))
   const [penalesLocal, setPenalesLocal] = useState(() => partido.penalesLocal != null ? String(partido.penalesLocal) : "")
   const [penalesVisitante, setPenalesVisitante] = useState(() => partido.penalesVisitante != null ? String(partido.penalesVisitante) : "")
+  const [actionHelpOpen, setActionHelpOpen] = useState(false)
 
   const parseGoles = () => {
     const gl = parseInt(golesLocal, 10)
@@ -67,11 +77,9 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave }: Pro
   const handleSave = () => {
     const parsed = parseGoles()
     if (!parsed) return
-
-    const isEmpate = parsed.gl === parsed.gv
     const penales = parsePenales()
 
-    if (isEmpate && partido.tipoPartido !== 'AMISTOSO') {
+    if (parsed.gl === parsed.gv && partido.tipoPartido !== "AMISTOSO") {
       if (penales?.pl == null || penales?.pv == null) {
         toast.error("Ingresa los penales para definir al ganador")
         return
@@ -82,23 +90,14 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave }: Pro
       }
     }
 
-    if (partido.estado === "FINALIZADO"
-        && (parsed.gl !== partido.golesLocal || parsed.gv !== partido.golesVisitante)) {
-      Alert.alert(
-        "Modificar resultado",
-        "¿Estás seguro de cambiar el resultado de un partido ya finalizado?",
-        [
-          { text: "Cancelar", style: "cancel" },
-          { text: "Guardar", onPress: () => onSave(parsed.gl, parsed.gv, "FINALIZADO", penales?.pl ?? undefined, penales?.pv ?? undefined, partido.tipoPartido) },
-        ],
-      )
-      return
-    }
-
     onSave(parsed.gl, parsed.gv, "FINALIZADO", penales?.pl ?? undefined, penales?.pv ?? undefined, partido.tipoPartido)
   }
 
   const handleSecondary = (targetEstado: string) => {
+    if (targetEstado === "PROGRAMADO") {
+      onSave(0, 0, "PROGRAMADO", undefined, undefined, partido.tipoPartido)
+      return
+    }
     const parsed = parseGoles()
     if (!parsed) return
     const penales = parsePenales()
@@ -111,170 +110,223 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave }: Pro
     return !isNaN(gl) && !isNaN(gv) && gl === gv
   })()
 
-  const estado = partido.estado ?? null
+  const estado = partido.estado ?? "PROGRAMADO"
+  const estadoLabel = ESTADO_LABELS[estado] ?? estado
+  const tipoInfo = TIPO_INFO[partido.tipoPartido ?? "REGULAR"]
+  const equipoLocalNombre = partido.equipoLocal?.nombre ?? "Local"
+  const equipoVisitanteNombre = partido.equipoVisitante?.nombre ?? "Visitante"
   const actions = secondaryActions(estado)
-  const label = buttonLabel(estado)
+  const isFinalizado = estado === "FINALIZADO"
 
-  const equipoLocalNombre = partido.equipoLocal?.nombre ?? "—"
-  const equipoVisitanteNombre = partido.equipoVisitante?.nombre ?? "—"
+  const scoreInputStyle = {
+    width: 76,
+    height: 68,
+    borderRadius: Radius.lg,
+    backgroundColor: Palette.black,
+    borderWidth: 1,
+    borderColor: isFinalizado ? Palette.border : Palette.borderActive,
+    fontSize: 30,
+    fontFamily: Fonts.displayBold,
+    color: Palette.text,
+    textAlign: "center" as const,
+    padding: 0,
+    opacity: isFinalizado ? 0.65 : 1,
+  }
 
   return (
-    <View style={{ gap: Gap.base }}>
-      {estado ? (
-        <View style={{ alignItems: "center", gap: 2 }}>
-          <View style={{
-            backgroundColor: estado === "SUSPENDIDO" ? Palette.danger : Palette.surfaceLight,
-            borderRadius: Radius.sm, paddingHorizontal: Pad.sm, paddingVertical: 2,
-          }}>
-            <Text style={{
-              fontSize: 10, fontWeight: "700",
-              color: estado === "SUSPENDIDO" ? Palette.text : Palette.textMuted,
-            }}>{estado}</Text>
+    <>
+      <View style={{ gap: Gap.lg }}>
+        <View style={{ gap: Gap.sm }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: Gap.sm }}>
+            <View style={{ flex: 1, gap: 3 }}>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Gap.sm }}>
+                <View style={{ backgroundColor: estado === "SUSPENDIDO" ? Palette.danger10 : Palette.surfaceLight, borderRadius: Radius.full, paddingHorizontal: Pad.md, paddingVertical: Pad.micro }}>
+                  <Text style={{ color: estado === "SUSPENDIDO" ? Palette.danger : Palette.text, fontSize: 11, fontFamily: Fonts.semiBold }}>{estadoLabel}</Text>
+                </View>
+                <View style={{ backgroundColor: tipoInfo.background, borderRadius: Radius.full, paddingHorizontal: Pad.md, paddingVertical: Pad.micro }}>
+                  <Text style={{ color: tipoInfo.color, fontSize: 11, fontFamily: Fonts.semiBold }}>{tipoInfo.label}</Text>
+                </View>
+              </View>
+            </View>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              accessibilityLabel="Información sobre las acciones del partido"
+              onPress={() => setActionHelpOpen(true)}
+              style={{ width: 34, height: 34, borderRadius: Radius.full, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}
+            >
+              <MaterialIcons name="info-outline" size={20} color={Palette.cyan} />
+            </TouchableOpacity>
           </View>
-          <Text style={{
-            fontSize: 11,
-            color: estado === "SUSPENDIDO" ? Palette.danger : Palette.textMuted,
-          }}>{ESTADO_DESCS[estado]}</Text>
-        </View>
-      ) : null}
 
-      {partido.tipoPartido === 'AMISTOSO' ? (
-        <View style={{
-          backgroundColor: Palette.warning10,
-          borderRadius: Radius.sm, paddingHorizontal: Pad.sm, paddingVertical: 2, alignSelf: "center",
-        }}>
-          <Text style={{ fontSize: 10, fontWeight: "700", color: Palette.warning }}>
-            Amistoso - nadie suma puntos
-          </Text>
+          {partido.cancha?.nombre || arbitros ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Gap.md, paddingTop: Pad.sm }}>
+              {partido.cancha?.nombre ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.micro }}>
+                  <MaterialIcons name="place" size={14} color={Palette.cyan} />
+                  <Text style={{ color: Palette.textSecondary, fontSize: 11, fontFamily: Fonts.sans }}>{partido.cancha.nombre}</Text>
+                </View>
+              ) : null}
+              {arbitros ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.micro }}>
+                  <MaterialIcons name="sports" size={14} color={Palette.success} />
+                  <Text style={{ color: Palette.textSecondary, fontSize: 11, fontFamily: Fonts.sans }}>{arbitros}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </View>
-      ) : partido.tipoPartido === 'COMPLEMENTO' ? (
-        <View style={{
-          backgroundColor: Palette.danger10,
-          borderRadius: Radius.sm, paddingHorizontal: Pad.sm, paddingVertical: 2, alignSelf: "center",
-        }}>
-          <Text style={{ fontSize: 10, fontWeight: "700", color: Palette.danger }}>
-            Completar - {equipoVisitanteNombre} no suma puntos
-          </Text>
-        </View>
-      ) : null}
 
-      <View style={{ flexDirection: "row", gap: Gap.base }}>
-        <View style={{ flex: 1, alignItems: "center", gap: Gap.sm }}>
-          <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.semiBold }}>LOCAL</Text>
-          <View style={{ width: 44, height: 44, borderRadius: 22, overflow: "hidden", backgroundColor: Palette.surfaceLight, alignItems: "center", justifyContent: "center" }}>
-            {partido.equipoLocal?.logo ? (
-              <Image source={{ uri: partido.equipoLocal.logo }} style={{ width: 44, height: 44 }} resizeMode="cover" />
-            ) : (
-              <MaterialIcons name="shield" size={22} color={Palette.textMuted} />
-            )}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+          <View style={{ flex: 1, alignItems: "center", gap: Gap.sm }}>
+            <View style={{ width: 60, height: 60, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Palette.border }}>
+              {partido.equipoLocal?.logo ? (
+                <Image source={{ uri: partido.equipoLocal.logo }} style={{ width: 60, height: 60 }} resizeMode="cover" />
+              ) : (
+                <MaterialIcons name="shield" size={28} color={Palette.textMuted} />
+              )}
+            </View>
+            <View style={{ minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.micro }}><Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold, textAlign: "center", flexShrink: 1 }} numberOfLines={2}>{equipoLocalNombre}</Text>{canReplaceTeams ? <TouchableOpacity accessibilityLabel="Cambiar equipo local" onPress={() => onReplaceTeam?.("local")} style={{ padding: Pad.micro }}><MaterialIcons name="edit" size={17} color={Palette.cyan} /></TouchableOpacity> : null}</View>
+            <TextInput
+              accessibilityLabel={`Goles de ${equipoLocalNombre}`}
+              style={scoreInputStyle}
+              keyboardType="number-pad"
+              editable={!isFinalizado}
+              value={golesLocal}
+              onChangeText={setGolesLocal}
+              maxLength={2}
+              placeholder="0"
+              placeholderTextColor={Palette.textMuted}
+            />
+            <Text style={{ color: Palette.textMuted, fontSize: 10, fontFamily: Fonts.semiBold }}>LOCAL</Text>
           </View>
-          <Text style={{ fontSize: 13, color: Palette.text, fontFamily: Fonts.semiBold, textAlign: "center" }} numberOfLines={2}>
-            {equipoLocalNombre}
-          </Text>
-          <TextInput
-            style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, width: "100%", height: 56, textAlign: "center", fontSize: 26, fontFamily: Fonts.displayBold, color: Palette.text, borderWidth: 1, borderColor: Palette.border }}
-            keyboardType="number-pad"
-            value={golesLocal}
-            onChangeText={setGolesLocal}
-            maxLength={2}
-          />
-        </View>
 
-        <View style={{ justifyContent: "center" }}>
-          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: Palette.surfaceLight, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ fontSize: 12, fontFamily: Fonts.semiBold, color: Palette.warning }}>VS</Text>
+          <View style={{ alignItems: "center", gap: Gap.sm }}>
+            <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.semiBold }}>VS</Text>
+            <View style={{ width: 1, height: 58, backgroundColor: Palette.border }} />
+          </View>
+
+          <View style={{ flex: 1, alignItems: "center", gap: Gap.sm }}>
+            <View style={{ width: 60, height: 60, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Palette.border }}>
+              {partido.equipoVisitante?.logo ? (
+                <Image source={{ uri: partido.equipoVisitante.logo }} style={{ width: 60, height: 60 }} resizeMode="cover" />
+              ) : (
+                <MaterialIcons name="shield" size={28} color={Palette.textMuted} />
+              )}
+            </View>
+            <View style={{ minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.micro }}><Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold, textAlign: "center", flexShrink: 1 }} numberOfLines={2}>{equipoVisitanteNombre}</Text>{canReplaceTeams ? <TouchableOpacity accessibilityLabel="Cambiar equipo visitante" onPress={() => onReplaceTeam?.("visitor")} style={{ padding: Pad.micro }}><MaterialIcons name="edit" size={17} color={Palette.cyan} /></TouchableOpacity> : null}</View>
+            <TextInput
+              accessibilityLabel={`Goles de ${equipoVisitanteNombre}`}
+              style={scoreInputStyle}
+              keyboardType="number-pad"
+              editable={!isFinalizado}
+              value={golesVisitante}
+              onChangeText={setGolesVisitante}
+              maxLength={2}
+              placeholder="0"
+              placeholderTextColor={Palette.textMuted}
+            />
+            <Text style={{ color: Palette.textMuted, fontSize: 10, fontFamily: Fonts.semiBold }}>VISITANTE</Text>
           </View>
         </View>
 
-        <View style={{ flex: 1, alignItems: "center", gap: Gap.sm }}>
-          <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.semiBold }}>VISITANTE</Text>
-          <View style={{ width: 44, height: 44, borderRadius: 22, overflow: "hidden", backgroundColor: Palette.surfaceLight, alignItems: "center", justifyContent: "center" }}>
-            {partido.equipoVisitante?.logo ? (
-              <Image source={{ uri: partido.equipoVisitante.logo }} style={{ width: 44, height: 44 }} resizeMode="cover" />
-            ) : (
-              <MaterialIcons name="shield" size={22} color={Palette.textMuted} />
-            )}
-          </View>
-          <Text style={{ fontSize: 13, color: Palette.text, fontFamily: Fonts.semiBold, textAlign: "center" }} numberOfLines={2}>
-            {equipoVisitanteNombre}
-          </Text>
-          <TextInput
-            style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, width: "100%", height: 56, textAlign: "center", fontSize: 26, fontFamily: Fonts.displayBold, color: Palette.text, borderWidth: 1, borderColor: Palette.border }}
-            keyboardType="number-pad"
-            value={golesVisitante}
-            onChangeText={setGolesVisitante}
-            maxLength={2}
-          />
-        </View>
-      </View>
-
-      {golesIguales && partido.tipoPartido !== 'AMISTOSO' ? (
-        <View style={{ backgroundColor: Palette.warning10, borderRadius: Radius.md, padding: Pad.md, gap: Gap.sm }}>
-          <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.warning, textAlign: "center" }}>
-            Penales
-          </Text>
-          <Text style={{ fontSize: 11, color: Palette.textMuted, textAlign: "center", marginBottom: Gap.sm }}>
-            El partido está empatado. Define al ganador por penales (ganador: 2 pts, perdedor: 1 pt)
-          </Text>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.xl }}>
-            <View style={{ alignItems: "center", gap: Gap.sm }}>
-              <Text style={{ fontSize: 11, color: Palette.textMuted }}>{equipoLocalNombre}</Text>
+        {golesIguales && partido.tipoPartido !== "AMISTOSO" ? (
+          <View style={{ backgroundColor: Palette.warning10, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.warning, padding: Pad.md, gap: Gap.md }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+              <MaterialIcons name="flag" size={18} color={Palette.warning} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: Palette.warning, fontSize: 13, fontFamily: Fonts.semiBold }}>Desempate por penales</Text>
+                <Text style={{ color: Palette.textSecondary, fontSize: 11, fontFamily: Fonts.sans }}>El empate necesita un ganador.</Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.md }}>
               <TextInput
-                style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, width: 70, height: 50, textAlign: "center", fontSize: 24, fontFamily: Fonts.displayBold, color: Palette.text, borderWidth: 1, borderColor: Palette.border }}
+                accessibilityLabel={`Penales de ${equipoLocalNombre}`}
+                style={{ ...scoreInputStyle, width: 72, height: 54, fontSize: 24, borderColor: Palette.warning }}
                 keyboardType="number-pad"
+                editable={!isFinalizado}
                 value={penalesLocal}
                 onChangeText={setPenalesLocal}
                 maxLength={2}
+                placeholder="0"
+                placeholderTextColor={Palette.textMuted}
               />
-            </View>
-            <Text style={{ fontSize: 14, color: Palette.textMuted }}>-</Text>
-            <View style={{ alignItems: "center", gap: Gap.sm }}>
-              <Text style={{ fontSize: 11, color: Palette.textMuted }}>{equipoVisitanteNombre}</Text>
+              <Text style={{ color: Palette.warning, fontSize: 18, fontFamily: Fonts.displayBold }}>-</Text>
               <TextInput
-                style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, width: 70, height: 50, textAlign: "center", fontSize: 24, fontFamily: Fonts.displayBold, color: Palette.text, borderWidth: 1, borderColor: Palette.border }}
+                accessibilityLabel={`Penales de ${equipoVisitanteNombre}`}
+                style={{ ...scoreInputStyle, width: 72, height: 54, fontSize: 24, borderColor: Palette.warning }}
                 keyboardType="number-pad"
+                editable={!isFinalizado}
                 value={penalesVisitante}
                 onChangeText={setPenalesVisitante}
                 maxLength={2}
+                placeholder="0"
+                placeholderTextColor={Palette.textMuted}
               />
             </View>
           </View>
-        </View>
-      ) : null}
+        ) : null}
 
-      <TouchableOpacity
-        onPress={handleSave}
-        disabled={isUpdating}
-        style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, paddingHorizontal: Pad.xl, alignItems: "center", width: "100%", opacity: isUpdating ? 0.6 : 1 }}
+        <View style={{ gap: Gap.sm }}>
+          {!isFinalizado ? (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={handleSave}
+              disabled={isUpdating}
+              style={{ backgroundColor: Palette.cyan, borderRadius: Radius.lg, paddingVertical: Pad.md, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: Gap.sm, opacity: isUpdating ? 0.6 : 1 }}
+            >
+              {isUpdating ? (
+                <ActivityIndicator size="small" color={Palette.black} />
+              ) : (
+                <MaterialIcons name="check-circle" size={20} color={Palette.black} />
+              )}
+              <Text style={{ fontSize: 15, fontFamily: Fonts.semiBold, color: Palette.black }}>Finalizar partido</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {actions.length > 0 ? (
+            <View style={{ flexDirection: "row", gap: Gap.sm }}>
+              {actions.map((action) => {
+                const destructive = action.targetEstado === "SUSPENDIDO"
+                const reopen = action.targetEstado === "PROGRAMADO"
+                return (
+                  <TouchableOpacity
+                    key={action.targetEstado}
+                    activeOpacity={0.7}
+                    onPress={() => handleSecondary(action.targetEstado)}
+                    disabled={isUpdating}
+                    style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, borderRadius: Radius.md, paddingVertical: Pad.md, backgroundColor: destructive ? Palette.danger10 : reopen ? Palette.cyan10 : Palette.surfaceLight, borderWidth: 1, borderColor: destructive ? Palette.danger : reopen ? Palette.cyan : Palette.border, opacity: isUpdating ? 0.6 : 1 }}
+                  >
+                    <MaterialIcons name={action.icon} size={18} color={destructive ? Palette.danger : reopen ? Palette.cyan : Palette.textSecondary} />
+                    <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: destructive ? Palette.danger : reopen ? Palette.cyan : Palette.text }}>{action.label}</Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      <AppBottomSheetModal
+        visible={actionHelpOpen}
+        onClose={() => setActionHelpOpen(false)}
+        title="Acciones del partido"
+        snapPoints={["65%"]}
+        scrollable
       >
-        {isUpdating ? (
-          <ActivityIndicator size="small" color={Palette.black} />
-        ) : (
-          <Text style={{ fontSize: 16, fontFamily: Fonts.semiBold, color: Palette.black }}>{label}</Text>
-        )}
-      </TouchableOpacity>
-
-      {actions.length > 0 ? (
-        <View style={{ flexDirection: "row", gap: Gap.sm, width: "100%" }}>
-          {actions.map((a) => {
-            const isDestructive = a.label === "Suspender"
-            return (
-              <TouchableOpacity
-                key={a.targetEstado}
-                onPress={() => handleSecondary(a.targetEstado)}
-                disabled={isUpdating}
-                style={{
-                  flex: 1, borderRadius: Radius.md, paddingVertical: Pad.md, alignItems: "center",
-                  backgroundColor: isDestructive ? Palette.danger : Palette.surfaceLight,
-                  opacity: isUpdating ? 0.6 : 1,
-                }}
-              >
-                <Text style={{ fontSize: 14, fontFamily: Fonts.medium, color: Palette.text }}>{a.label}</Text>
-              </TouchableOpacity>
-            )
-          })}
+        <View style={{ gap: Gap.md }}>
+          {ACTION_HELP.map((item) => (
+            <View key={item.title} style={{ flexDirection: "row", alignItems: "flex-start", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.md }}>
+              <View style={{ width: 38, height: 38, borderRadius: Radius.md, backgroundColor: item.background, alignItems: "center", justifyContent: "center" }}>
+                <MaterialIcons name={item.icon} size={20} color={item.color} />
+              </View>
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={{ color: Palette.text, fontSize: 13, fontFamily: Fonts.semiBold }}>{item.title}</Text>
+                <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.sans, lineHeight: 18 }}>{item.description}</Text>
+              </View>
+            </View>
+          ))}
         </View>
-      ) : null}
-    </View>
+      </AppBottomSheetModal>
+    </>
   )
 }

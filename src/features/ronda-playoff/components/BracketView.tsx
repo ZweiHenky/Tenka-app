@@ -35,26 +35,26 @@ const PAD_L = 12
 const PAD_R = 12
 const UNIT = MATCH_H + GAP_V
 
-export default function BracketView({ rounds }: Props) {
-  if (rounds.length === 0) return null
+function getMatchY(roundIndex: number, matchIndex: number): number {
+  if (roundIndex === 0) return matchIndex * UNIT
+  const block = Math.pow(2, roundIndex)
+  const first = matchIndex * block
+  const last = (matchIndex + 1) * block - 1
+  const firstCenter = first * UNIT + MATCH_H / 2
+  const lastCenter = last * UNIT + MATCH_H / 2
+  return (firstCenter + lastCenter) / 2 - MATCH_H / 2
+}
 
-  const firstCount = rounds[0].matches.length
+function getCenterY(roundIndex: number, matchIndex: number): number {
+  return getMatchY(roundIndex, matchIndex) + MATCH_H / 2
+}
+
+export default function BracketView({ rounds }: Props) {
+  const firstCount = rounds[0]?.matches.length ?? 0
 
   const totalWidth = PAD_L + rounds.length * MATCH_W + (rounds.length - 1) * GAP_H + PAD_R
   const contentHeight = firstCount * UNIT - GAP_V
   const bracketHeight = PAD_T + HEADER_H + contentHeight + PAD_B
-
-  const getMatchY = (ri: number, mi: number): number => {
-    if (ri === 0) return mi * UNIT
-    const block = Math.pow(2, ri)
-    const first = mi * block
-    const last = (mi + 1) * block - 1
-    const fc = first * UNIT + MATCH_H / 2
-    const lc = last * UNIT + MATCH_H / 2
-    return (fc + lc) / 2 - MATCH_H / 2
-  }
-
-  const getCenterY = (ri: number, mi: number): number => getMatchY(ri, mi) + MATCH_H / 2
 
   const connectors = useMemo(() => {
     const els: React.ReactNode[] = []
@@ -83,6 +83,8 @@ export default function BracketView({ rounds }: Props) {
     }
     return els
   }, [rounds])
+
+  if (rounds.length === 0) return null
 
   return (
     <View style={{ marginTop: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.md, overflow: "hidden", borderWidth: 1, borderColor: Palette.border }}>

@@ -8,6 +8,7 @@ import { Flag, CountryModalProvider, CountryFilter, CountryList, getAllCountries
 import type { CountryCode, Country } from "react-native-country-picker-modal"
 import { MaterialIcons } from "@expo/vector-icons"
 import { authClient } from "@/infrastructure/auth/client"
+import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 import { uploadToCloudinary } from "@/infrastructure/cloudinary/upload"
 import { api } from "@/infrastructure/api/client"
 import { useToast } from "@/shared/components/Toast"
@@ -89,12 +90,17 @@ export default function AccountEditScreen() {
     }
     setSendingOtp(true)
     try {
-      await (authClient as any).phoneNumber.sendOTP({ phoneNumber: fullPhone })
+      const { error } = await authClient.phoneNumber.sendOtp({ phoneNumber: fullPhone })
+      if (error) {
+        toast.error(getAuthErrorMessage(error, "No se pudo enviar el código"))
+        return
+      }
       setPhoneStep("otp")
-    } catch (e: any) {
-      toast.error(e.message || "No se pudo enviar el código")
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error, "No se pudo enviar el código"))
+    } finally {
+      setSendingOtp(false)
     }
-    setSendingOtp(false)
   }
 
   const handleVerifyOtp = async () => {
@@ -104,15 +110,20 @@ export default function AccountEditScreen() {
     }
     setVerifyingOtp(true)
     try {
-      await (authClient as any).phoneNumber.verify({ phoneNumber: fullPhone, code: otpCode.trim(), updatePhoneNumber: true })
+      const { error } = await authClient.phoneNumber.verify({ phoneNumber: fullPhone, code: otpCode.trim(), updatePhoneNumber: true })
+      if (error) {
+        toast.error(getAuthErrorMessage(error, "Código incorrecto"))
+        return
+      }
       await refetchSession({ query: { disableCookieCache: true } })
       setPhoneStep("verified")
       setOtpCode("")
       toast.success("El número se vinculó correctamente")
-    } catch (e: any) {
-      toast.error(e.message || "Código incorrecto")
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error, "Código incorrecto"))
+    } finally {
+      setVerifyingOtp(false)
     }
-    setVerifyingOtp(false)
   }
 
   const handleSave = async () => {
@@ -198,8 +209,8 @@ export default function AccountEditScreen() {
               <Text style={{ fontSize: 13, fontWeight: "600", color: Palette.textSecondary, marginBottom: 4 }}>Teléfono</Text>
               {phoneStep === "verified" ? (
                 <View style={{ gap: Gap.sm }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.neonGreen, paddingHorizontal: Pad.base, paddingVertical: Pad.md }}>
-                    <MaterialIcons name="check-circle" size={20} color={Palette.neonGreen} />
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.success, paddingHorizontal: Pad.base, paddingVertical: Pad.md }}>
+                    <MaterialIcons name="check-circle" size={20} color={Palette.success} />
                     <Text style={{ flex: 1, fontSize: 15, color: Palette.text }}>{fullPhone}</Text>
                   </View>
                   <TouchableOpacity onPress={() => { setPhoneStep("input"); setOtpCode(""); setPhoneNumber("") }}>

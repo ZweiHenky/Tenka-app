@@ -1,4 +1,5 @@
 import { api } from "@/infrastructure/api/client"
+import type { PartidoResponse } from "@/features/partido/api/partidos"
 
 interface ApiRes<T> {
   success: boolean
@@ -12,6 +13,7 @@ export interface RondaPlayoff {
   divisionId: string
   createdAt: string
   updatedAt: string
+  partidos: PartidoResponse[]
 }
 
 export const rondaPlayoffApi = {

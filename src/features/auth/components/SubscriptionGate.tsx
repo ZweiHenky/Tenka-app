@@ -1,4 +1,4 @@
-import { View, Text } from "react-native"
+import { ActivityIndicator, View, Text } from "react-native"
 import { authClient } from "@/infrastructure/auth/client"
 import { Gap, Palette, Pad } from "@/constants/theme"
 
@@ -7,8 +7,16 @@ interface SubscriptionGateProps {
 }
 
 export function SubscriptionGate({ children }: SubscriptionGateProps) {
-  const { data: session } = authClient.useSession()
+  const { data: session, isPending } = authClient.useSession()
   const rol = (session?.user as any)?.rol
+
+  if (isPending) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Palette.black, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator color={Palette.cyan} size="large" />
+      </View>
+    )
+  }
 
   if (rol === "CAPITAN") {
     return (

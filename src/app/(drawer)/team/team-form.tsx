@@ -11,6 +11,8 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import { AuthGate } from "@/shared/components/AuthGate"
+import { authClient } from "@/infrastructure/auth/client"
+import { canCreateTeam, type UserRole } from "@/domain/interfaces/user"
 
 interface FormState {
   nombre: string
@@ -158,6 +160,8 @@ export default function TeamFormScreen() {
   const raw = useLocalSearchParams<{ teamId?: string }>()
   const teamId = Array.isArray(raw.teamId) ? raw.teamId[0] : raw.teamId
   const isEdit = Boolean(teamId)
+  const { data: session } = authClient.useSession()
+  const canCreate = canCreateTeam((session?.user as { rol?: UserRole } | undefined)?.rol)
 
   const { data: team, isLoading, error } = useTeam(teamId ?? undefined)
 
@@ -184,6 +188,15 @@ export default function TeamFormScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="Editar equipo" onBack={() => router.back()} />
         <LoadingScreen />
+      </View>
+    )
+  }
+
+  if (!isEdit && session?.user && !canCreate) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Palette.black }}>
+        <CustomHeader title="Nuevo equipo" onBack={() => router.back()} />
+        <ErrorState message="No tienes permisos para crear equipos" fullScreen />
       </View>
     )
   }

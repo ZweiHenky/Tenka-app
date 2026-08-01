@@ -11,12 +11,11 @@ import TimePickerModal from "@/features/division/components/TimePickerModal"
 import ErrorState from "@/shared/components/ErrorState"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
-import { useDivisionScheduleStore, computeRefDateFromJornada, getActiveSlots, isSlotManual, localDateFromString, type TimeSlotConfig } from "@/stores/divisionSchedule"
+import { useDivisionScheduleStore, computeRefDateFromJornada, ensureUniqueSlotIds, getActiveSlots, isSlotManual, localDateFromString, reconcilePlayoffSlots, type PlayoffSlotCandidate, type TimeSlotConfig } from "@/stores/divisionSchedule"
 import { parseDiasPartido } from "@/shared/utils/parse-dias-partido"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { jornadaApi } from "@/features/jornada/api/jornadas"
 import { useRondasPlayoff } from "@/features/ronda-playoff/hooks/useRondasPlayoff"
-import { partidoApi } from "@/features/partido/api/partidos"
 import { useToast } from "@/shared/components/Toast"
 import { api } from "@/infrastructure/api/client"
 
@@ -40,6 +39,19 @@ function getDayOfWeek(fecha: string): number {
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number)
   return h * 60 + (m || 0)
+}
+
+function getSlotInterval(slot: TimeSlotConfig): { start: number; end: number } | null {
+  if (!slot.fecha || !slot.horaInicio || !slot.horaFin) return null
+  const start = localDateFromString(slot.fecha)
+  const end = localDateFromString(slot.fecha)
+  const [startHour, startMinute] = slot.horaInicio.split(":").map(Number)
+  const [endHour, endMinute] = slot.horaFin.split(":").map(Number)
+  if ([startHour, startMinute, endHour, endMinute].some(Number.isNaN)) return null
+  start.setHours(startHour, startMinute, 0, 0)
+  end.setHours(endHour, endMinute, 0, 0)
+  if (end <= start) end.setDate(end.getDate() + 1)
+  return { start: start.getTime(), end: end.getTime() }
 }
 
 function parseRanges(horario: string): { start: string; end: string }[] {
@@ -108,6 +120,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
   const moveSlotToTime = useDivisionScheduleStore((s) => s.moveSlotToTime)
   const setDescansoEquipoId = useDivisionScheduleStore((s) => s.setDescansoEquipoId)
   const setPlayoffMode = useDivisionScheduleStore((s) => s.setPlayoffMode)
+  const clearEliminatoriaSlots = useDivisionScheduleStore((s) => s.clearEliminatoriaSlots)
   const habilitados = useDivisionScheduleStore((s) => (divisionId ? s.habilitados[divisionId] : undefined))
   const advanceSchedule = useDivisionScheduleStore((s) => s.advanceSchedule)
 
@@ -116,6 +129,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
     queryKey: ["ligas-canchas", ligaId],
     queryFn: () => api.get(`/api/ligas/${ligaId}/canchas`).then((r) => r.data.data ?? []),
     enabled: !!ligaId,
+    staleTime: 1000 * 60 * 2,
   })
   const showCanchaPicker = canchas.length > 0
 
@@ -127,23 +141,33 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
   const [refreshing, setRefreshing] = useState(false)
   const [expandedDay, setExpandedDay] = useState<string | null>(null)
   const [pendingDeleteSlotId, setPendingDeleteSlotId] = useState<string | null>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
   const autoOpenedRef = useRef(false)
 
   const disarmDelete = useCallback(() => setPendingDeleteSlotId(null), [])
 
-  const { data: rondas = [] } = useRondasPlayoff(divisionId!)
+  const { data: rondas = [], isSuccess: rondasLoaded } = useRondasPlayoff(divisionId!)
   const playoffMode = rondas.length > 0
 
   useEffect(() => {
-    if (!divisionId) return
+    if (!divisionId || !rondasLoaded) return
     if (playoffMode) {
       setPlayoffMode(divisionId, true)
+    } else {
+      clearEliminatoriaSlots(divisionId)
+      setPlayoffMode(divisionId, false)
     }
-  }, [divisionId, playoffMode, setPlayoffMode])
+  }, [divisionId, playoffMode, rondasLoaded, clearEliminatoriaSlots, setPlayoffMode])
 
   const slots = useMemo(() => schedule?.slots ?? [], [schedule])
+  useEffect(() => {
+    if (!divisionId || slots.length === 0) return
+    const repaired = ensureUniqueSlotIds(slots)
+    const changed = repaired.length !== slots.length || repaired.some((slot, index) => slot.id !== slots[index]?.id)
+    if (changed) replaceSlots(divisionId, repaired)
+  }, [divisionId, slots, replaceSlots])
   const activeSlots = useMemo(() => getActiveSlots(slots, habilitados?.length ?? 0, playoffMode), [slots, habilitados, playoffMode])
-  const hasExtraSlots = useMemo(() => activeSlots.some((s) => s.tipo === 'amistoso' || s.tipo === 'complemento'), [activeSlots])
+  const hasComplementoSlot = useMemo(() => activeSlots.some((s) => s.tipo === 'complemento'), [activeSlots])
   const regularSlotsCount = useMemo(() => activeSlots.filter((s) => (s.tipo ?? 'regular') === 'regular').length, [activeSlots])
   const maxRegularSlots = useMemo(() => Math.floor((habilitados ?? []).length / 2), [habilitados])
   const atRegularLimit = useMemo(() => regularSlotsCount >= maxRegularSlots, [regularSlotsCount, maxRegularSlots])
@@ -165,32 +189,29 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
     return count
   }, [visibleSlots])
 
-  const { data: partidosEliminatoria = [] } = useQuery({
-    queryKey: ["partidos-eliminatoria-todos", divisionId],
-    queryFn: async () => {
-      const results: { id: string; rondaNombre: string; llave: number; equipoLocalId: string | null; equipoVisitanteId: string | null; estado: string | null }[] = []
-      for (const r of rondas) {
-        const partidos = await partidoApi.findByRondaPlayoff(r.id)
-        for (const p of partidos) {
-          results.push({ id: p.id, rondaNombre: r.nombre, llave: p.llave ?? 0, equipoLocalId: p.equipoLocalId, equipoVisitanteId: p.equipoVisitanteId, estado: p.estado })
-        }
-      }
-      return results
-    },
-    enabled: rondas.length > 0,
-  })
+  const partidosEliminatoria = useMemo(() => rondas.flatMap((ronda) =>
+    ronda.partidos.map((partido) => ({
+      id: partido.id,
+      rondaNombre: ronda.nombre,
+      llave: partido.llave ?? 0,
+      equipoLocalId: partido.equipoLocalId,
+      equipoVisitanteId: partido.equipoVisitanteId,
+      estado: partido.estado,
+    })),
+  ), [rondas])
 
   useEffect(() => {
-    if (!divisionId || partidosEliminatoria.length === 0) return
+    if (!divisionId || !playoffMode || partidosEliminatoria.length === 0) return
 
     const uniquePartidos = partidosEliminatoria.filter(
       (p, i, arr) => arr.findIndex((x) => x.id === p.id) === i
     )
 
+    const authoritativeIds = new Set(uniquePartidos.map((p) => p.id))
     const finalizedIds = new Set(uniquePartidos.filter((p) => p.estado === "FINALIZADO").map((p) => p.id))
     let slotsToKeep = slots.filter((s) => {
       if (s.tipo !== 'eliminatoria') return true
-      return !(s.partidoId && finalizedIds.has(s.partidoId))
+      return !!s.partidoId && authoritativeIds.has(s.partidoId) && !finalizedIds.has(s.partidoId)
     })
 
     // Remove eliminatoria slots without partidoId (stale) and deduplicate by partidoId
@@ -216,18 +237,6 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
       return { ...s, equipoLocalId: match.equipoLocalId ?? undefined, equipoVisitanteId: match.equipoVisitanteId ?? undefined }
     })
 
-    // Collect current eliminatoria participant IDs
-    const curElimTeamIds = new Set<string>()
-    for (const s of slotsToKeep) {
-      if (s.tipo !== 'eliminatoria') continue
-      if (s.equipoLocalId) curElimTeamIds.add(s.equipoLocalId)
-      if (s.equipoVisitanteId) curElimTeamIds.add(s.equipoVisitanteId)
-    }
-    for (const p of nuevos) {
-      if (p.equipoLocalId) curElimTeamIds.add(p.equipoLocalId)
-      if (p.equipoVisitanteId) curElimTeamIds.add(p.equipoVisitanteId)
-    }
-
     // Detect if team data changed (not just new slots added)
     let teamDataChanged = false
     if (nuevos.length === 0 && slotsToKeep.length === slots.length) {
@@ -246,34 +255,17 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
     const needsNormalization = slots.some(
       (s) => s.tipo === 'eliminatoria' && (s.id !== `elim-${s.partidoId}` || !s.partidoId)
     )
-    if (!teamDataChanged && nuevos.length === 0 && slotsToKeep.length === slots.length && !needsNormalization) return
 
-    // Trim regular/auto slots to make room for eliminatorias
+    // Keep the automatic playoff slots at the exact weekly capacity.
     const totalEliminatorias = slotsToKeep.filter((s) => s.tipo === 'eliminatoria').length + nuevos.length
     const baseRegular = Math.floor((habilitados ?? []).length / 2)
     const targetSlotCount = Math.max(0, baseRegular - totalEliminatorias)
-    if (playoffMode) {
-      const autoAmistosos = slotsToKeep.filter((s) => s.tipo === 'amistoso' && !isSlotManual(s))
-      if (autoAmistosos.length > targetSlotCount) {
-        const other = slotsToKeep.filter((s) => s.tipo !== 'amistoso' || isSlotManual(s))
-        slotsToKeep = [...autoAmistosos.slice(0, targetSlotCount), ...other]
-      }
-    } else {
-      const regs = slotsToKeep.filter((s) => !s.tipo || s.tipo === 'regular')
-      if (regs.length > targetSlotCount) {
-        const nonReg = slotsToKeep.filter((s) => s.tipo && s.tipo !== 'regular')
-        slotsToKeep = [...regs.slice(0, targetSlotCount), ...nonReg]
-      }
-    }
+    const autoAmistosoCount = slotsToKeep.filter((s) => s.tipo === 'amistoso' && !isSlotManual(s)).length
+    const needsSlotCountNormalization = autoAmistosoCount !== targetSlotCount
+    if (!teamDataChanged && nuevos.length === 0 && slotsToKeep.length === slots.length && !needsNormalization && !needsSlotCountNormalization) return
 
     const validDays = parseDiasPartido(division?.diasPartido ?? "sab")
-    const refDate = slots[0]?.fecha ?? (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` })()
-
-    const ocupadosMap = new Map<string, Set<string>>()
-    for (const sl of slotsToKeep) {
-      if (!ocupadosMap.has(sl.fecha)) ocupadosMap.set(sl.fecha, new Set())
-      ocupadosMap.get(sl.fecha)!.add(sl.horaInicio)
-    }
+    const refDate = schedule?.refDate ?? slots[0]?.fecha ?? (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` })()
 
     const ranges = parseRanges(division?.horarioPartido ?? "08:00-20:00")
     const slotTotal = (division?.duracionPartido ?? 60) + (division?.descanso ?? 0)
@@ -293,37 +285,20 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
       }
     }
 
-    const newSlots: TimeSlotConfig[] = []
+    const candidates: PlayoffSlotCandidate[] = []
     const cursor = localDateFromString(refDate)
-    for (let d = 0; d < 60 && newSlots.length < nuevos.length; d++) {
+    for (let d = 0; d < 60; d++) {
       if (validDays.includes(cursor.getDay())) {
         const fecha = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`
-        const ocupados = ocupadosMap.get(fecha) ?? new Set()
         for (const ts of dayTimeSlots) {
-          if (newSlots.length >= nuevos.length) break
-          if (!ocupados.has(ts.horaInicio)) {
-            ocupados.add(ts.horaInicio)
-            const p = nuevos[newSlots.length]
-            newSlots.push({
-              id: `elim-${p.id}`,
-              fecha,
-              horaInicio: ts.horaInicio,
-              horaFin: ts.horaFin,
-              tipo: 'eliminatoria',
-              partidoId: p.id,
-              rondaNombre: p.rondaNombre,
-              llave: p.llave,
-              equipoLocalId: p.equipoLocalId ?? undefined,
-              equipoVisitanteId: p.equipoVisitanteId ?? undefined,
-            })
-          }
+          candidates.push({ fecha, horaInicio: ts.horaInicio, horaFin: ts.horaFin })
         }
       }
       cursor.setDate(cursor.getDate() + 1)
     }
 
     // Remove eliminatoria participants from regular/special slots
-    const finalSlots = [...slotsToKeep, ...newSlots]
+    const finalSlots = reconcilePlayoffSlots(slotsToKeep, nuevos, targetSlotCount, candidates)
     const elimTeamIds = new Set<string>()
     for (const p of nuevos) {
       if (p.equipoLocalId) elimTeamIds.add(p.equipoLocalId)
@@ -342,13 +317,13 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
       return { ...s, equipoLocalId, equipoVisitanteId }
     })
 
-    if (newSlots.length > 0 || slotsToKeep.length !== slots.length || teamDataChanged) {
+    if (JSON.stringify(cleanedSlots) !== JSON.stringify(slots)) {
       replaceSlots(divisionId!, cleanedSlots)
       if (schedule?.descansoEquipoId && elimTeamIds.has(schedule.descansoEquipoId)) {
         setDescansoEquipoId(divisionId!, undefined)
       }
     }
-  }, [partidosEliminatoria, divisionId, division?.horarioPartido, division?.duracionPartido, division?.descanso, division?.diasPartido, habilitados, slots, replaceSlots, schedule?.descansoEquipoId, setDescansoEquipoId, playoffMode])
+  }, [partidosEliminatoria, divisionId, division?.horarioPartido, division?.duracionPartido, division?.descanso, division?.diasPartido, habilitados, slots, replaceSlots, schedule?.descansoEquipoId, schedule?.refDate, setDescansoEquipoId, playoffMode])
 
   const { data: lastJornada } = useQuery({
     queryKey: ["last-jornada", divisionId],
@@ -368,7 +343,6 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
         qc.invalidateQueries({ queryKey: ["teams"] }),
         qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] }),
         qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] }),
-        qc.invalidateQueries({ queryKey: ["partidos-eliminatoria-todos", divisionId] }),
       ])
     } finally {
       setRefreshing(false)
@@ -528,6 +502,19 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
     return d === 0 ? 6 : d - 1
   }
 
+  const handleAddSlot = useCallback((tipo: 'regular' | 'amistoso' | 'complemento') => {
+    if (tipo === 'regular' && atRegularLimit) {
+      toast.info("Ya tienes los slots regulares necesarios para los equipos habilitados")
+      return
+    }
+    const newSlot = addSlot(divisionId!, tipo)
+    if (newSlot) {
+      setExpandedDay(newSlot.fecha)
+    } else {
+      toast.info("No hay horarios disponibles en esta semana")
+    }
+  }, [divisionId, addSlot, atRegularLimit, toast])
+
   const cycleDay = (sl: TimeSlotConfig) => {
     if (validDays.length <= 1) return
 
@@ -549,10 +536,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
 
       if (targetDate < tomorrow) continue
 
-      if (moveSlotToDay(divisionId!, sl.id, newFechaStr)) {
-        setExpandedDay(newFechaStr)
-        return
-      }
+      if (moveSlotToDay(divisionId!, sl.id, newFechaStr)) return
 
       const free = generaTiemposUnicos(
         division?.horarioPartido ?? "08:00-20:00",
@@ -568,7 +552,6 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
         replaceSlots(divisionId!, sched.slots.map((x) =>
           x.id === sl.id ? { ...x, fecha: newFechaStr, horaInicio: free[0].horaInicio, horaFin: free[0].horaFin } : x
         ))
-        setExpandedDay(newFechaStr)
         return
       }
     }
@@ -616,28 +599,24 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
 
   const content = (
     <View style={{ gap: Gap.md }}>
-      {generating ? (
-        <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, paddingVertical: Pad.xl, paddingHorizontal: Pad.base, alignItems: "center", gap: Gap.md, borderWidth: 1, borderColor: Palette.border }}>
-          <ActivityIndicator size="large" color={Palette.cyan} />
-          <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold, textAlign: "center" }}>Actualizando programación...</Text>
+      {habilitados && habilitados.length < 2 ? (
+        <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, alignItems: "center", paddingVertical: Pad.xxl, paddingHorizontal: Pad.base, gap: Gap.md, borderWidth: 1, borderColor: Palette.border }}>
+          <MaterialIcons name="group" size={48} color={Palette.textMuted} />
+          <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold, textAlign: "center" }}>Habilita al menos 2 equipos para continuar con la configuracion</Text>
         </View>
-      ) : slots.length === 0 ? (
+      ) : slots.length === 0 && !generating ? (
         <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, alignItems: "center", paddingVertical: Pad.xl, paddingHorizontal: Pad.base, gap: Gap.sm, borderWidth: 1, borderColor: Palette.border }}>
           <MaterialIcons name="schedule" size={48} color={Palette.textMuted} />
-          {habilitados && habilitados.length > 0 ? (
-            <>
-              <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold, textAlign: "center" }}>{habilitados.length} equipos habilitados</Text>
-              <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, textAlign: "center" }}>Genera {Math.floor(habilitados.length / 2)} slots para la próxima jornada</Text>
-            </>
-          ) : (
-            <Text style={{ color: Palette.textMuted, fontSize: 14, fontFamily: Fonts.sans, textAlign: "center" }}>Selecciona equipos en la pantalla de la división</Text>
-          )}
+          <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold, textAlign: "center" }}>{habilitados?.length ?? 0} equipos habilitados</Text>
+          <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, textAlign: "center" }}>Genera {Math.floor((habilitados?.length ?? 0) / 2)} slots para la próxima jornada</Text>
         </View>
       ) : (
         <View style={{ gap: Gap.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: Pad.sm }}>
             <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.text }}>Slots ({slots.length})</Text>
-            <Text style={{ fontSize: 13, fontFamily: Fonts.sans, color: Palette.textMuted }}>{(habilitados ?? []).length} equipos</Text>
+            <TouchableOpacity onPress={() => setHelpOpen(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <MaterialIcons name="info-outline" size={18} color={Palette.cyan} />
+            </TouchableOpacity>
           </View>
 
           {weekDates.length > 0 ? (
@@ -676,7 +655,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
               </ScrollView>
 
               {weekDates.map((fecha) => {
-                const daySlots = visibleSlots.filter((s) => s.fecha === fecha)
+                const daySlots = visibleSlots.filter((s) => s.fecha === fecha).sort((a, b) => timeToMinutes(a.horaInicio) - timeToMinutes(b.horaInicio))
                 const count = daySlotCount[fecha] ?? 0
                 const isExpanded = expandedDay === fecha
 
@@ -712,9 +691,14 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
                     </TouchableOpacity>
                     {isExpanded ? (
                       <View style={{ padding: Pad.base, gap: Gap.md, backgroundColor: Palette.surfaceLight, borderTopWidth: 1, borderTopColor: Palette.border }}>
-                        {daySlots.length > 0 ? daySlots.map((sl) => (
+                        {generating ? (
+                          <View style={{ padding: Pad.xl, alignItems: "center", gap: Gap.md }}>
+                            <ActivityIndicator size="large" color={Palette.cyan} />
+                            <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Configurando...</Text>
+                          </View>
+                        ) : daySlots.length > 0 ? daySlots.map((sl, slotIndex) => (
                           <TimeSlotCard
-                            key={sl.tipo === "eliminatoria" ? `partido-${sl.partidoId}` : `slot-${sl.id}`}
+                            key={`${sl.tipo === "eliminatoria" ? `partido-${sl.partidoId}` : `slot-${sl.id}`}-${sl.fecha}-${sl.horaInicio}-${slotIndex}`}
                             slot={sl}
                             localNombre={allTeams.find((t) => t.id === sl.equipoLocalId)?.nombre}
                             visitanteNombre={allTeams.find((t) => t.id === sl.equipoVisitanteId)?.nombre}
@@ -741,7 +725,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
             </>
           ) : null}
 
-          {!playoffMode && habilitados && habilitados.length % 2 !== 0 && !hasExtraSlots ? (
+          {!playoffMode && habilitados && habilitados.length >= 3 && habilitados.length % 2 !== 0 && !hasComplementoSlot ? (
             <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.base, gap: Gap.sm, borderWidth: 1, borderColor: schedule?.descansoEquipoId ? Palette.cyan : Palette.danger }}>
               <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans }}>Con número impar de equipos, uno debe descansar esta jornada</Text>
               <TouchableOpacity onPress={() => setShowDescansoPicker(true)} activeOpacity={0.7} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
@@ -756,8 +740,8 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
             </View>
           ) : null}
 
-          {!playoffMode && habilitados && habilitados.length % 2 !== 0 && !hasExtraSlots ? (
-            <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans, marginTop: Gap.sm }}>O puedes agregar un partido amistoso o completar para que ese equipo no se quede sin jugar</Text>
+          {!playoffMode && habilitados && habilitados.length >= 3 && habilitados.length % 2 !== 0 && !hasComplementoSlot ? (
+            <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans, marginTop: Gap.sm }}>O puedes agregar un partido Completar para que ese equipo no se quede sin jugar</Text>
           ) : null}
           {showCanchaPicker && slots.length > 0 ? (
             <View style={{ flexDirection: "row", gap: Gap.sm }}>
@@ -777,13 +761,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
           <View style={{ flexDirection: "row", gap: Gap.sm }}>
             {!playoffMode ? (
               <TouchableOpacity
-                onPress={() => {
-                  if (atRegularLimit) {
-                    toast.info("Ya tienes los slots regulares necesarios para los equipos habilitados")
-                    return
-                  }
-                  addSlot(divisionId!, 'regular')
-                }}
+                onPress={() => handleAddSlot('regular')}
                 activeOpacity={0.7}
                 style={{ flex: 1, backgroundColor: atRegularLimit ? Palette.dark60 : Palette.cyan, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm, opacity: atRegularLimit ? 0.5 : 1 }}
               >
@@ -791,38 +769,54 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
                 <Text style={{ color: atRegularLimit ? Palette.textMuted : Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Regular</Text>
               </TouchableOpacity>
             ) : null}
-            <TouchableOpacity
-              onPress={() => addSlot(divisionId!, 'amistoso')}
-              activeOpacity={0.7}
-              style={{ flex: 1, backgroundColor: Palette.warning, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
-            >
-              <MaterialIcons name="sports-kabaddi" size={18} color={Palette.dark} />
-              <Text style={{ color: Palette.dark, fontSize: 13, fontFamily: Fonts.semiBold }}>Amistoso</Text>
-            </TouchableOpacity>
             {!playoffMode ? (
               <TouchableOpacity
-                onPress={() => addSlot(divisionId!, 'complemento')}
+                onPress={() => handleAddSlot('complemento')}
                 activeOpacity={0.7}
-                style={{ flex: 1, backgroundColor: Palette.danger, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
+                style={{ flex: 1, backgroundColor: Palette.warning, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
               >
-                <MaterialIcons name="group-add" size={18} color={Palette.text} />
-                <Text style={{ color: Palette.text, fontSize: 13, fontFamily: Fonts.semiBold }}>Completar</Text>
+                <MaterialIcons name="group-add" size={18} color={Palette.black} />
+                <Text style={{ color: Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Completar</Text>
               </TouchableOpacity>
             ) : null}
+            <TouchableOpacity
+              onPress={() => handleAddSlot('amistoso')}
+              activeOpacity={0.7}
+              style={{ flex: 1, backgroundColor: Palette.success, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
+            >
+              <MaterialIcons name="sports-kabaddi" size={18} color={Palette.black} />
+              <Text style={{ color: Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Amistoso</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
 
-      <View style={{ gap: Gap.sm, paddingTop: Gap.md, borderTopWidth: 1, borderTopColor: Palette.border }}>
-        {(habilitados ?? []).length < 2 ? (
-          <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, textAlign: "center", paddingVertical: Pad.sm }}>
-            Selecciona al menos 2 equipos para generar la jornada
-          </Text>
-        ) : (
+      {(habilitados ?? []).length >= 2 ? (
+        <View style={{ gap: Gap.sm, paddingTop: Gap.md, borderTopWidth: 1, borderTopColor: Palette.border }}>
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={() => {
-              const oddWithoutDescanso = !playoffMode && habilitados && habilitados.length % 2 !== 0 && !hasExtraSlots && !schedule?.descansoEquipoId
+              for (let i = 0; i < activeSlots.length; i++) {
+                const current = activeSlots[i]
+                const currentCanchaKey = current.canchaId ?? "__sin_cancha__"
+                const currentInterval = getSlotInterval(current)
+                if (!currentInterval) continue
+                for (let j = i + 1; j < activeSlots.length; j++) {
+                  const other = activeSlots[j]
+                  const otherCanchaKey = other.canchaId ?? "__sin_cancha__"
+                  if (otherCanchaKey !== currentCanchaKey) continue
+                  const otherInterval = getSlotInterval(other)
+                  if (!otherInterval) continue
+                  if (currentInterval.start < otherInterval.end && currentInterval.end > otherInterval.start) {
+                    const canchaNombre = current.canchaId ? canchas.find((c: any) => c.id === current.canchaId)?.nombre : null
+                    toast.error(canchaNombre
+                      ? `La cancha ${canchaNombre} tiene horarios solapados el ${current.fecha}`
+                      : `Hay partidos con horarios solapados el ${current.fecha}`)
+                    return
+                  }
+                }
+              }
+              const oddWithoutDescanso = !playoffMode && habilitados && habilitados.length >= 3 && habilitados.length % 2 !== 0 && !hasComplementoSlot && !schedule?.descansoEquipoId
               if (oddWithoutDescanso) {
                 toast.error("Selecciona qué equipo descansa antes de generar la jornada")
                 return
@@ -849,7 +843,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
                 toast.error("El equipo seleccionado para descansar está en eliminatoria")
                 return
               }
-              const incompleteAmistoso = slots.find((s) => s.tipo === 'amistoso' && (!s.equipoLocalId || !s.equipoVisitanteId))
+              const incompleteAmistoso = !playoffMode && slots.find((s) => s.tipo === 'amistoso' && (!s.equipoLocalId || !s.equipoVisitanteId))
               if (incompleteAmistoso) {
                 toast.error("Asigna ambos equipos al partido amistoso antes de generar la jornada")
                 return
@@ -872,8 +866,8 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
               {generating || isGeneratingJornada ? "Generando..." : "Generar jornada"}
             </Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      ) : null}
     </View>
   )
 
@@ -967,6 +961,52 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
           <TouchableOpacity onPress={() => setCanchaPickerSlotId(null)} style={{ paddingVertical: Pad.md, alignItems: "center" }}>
             <Text style={{ color: Palette.textMuted, fontSize: 14, fontFamily: Fonts.sans }}>Cancelar</Text>
           </TouchableOpacity>
+        </ScrollView>
+      </AppBottomSheetModal>
+
+      <AppBottomSheetModal
+        visible={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        title="Tipos de partido"
+        snapPoints={["50%"]}
+      >
+        <ScrollView contentContainerStyle={{ gap: Gap.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.md, borderLeftWidth: 4, borderLeftColor: Palette.cyan }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: `${Palette.cyan}30`, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="check-circle" size={18} color={Palette.cyan} />
+            </View>
+            <View style={{ flex: 1, gap: Gap.micro }}>
+              <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Regular</Text>
+              <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans }}>Ambos equipos suman puntos en la tabla general. Es el tipo por defecto.</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.md, borderLeftWidth: 4, borderLeftColor: Palette.success }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: Palette.success10, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="favorite" size={18} color={Palette.success} />
+            </View>
+            <View style={{ flex: 1, gap: Gap.micro }}>
+              <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Amistoso</Text>
+              <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans }}>Ningún equipo suma puntos en la tabla. Ideal para pruebas o fechas especiales.</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.md, borderLeftWidth: 4, borderLeftColor: Palette.warning }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: Palette.warning10, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="add-circle" size={18} color={Palette.warning} />
+            </View>
+            <View style={{ flex: 1, gap: Gap.micro }}>
+              <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Completar</Text>
+              <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans }}>Solo el equipo local suma puntos; el visitante no. Se usa con número impar de equipos.</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.md, borderLeftWidth: 4, borderLeftColor: Palette.playoff }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: Palette.playoff10, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="emoji-events" size={18} color={Palette.playoff} />
+            </View>
+            <View style={{ flex: 1, gap: Gap.micro }}>
+              <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Eliminatoria</Text>
+              <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans }}>Eliminación directa. Los slots se asignan automáticamente desde las rondas de playoff.</Text>
+            </View>
+          </View>
         </ScrollView>
       </AppBottomSheetModal>
     </>

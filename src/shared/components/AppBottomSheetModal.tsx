@@ -1,20 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import type { ReactNode } from "react"
-import { Text, View } from "react-native"
+import { Platform, Text } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView, BottomSheetView, type BottomSheetModalMethods, type BottomSheetProps } from "@gorhom/bottom-sheet"
+import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView, BottomSheetView, type BottomSheetBackdropProps, type BottomSheetModalProps } from "@gorhom/bottom-sheet"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 
 interface Props {
   visible: boolean
   onClose: () => void
   title?: string
-  snapPoints?: Array<string | number>
+  snapPoints?: (string | number)[]
   children: ReactNode
   contentPadding?: boolean
   scrollable?: boolean
-  stackBehavior?: BottomSheetProps["stackBehavior"]
+  stackBehavior?: BottomSheetModalProps["stackBehavior"]
   enableContentPanningGesture?: boolean
+  dismissible?: boolean
 }
 
 export default function AppBottomSheetModal({
@@ -27,49 +28,51 @@ export default function AppBottomSheetModal({
   scrollable = true,
   stackBehavior,
   enableContentPanningGesture = true,
+  dismissible = true,
 }: Props) {
   const insets = useSafeAreaInsets()
-  const ref = useRef<BottomSheetModalMethods>(null)
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 32 : 0)
+  const ref = useRef<BottomSheetModal>(null)
   const points = useMemo(() => snapPoints ?? ["50%"], [snapPoints])
-  const [mounted, setMounted] = useState(visible)
-  const closingRef = useRef(false)
+  const suppressDismissRef = useRef(false)
+  const previousVisibleRef = useRef(false)
 
   useEffect(() => {
+    const wasVisible = previousVisibleRef.current
+    previousVisibleRef.current = visible
+
     if (visible) {
-      setMounted(true)
-      closingRef.current = false
       const frame = requestAnimationFrame(() => ref.current?.present())
       return () => cancelAnimationFrame(frame)
     }
 
-    if (mounted) {
-      closingRef.current = true
+    if (wasVisible) {
+      suppressDismissRef.current = true
       ref.current?.dismiss()
     }
-  }, [visible, mounted])
+  }, [visible])
 
-  const renderBackdrop = useCallback((props: any) => (
-    <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.5} pressBehavior="close" />
-  ), [])
+  const renderBackdrop = useCallback((props: BottomSheetBackdropProps) => (
+    <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.5} pressBehavior={dismissible ? "close" : "none"} />
+  ), [dismissible])
 
   const handleDismiss = () => {
-    setMounted(false)
-    if (closingRef.current) {
-      closingRef.current = false
+    if (suppressDismissRef.current) {
+      suppressDismissRef.current = false
       return
     }
+    previousVisibleRef.current = false
     onClose()
   }
-
-  if (!mounted) return null
 
   return (
     <BottomSheetModal
       ref={ref}
       snapPoints={points}
       stackBehavior={stackBehavior}
-      enablePanDownToClose
+      enablePanDownToClose={dismissible}
       enableContentPanningGesture={enableContentPanningGesture}
+      bottomInset={bottomInset}
       backdropComponent={renderBackdrop}
       onDismiss={handleDismiss}
       handleIndicatorStyle={{ backgroundColor: Palette.borderActive, width: 40, height: 4 }}
@@ -77,7 +80,7 @@ export default function AppBottomSheetModal({
     >
       {scrollable ? (
         <BottomSheetScrollView
-          contentContainerStyle={contentPadding ? { padding: Pad.xl, paddingTop: title ? Pad.sm : Pad.xl, paddingBottom: insets.bottom + Pad.xl, gap: Gap.md } : undefined}
+          contentContainerStyle={contentPadding ? { padding: Pad.xl, paddingTop: title ? Pad.sm : Pad.xl, gap: Gap.md } : undefined}
           keyboardShouldPersistTaps="handled"
           nestedScrollEnabled
         >
@@ -85,7 +88,7 @@ export default function AppBottomSheetModal({
           {children}
         </BottomSheetScrollView>
       ) : (
-        <BottomSheetView style={contentPadding ? { padding: Pad.xl, paddingTop: title ? Pad.sm : Pad.xl, paddingBottom: insets.bottom + Pad.xl, gap: Gap.md } : undefined}>
+        <BottomSheetView style={contentPadding ? { padding: Pad.xl, paddingTop: title ? Pad.sm : Pad.xl, gap: Gap.md } : undefined}>
           {title ? <Text style={{ fontSize: 18, fontFamily: Fonts.display, color: Palette.text }}>{title}</Text> : null}
           {children}
         </BottomSheetView>

@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity } from "react-native"
+import { ActivityIndicator, View, Text, TouchableOpacity } from "react-native"
 import { router } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
@@ -6,7 +6,15 @@ import { authClient } from "@/infrastructure/auth/client"
 import type { ReactNode } from "react"
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { data: session } = authClient.useSession()
+  const { data: session, isPending } = authClient.useSession()
+
+  if (isPending) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Palette.black, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color={Palette.cyan} size="large" />
+      </View>
+    )
+  }
 
   if (!session?.user) {
     return (

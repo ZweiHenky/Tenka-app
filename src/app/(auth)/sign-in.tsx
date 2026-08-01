@@ -4,10 +4,13 @@ import { router } from "expo-router"
 import { Palette } from "@/constants/theme"
 import { styles } from "@/features/auth/screens/SignIn.styles"
 import { authClient } from "@/infrastructure/auth/client"
+import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
+import { useToast } from "@/shared/components/Toast"
 
 export default function SignInScreen() {
   const [isSigningIn, setIsSigningIn] = useState(false)
   const { data: session, isPending } = authClient.useSession()
+  const toast = useToast()
 
   useEffect(() => {
     if (session) {
@@ -35,21 +38,9 @@ export default function SignInScreen() {
         provider: "google",
         callbackURL: "/(drawer)",
       })
-      if (!error) router.replace("/(drawer)")
-    } finally {
-      setIsSigningIn(false)
-    }
-  }
-
-  const handleApple = async () => {
-    if (isSigningIn) return
-    setIsSigningIn(true)
-    try {
-      const { error } = await authClient.signIn.social({
-        provider: "apple",
-        callbackURL: "/(drawer)",
-      })
-      if (!error) router.replace("/(drawer)")
+      if (error) toast.error(getAuthErrorMessage(error, "No se pudo iniciar sesión con Google."))
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error, "No se pudo iniciar sesión con Google."))
     } finally {
       setIsSigningIn(false)
     }
@@ -82,15 +73,6 @@ export default function SignInScreen() {
             <Text style={{ fontSize: 16, color: Palette.black, fontWeight: "700" }}>G</Text>
           )}
           <Text style={styles.primaryButtonText}>Continuar con Google</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={handleApple} style={styles.secondaryButton} activeOpacity={0.85} disabled={isSigningIn}>
-          {isSigningIn ? (
-            <ActivityIndicator color={Palette.text} size="small" />
-          ) : (
-            <Text style={{ fontSize: 16, color: Palette.text }}>A</Text>
-          )}
-          <Text style={styles.secondaryButtonText}>Continuar con Apple</Text>
         </TouchableOpacity>
       </View>
 

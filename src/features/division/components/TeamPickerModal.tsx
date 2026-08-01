@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity } from "react-native"
+import { Text, ScrollView, TouchableOpacity } from "react-native"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
 import type { TimeSlotConfig } from "@/stores/divisionSchedule"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
@@ -23,7 +23,6 @@ export default function TeamPickerModal({ visible, pickingSlot, slots, assignedT
   const toast = useToast()
   const currentSlot = pickingSlot ? slots.find((s) => s.id === pickingSlot.slotId) : undefined
   const slotTipo = currentSlot?.tipo || 'regular'
-  const isComplementoPuntos = slotTipo === 'complemento' && pickingSlot?.side === 'local'
   const isComplementoSinPuntos = slotTipo === 'complemento' && pickingSlot?.side === 'visitante'
   const isAmistoso = slotTipo === 'amistoso'
 

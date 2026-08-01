@@ -1,12 +1,16 @@
 import { Drawer, DrawerContentScrollView } from "expo-router/drawer"
 import { router, usePathname } from "expo-router"
-import { Text, View, TouchableOpacity, Image } from "react-native"
+import { ActivityIndicator, InteractionManager, Text, View, TouchableOpacity, Image } from "react-native"
+import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Palette } from "@/constants/theme"
 import { styles } from "@/constants/drawer.styles"
 import { authClient } from "@/infrastructure/auth/client"
+import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
+import { useToast } from "@/shared/components/Toast"
 
-const DRAWER_ROUTES = ["index", "my-profile", "team", "leagues", "account", "support"] as const
+type DrawerRoute = "index" | "my-profile" | "team" | "leagues" | "account" | "support"
 
 function routeMatches(route: string, pathname: string): boolean {
   if (route === "index") return pathname === "/"
@@ -19,12 +23,23 @@ function routeMatches(route: string, pathname: string): boolean {
 }
 
 function CustomDrawerContent(props: any) {
-  const { data: session } = authClient.useSession()
+  const { data: session, isPending } = authClient.useSession()
   const user = session?.user
   const pathname = usePathname()
   const { navigation } = props
+  const [signingOut, setSigningOut] = useState(false)
+  const queryClient = useQueryClient()
+  const toast = useToast()
 
-  const items: { label: string; route: typeof DRAWER_ROUTES[number] }[] = [
+  if (isPending) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Palette.black, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator color={Palette.cyan} size="large" />
+      </View>
+    )
+  }
+
+  const items: { label: string; route: DrawerRoute }[] = [
     { label: "Inicio", route: "index" },
   ]
 
@@ -52,10 +67,25 @@ function CustomDrawerContent(props: any) {
     support: "help-outline",
   }
 
-  const handleFooterPress = () => {
+  const handleFooterPress = async () => {
     if (user) {
-      authClient.signOut()
-      router.replace("/(auth)/sign-in")
+      setSigningOut(true)
+      try {
+        navigation.closeDrawer()
+        router.replace("/(drawer)")
+        await new Promise<void>((resolve) => InteractionManager.runAfterInteractions(() => resolve()))
+
+        const { error } = await authClient.signOut()
+        if (error) {
+          toast.error(getAuthErrorMessage(error, "No se pudo cerrar la sesión."))
+          return
+        }
+        queryClient.clear()
+      } catch (error) {
+        toast.error(getAuthErrorMessage(error, "No se pudo cerrar la sesión."))
+      } finally {
+        setSigningOut(false)
+      }
     } else {
       router.push("/(auth)/sign-in")
     }
@@ -99,8 +129,9 @@ function CustomDrawerContent(props: any) {
 
         <View style={styles.divider} />
 
-        <TouchableOpacity onPress={handleFooterPress} style={styles.signInContainer}>
+        <TouchableOpacity onPress={handleFooterPress} disabled={signingOut} style={[styles.signInContainer, signingOut && { opacity: 0.5 }]}>
           <View style={styles.signInBullet} />
+          {signingOut ? <ActivityIndicator size="small" color={Palette.cyan} /> : null}
           <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "500" }}>
             {user ? "Cerrar sesión" : "Iniciar sesión"}
           </Text>

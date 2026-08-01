@@ -7,6 +7,10 @@ interface ApiRes<T> {
 }
 
 export const userApi = {
+  activateLeagueRole: () =>
+    api
+      .post<ApiRes<{ id: string; rol: string }>>("/api/users/me/activate-league-role")
+      .then((r) => r.data.data!),
   updatePhoneVisibility: (showPhoneInPublicLeague: boolean) =>
     api
       .patch<ApiRes<{ id: string; showPhoneInPublicLeague: boolean }>>("/api/users/me/phone-visibility", { showPhoneInPublicLeague })

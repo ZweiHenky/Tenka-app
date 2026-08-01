@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { useLigaFavoritaStore, type LigaFavoritaItem } from '../ligaFavoritaStore'
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
@@ -7,9 +8,6 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     removeItem: vi.fn(() => Promise.resolve()),
   },
 }))
-
-import { useLigaFavoritaStore } from '../ligaFavoritaStore'
-import type { LigaFavoritaItem } from '../ligaFavoritaStore'
 
 const LIGA_A: LigaFavoritaItem = { id: '1', nombre: 'Liga A', cancha: null, logo: null }
 const LIGA_B: LigaFavoritaItem = { id: '2', nombre: 'Liga B', cancha: 'campo.jpg', logo: 'logo.png' }

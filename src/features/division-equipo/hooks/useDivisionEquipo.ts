@@ -6,6 +6,7 @@ export function useDivisionEquipos(divisionId: string) {
     queryKey: ["division-equipos", divisionId],
     queryFn: () => divisionEquipoApi.findByDivision(divisionId),
     enabled: !!divisionId,
+    staleTime: 1000 * 30,
   })
 }
 
@@ -23,5 +24,17 @@ export function useRemoveTeam() {
     mutationFn: ({ divisionId, equipoId }: { divisionId: string; equipoId: string }) =>
       divisionEquipoApi.remove(divisionId, equipoId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["division-equipos"] }),
+  })
+}
+
+export function useUpdateTeamSaldo() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ divisionId, equipoId, saldoPendiente }: { divisionId: string; equipoId: string; saldoPendiente: string }) =>
+      divisionEquipoApi.updateSaldo(divisionId, equipoId, saldoPendiente),
+    onSuccess: (_data, variables) => qc.invalidateQueries({
+      queryKey: ["division-equipos", variables.divisionId],
+      exact: true,
+    }),
   })
 }

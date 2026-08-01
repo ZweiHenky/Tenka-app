@@ -15,6 +15,7 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import { AuthGate } from "@/shared/components/AuthGate"
+import { canCreateLeague, type UserRole } from "@/domain/interfaces/user"
 
 interface FormState {
   nombre: string
@@ -25,6 +26,8 @@ interface FormState {
   canchaPublicId: string
   multiplesCanchas: boolean
   canchaNombres: string[]
+  usaArbitros: boolean
+  arbitroNombres: string[]
   ubicacionId: string
   ubicacionTexto: string
   ubicacionLat: string
@@ -43,6 +46,8 @@ const EMPTY_FORM: FormState = {
   canchaPublicId: "",
   multiplesCanchas: false,
   canchaNombres: [""],
+  usaArbitros: false,
+  arbitroNombres: [""],
   ubicacionId: "",
   ubicacionTexto: "",
   ubicacionLat: "",
@@ -56,10 +61,9 @@ interface FormContentProps {
   leagueId: string | null
   isEdit: boolean
   league: NonNullable<ReturnType<typeof useLeague>["data"]>
-  userId: string
 }
 
-function LeagueFormContent({ leagueId, isEdit, league, userId }: FormContentProps) {
+function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
   const toast = useToast()
   const createLeague = useCreateLeague()
   const updateLeague = useUpdateLeague()
@@ -79,6 +83,14 @@ function LeagueFormContent({ leagueId, isEdit, league, userId }: FormContentProp
           const nombres = (league as any).canchas?.map((c: any) => c.nombre) ?? []
           if (!(league as any).multiplesCanchas) return nombres.length > 0 ? nombres : [""]
           return [...nombres, ...Array(Math.max(0, 2 - nombres.length)).fill("")]
+        })(),
+        usaArbitros: (league as any).usaArbitros ?? false,
+        arbitroNombres: (() => {
+          const nombres = (league as any).arbitros?.map((a: any) => a.nombre) ?? []
+          if ((league as any).usaArbitros) {
+            return [...nombres, ...Array(Math.max(0, 2 - nombres.length)).fill("")]
+          }
+          return nombres.length > 0 ? nombres : [""]
         })(),
         ubicacionId: league.ubicacionId,
         ubicacionTexto: league.ubicacion?.nombreCompleto ?? lookups.ubicaciones.find((u) => u.id === league.ubicacionId)?.nombreCompleto ?? "",
@@ -107,6 +119,16 @@ function LeagueFormContent({ leagueId, isEdit, league, userId }: FormContentProp
     }
     if (new Set(canchaNombres.map((n) => n.toLocaleLowerCase())).size !== canchaNombres.length) {
       toast.error("Los nombres de las canchas no pueden repetirse")
+      return
+    }
+
+    const arbitroNombres = form.arbitroNombres.map((n) => n.trim()).filter(Boolean)
+    if (form.usaArbitros && arbitroNombres.length < 2) {
+      toast.error("Agrega al menos 2 árbitros")
+      return
+    }
+    if (new Set(arbitroNombres.map((n) => n.toLocaleLowerCase())).size !== arbitroNombres.length) {
+      toast.error("Los nombres de los árbitros no pueden repetirse")
       return
     }
 
@@ -140,8 +162,9 @@ function LeagueFormContent({ leagueId, isEdit, league, userId }: FormContentProp
         canchaPublicId: form.canchaPublicId || undefined,
         multiplesCanchas: form.multiplesCanchas,
         canchas: form.multiplesCanchas && canchaNombres.length > 0 ? canchaNombres.map((nombre) => ({ nombre })) : undefined,
+        usaArbitros: form.usaArbitros,
+        arbitros: form.usaArbitros && arbitroNombres.length > 0 ? arbitroNombres.map((nombre) => ({ nombre })) : undefined,
         ubicacionId,
-        userId,
       }
 
       if (isEdit) {
@@ -168,6 +191,8 @@ function LeagueFormContent({ leagueId, isEdit, league, userId }: FormContentProp
       if (k === "cancha") return v !== (isEdit ? (league.cancha || "") : "")
       if (k === "multiplesCanchas") return v !== (isEdit ? (league as any).multiplesCanchas ?? false : false)
       if (k === "canchaNombres") return JSON.stringify(v) !== JSON.stringify(isEdit ? (((league as any).canchas?.length ? (league as any).canchas.map((c: any) => c.nombre) : [""])) : [""])
+      if (k === "usaArbitros") return v !== (isEdit ? (league as any).usaArbitros ?? false : false)
+      if (k === "arbitroNombres") return JSON.stringify(v) !== JSON.stringify(isEdit ? (((league as any).arbitros?.length ? (league as any).arbitros.map((a: any) => a.nombre) : [""])) : [""])
       return v !== ""
     })
     if (dirty) {
@@ -302,62 +327,67 @@ function LeagueFormContent({ leagueId, isEdit, league, userId }: FormContentProp
 
         <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
           <View style={{ backgroundColor: Palette.cyan10, borderBottomWidth: 1, borderBottomColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.sm }}>
-            <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.cyan }}>Canchas</Text>
+            <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.cyan }}>Árbitros</Text>
           </View>
           <View style={{ padding: Pad.base, gap: Gap.md }}>
             <TouchableOpacity
               onPress={() => {
-                if (form.multiplesCanchas && form.canchaNombres.some((n) => n.trim())) {
+                if (form.usaArbitros && form.arbitroNombres.some((n) => n.trim())) {
                   Alert.alert(
-                    "Desactivar canchas múltiples",
-                    "Se perderán las canchas agregadas. ¿Continuar?",
+                    "Desactivar árbitros",
+                    "Los nombres se perderán. ¿Continuar?",
                     [
                       { text: "Cancelar", style: "cancel" },
-                      { text: "Sí", style: "destructive", onPress: () => setForm((p) => ({ ...p, multiplesCanchas: false, canchaNombres: [""] })) },
+                      { text: "Sí", style: "destructive", onPress: () => setForm((p) => ({ ...p, usaArbitros: false, arbitroNombres: [""] })) },
                     ]
                   )
                 } else {
-                  setForm((p) => ({
-                    ...p,
-                    multiplesCanchas: !p.multiplesCanchas,
-                    canchaNombres: p.multiplesCanchas ? [""] : ["", ""],
-                  }))
+                  setForm((p) => {
+                    const usaArbitros = !p.usaArbitros
+                    return {
+                      ...p,
+                      usaArbitros,
+                      arbitroNombres: usaArbitros
+                        ? [...p.arbitroNombres, ...Array(Math.max(0, 2 - p.arbitroNombres.length)).fill("")]
+                        : p.arbitroNombres,
+                    }
+                  })
                 }
               }}
               style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}
             >
               <View style={{
-                width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: form.multiplesCanchas ? Palette.cyan : Palette.border,
-                backgroundColor: form.multiplesCanchas ? Palette.cyan : "transparent",
+                width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: form.usaArbitros ? Palette.cyan : Palette.border,
+                backgroundColor: form.usaArbitros ? Palette.cyan : "transparent",
                 alignItems: "center", justifyContent: "center",
               }}>
-                {form.multiplesCanchas && <Text style={{ color: Palette.black, fontSize: 14, fontFamily: Fonts.bold }}>✓</Text>}
+                {form.usaArbitros && <Text style={{ color: Palette.black, fontSize: 14, fontFamily: Fonts.bold }}>✓</Text>}
               </View>
-              <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.medium }}>Múltiples canchas</Text>
+              <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.medium }}>¿Asignas árbitros a los partidos?</Text>
             </TouchableOpacity>
 
-            {form.multiplesCanchas && (
+            {form.usaArbitros && (
               <>
-                {form.canchaNombres.map((nombre, idx) => (
+                {form.arbitroNombres.map((nombre, idx) => (
                   <View key={idx} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
                     <TextInput
                       style={{
                         flex: 1, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border,
                         paddingHorizontal: Pad.base, paddingVertical: Pad.md, fontSize: 15, color: Palette.text,
                       }}
-                      placeholder={idx === 0 ? "Ej: Cancha 1" : `Cancha ${idx + 1}`}
+                      placeholder={idx === 0 ? "Ej: Juan Pérez" : `Árbitro ${idx + 1}`}
                       placeholderTextColor={Palette.textMuted}
                       value={nombre}
                       onChangeText={(v) => {
-                        const copy = [...form.canchaNombres]
+                        const copy = [...form.arbitroNombres]
                         copy[idx] = v
-                        setForm((p) => ({ ...p, canchaNombres: copy }))
+                        setForm((p) => ({ ...p, arbitroNombres: copy }))
                       }}
                       maxLength={50}
                     />
-                    {form.canchaNombres.length > 2 && (
+                    {form.arbitroNombres.length > 2 && (
                       <TouchableOpacity
-                        onPress={() => setForm((p) => ({ ...p, canchaNombres: p.canchaNombres.filter((_, i) => i !== idx) }))}
+                        onPress={() => setForm((p) => ({ ...p, arbitroNombres: p.arbitroNombres.filter((_, i) => i !== idx) }))}
                         style={{ padding: Pad.sm }}
                       >
                         <Text style={{ color: Palette.danger, fontSize: 18, fontFamily: Fonts.bold }}>✕</Text>
@@ -366,12 +396,12 @@ function LeagueFormContent({ leagueId, isEdit, league, userId }: FormContentProp
                   </View>
                 ))}
                 <TouchableOpacity
-                  onPress={() => setForm((p) => ({ ...p, canchaNombres: [...p.canchaNombres, ""] }))}
+                  onPress={() => setForm((p) => ({ ...p, arbitroNombres: [...p.arbitroNombres, ""] }))}
                   style={{ paddingVertical: Pad.sm }}
                 >
-                  <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>+ Agregar cancha</Text>
+                  <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>+ Agregar árbitro</Text>
                 </TouchableOpacity>
-                <Text style={{ color: Palette.textMuted, fontSize: 11 }}>Las canchas se comparten entre todas las divisiones de la liga.</Text>
+                <Text style={{ color: Palette.textMuted, fontSize: 11 }}>Agrega al menos 2 árbitros. Se comparten entre todas las divisiones de la liga.</Text>
               </>
             )}
           </View>
@@ -419,6 +449,7 @@ export default function LeagueFormScreen() {
   const isEdit = Boolean(leagueId)
   const { data: session } = authClient.useSession()
   const userId = session?.user?.id ?? ""
+  const canCreate = canCreateLeague((session?.user as { rol?: UserRole } | undefined)?.rol)
 
   const { data: league, isLoading, error } = useLeague(leagueId ?? "")
 
@@ -457,6 +488,15 @@ export default function LeagueFormScreen() {
     )
   }
 
+  if (!isEdit && !canCreate) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Palette.black }}>
+        <CustomHeader title="Nueva liga" onBack={() => router.back()} />
+        <ErrorState message="No tienes permisos para crear ligas" fullScreen />
+      </View>
+    )
+  }
+
   return (
     <AuthGate>
       <LeagueFormContent
@@ -464,7 +504,6 @@ export default function LeagueFormScreen() {
         leagueId={leagueId ?? null}
         isEdit={isEdit}
         league={league!}
-        userId={userId}
       />
     </AuthGate>
   )

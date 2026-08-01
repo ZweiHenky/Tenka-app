@@ -38,7 +38,7 @@ export const styles = StyleSheet.create({
     paddingVertical: Pad.md,
     paddingHorizontal: Pad.base,
     borderRadius: Radius.lg,
-    marginBottom: Pad.half,
+    marginBottom: Pad.micro,
     position: "relative",
   },
   itemContainerFocused: {

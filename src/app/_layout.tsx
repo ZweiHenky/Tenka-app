@@ -1,9 +1,9 @@
 import "../../global.css"
 import { useEffect } from "react"
-import { LogBox, Text, TextInput } from "react-native"
+import { LogBox, Pressable, Text, TextInput, View } from "react-native"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
 import { KeyboardProvider } from "react-native-keyboard-controller"
-import { Stack } from "expo-router"
+import { Stack, type ErrorBoundaryProps } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet"
 import { TourGuideProvider, TourGuideOverlay } from "@wrack/react-native-tour-guide"
@@ -21,6 +21,22 @@ SplashScreen.preventAutoHideAsync()
 LogBox.ignoreLogs(["InteractionManager has been deprecated"])
 
 const queryClient = new QueryClient()
+
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <View className="flex-1 items-center justify-center bg-background px-8">
+      <Text className="text-center text-2xl font-bold text-foreground">Algo salio mal</Text>
+      <Text className="mt-3 text-center text-base text-muted-foreground">{error.message}</Text>
+      <Pressable
+        accessibilityRole="button"
+        className="mt-6 rounded-xl bg-primary px-6 py-3"
+        onPress={retry}
+      >
+        <Text className="font-semibold text-primary-foreground">Intentar de nuevo</Text>
+      </Pressable>
+    </View>
+  )
+}
 
 export default function RootLayout() {
   const insets = useSafeAreaInsets()

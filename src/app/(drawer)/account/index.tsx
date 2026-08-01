@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { View, Text, TouchableOpacity, Image, ActivityIndicator } from "react-native"
+import { View, Text, TouchableOpacity, Image, ActivityIndicator, InteractionManager } from "react-native"
 import { router } from "expo-router"
 import { useQueryClient } from "@tanstack/react-query"
 import { authClient } from "@/infrastructure/auth/client"
@@ -8,6 +8,8 @@ import { Palette, Radius, Pad, Gap } from "@/constants/theme"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import CustomHeader from "@/shared/components/CustomHeader"
 import PullToRefresh from "@/shared/components/PullToRefresh"
+import { useToast } from "@/shared/components/Toast"
+import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 
 export default function ProfileScreen() {
   const { data: session, isPending, refetch: refetchSession } = authClient.useSession()
@@ -15,12 +17,43 @@ export default function ProfileScreen() {
   const [savingPhoneVisibility, setSavingPhoneVisibility] = useState(false)
   const [phoneVisibleOverride, setPhoneVisibleOverride] = useState<boolean | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+  const [activatingRole, setActivatingRole] = useState(false)
   const qc = useQueryClient()
+  const toast = useToast()
 
   const handleSignOut = useCallback(async () => {
-    await authClient.signOut()
-    router.replace("/(auth)/sign-in")
-  }, [])
+    setSigningOut(true)
+    try {
+      router.replace("/(drawer)")
+      await new Promise<void>((resolve) => InteractionManager.runAfterInteractions(() => resolve()))
+
+      const { error } = await authClient.signOut()
+      if (error) {
+        toast.error(getAuthErrorMessage(error, "No se pudo cerrar la sesión."))
+        return
+      }
+      qc.clear()
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error, "No se pudo cerrar la sesión."))
+    } finally {
+      setSigningOut(false)
+    }
+  }, [qc, toast])
+
+  const handleActivateLeagueRole = async () => {
+    setActivatingRole(true)
+    try {
+      await userApi.activateLeagueRole()
+      await refetchSession({ query: { disableCookieCache: true } })
+      qc.invalidateQueries()
+      toast.success("Tu cuenta ya puede administrar ligas.")
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error, "No se pudo activar el rol de liga."))
+    } finally {
+      setActivatingRole(false)
+    }
+  }
 
   const handleUserUpdated = useCallback(() => {
     qc.invalidateQueries({ queryKey: ["session"] })
@@ -105,11 +138,22 @@ export default function ProfileScreen() {
             />
           </View>
 
+          {(user as any).rol !== "LIGA" && (user as any).rol !== "ADMINISTRADOR" ? (
+            <TouchableOpacity
+              onPress={handleActivateLeagueRole}
+              disabled={activatingRole}
+              style={{ backgroundColor: Palette.cyan10, borderWidth: 1, borderColor: Palette.cyan, borderRadius: Radius.xl, paddingVertical: Pad.base, alignItems: "center", opacity: activatingRole ? 0.5 : 1 }}
+            >
+              {activatingRole ? <ActivityIndicator color={Palette.cyan} /> : <Text style={{ color: Palette.cyan, fontSize: 15, fontWeight: "700" }}>Activar administración de ligas</Text>}
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity
             onPress={handleSignOut}
-            style={{ backgroundColor: Palette.danger10, borderWidth: 1, borderColor: Palette.danger, borderRadius: Radius.xl, paddingVertical: Pad.base, alignItems: "center", marginTop: Gap.base }}
+            disabled={signingOut}
+            style={{ backgroundColor: Palette.danger10, borderWidth: 1, borderColor: Palette.danger, borderRadius: Radius.xl, paddingVertical: Pad.base, alignItems: "center", marginTop: Gap.base, opacity: signingOut ? 0.5 : 1 }}
           >
-            <Text style={{ color: Palette.danger, fontSize: 16, fontWeight: "600" }}>Cerrar sesión</Text>
+            {signingOut ? <ActivityIndicator color={Palette.danger} /> : <Text style={{ color: Palette.danger, fontSize: 16, fontWeight: "600" }}>Cerrar sesión</Text>}
           </TouchableOpacity>
         </View>
       </PullToRefresh>

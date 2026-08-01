@@ -10,22 +10,12 @@ import { useDivision, useCreateDivision, useUpdateDivision } from "@/features/di
 import type { Division } from "@/domain/interfaces/league"
 import { SelectField } from "@/shared/components/SelectField"
 import { TimeRangePicker } from "@/shared/components/TimeRangePicker"
+import { calculateTimeRangeCapacity, parseTimeRanges, validateTimeRange } from "@/shared/utils/time-range"
+import DivisionDaysPicker from "@/features/division/components/DivisionDaysPicker"
 import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import { AuthGate } from "@/shared/components/AuthGate"
-
-const DIAS_OPTIONS = [
-  { id: "L-V", nombre: "Lunes a Viernes (L-V)" },
-  { id: "S-D", nombre: "Sábado y Domingo (S-D)" },
-  { id: "D", nombre: "Domingo (D)" },
-  { id: "S", nombre: "Sábado (S)" },
-  { id: "L", nombre: "Lunes (L)" },
-  { id: "Ma", nombre: "Martes (Ma)" },
-  { id: "Mi", nombre: "Miércoles (Mi)" },
-  { id: "J", nombre: "Jueves (J)" },
-  { id: "V", nombre: "Viernes (V)" },
-]
 
 interface FormState {
   nombre: string
@@ -53,19 +43,8 @@ const EMPTY_FORM: FormState = {
   horarioPartido: "",
 }
 
-function parseRanges(value: string): { start: string; end: string }[] {
-  if (!value) return []
-  return value.split(" / ").map((r) => {
-    let parts = r.split(" - ").map((s) => s.trim())
-    if (parts.length === 2) return { start: parts[0], end: parts[1] }
-    parts = r.split("-").map((s) => s.trim())
-    if (parts.length === 2) return { start: parts[0], end: parts[1] }
-    return null
-  }).filter(Boolean) as { start: string; end: string }[]
-}
-
 function hasValidRanges(value: string): boolean {
-  const ranges = parseRanges(value)
+  const ranges = parseTimeRanges(value)
   return ranges.length > 0 && ranges.every((r) => /^\d{2}:\d{2}$/.test(r.start) && /^\d{2}:\d{2}$/.test(r.end))
 }
 
@@ -110,11 +89,20 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
     if (!form.tipoId) return "Selecciona un tipo"
     if (!form.tipoCompetenciaId) return "Selecciona un tipo de competencia"
     if (!form.diasPartido) return "Selecciona al menos un día de partido"
-    if (!hasValidRanges(form.horarioPartido)) return "Agrega al menos un rango de horario"
     const dur = form.duracionPartido
-    if (dur && (!Number.isFinite(Number(dur)) || Number(dur) <= 0)) return "Duración debe ser un número positivo"
+    if (!dur || !Number.isFinite(Number(dur)) || Number(dur) <= 0) return "Duración del partido es obligatoria y debe ser un número positivo"
     const desc = form.descanso
-    if (desc && (!Number.isFinite(Number(desc)) || Number(desc) < 0)) return "Descanso debe ser un número no negativo"
+    if (desc && (!Number.isFinite(Number(desc)) || Number(desc) < 0)) return "Tiempo libre debe ser un número no negativo"
+    if (!hasValidRanges(form.horarioPartido)) return "Agrega al menos un rango de horario"
+
+    const ranges = parseTimeRanges(form.horarioPartido)
+    for (let index = 0; index < ranges.length; index++) {
+      const range = ranges[index]
+      const rangeError = validateTimeRange(range.start, range.end, ranges, index)
+      if (rangeError) return rangeError
+      const capacity = calculateTimeRangeCapacity(range.start, range.end, Number(dur), Number(desc) || 0)
+      if (capacity.matchCount === 0) return `El rango ${range.start} - ${range.end} no alcanza para un partido completo`
+    }
     return null
   }
 
@@ -221,7 +209,7 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
             </View>
 
             <View>
-              <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Duración del partido (min)</Text>
+              <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Duración del partido (min) *</Text>
               <TextInput
                 style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.md, fontSize: 15, color: Palette.text }}
                 placeholder="Ej: 50"
@@ -233,7 +221,7 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
             </View>
 
             <View>
-              <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Descanso entre partidos (min)</Text>
+              <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Tiempo libre entre partidos (min)</Text>
               <TextInput
                 style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.md, fontSize: 15, color: Palette.text }}
                 placeholder="Ej: 10"
@@ -242,6 +230,9 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
                 value={form.descanso}
                 onChangeText={(v) => setForm((p) => ({ ...p, descanso: v }))}
               />
+              <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, fontSize: 12, marginTop: 4 }}>
+                Tiempo entre el final de un partido y el inicio del siguiente.
+              </Text>
             </View>
           </View>
         </View>
@@ -262,8 +253,13 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
             <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.cyan }}>Horario de partido *</Text>
           </View>
           <View style={{ padding: Pad.base, gap: Gap.md }}>
-            <SelectField label="Días de partido *" current={form.diasPartido} options={DIAS_OPTIONS} onSelect={(v) => setForm((p) => ({ ...p, diasPartido: v }))} />
-            <TimeRangePicker value={form.horarioPartido} onChange={(v) => setForm((p) => ({ ...p, horarioPartido: v }))} />
+            <DivisionDaysPicker value={form.diasPartido} onChange={(v) => setForm((p) => ({ ...p, diasPartido: v }))} />
+            <TimeRangePicker
+              value={form.horarioPartido}
+              onChange={(v) => setForm((p) => ({ ...p, horarioPartido: v }))}
+              matchDuration={Number(form.duracionPartido) || undefined}
+              breakDuration={Number(form.descanso) || 0}
+            />
           </View>
         </View>
 

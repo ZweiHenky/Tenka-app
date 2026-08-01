@@ -405,7 +405,7 @@ export default function TeamDetailScreen() {
         variant="danger"
         loading={removeJugadorFromTeam.isPending}
         onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteTarget(null)}
+        onClose={() => setDeleteTarget(null)}
       />
 
     </View>

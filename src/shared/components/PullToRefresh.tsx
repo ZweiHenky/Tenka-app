@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, type ReactNode } from "react"
 import { RefreshControl, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native"
 import Animated from "react-native-reanimated"
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { Palette } from "@/constants/theme"
 
 interface Props {
@@ -12,9 +13,10 @@ interface Props {
   children: ReactNode
   scrollRef?: React.RefObject<Animated.ScrollView>
   onScroll?: (e: NativeSyntheticEvent<NativeScrollEvent>) => void
+  keyboardAware?: boolean
 }
 
-export default function PullToRefresh({ onRefresh, refreshing, onEndReached, onEndReachedThreshold = 400, children, scrollRef, onScroll }: Props) {
+export default function PullToRefresh({ onRefresh, refreshing, onEndReached, onEndReachedThreshold = 400, children, scrollRef, onScroll, keyboardAware = false }: Props) {
   const endReachedRef = useRef<(() => void) | undefined>(undefined)
   const nearBottom = useRef(false)
   const thresholdRef = useRef(onEndReachedThreshold)
@@ -45,6 +47,36 @@ export default function PullToRefresh({ onRefresh, refreshing, onEndReached, onE
     externalOnScroll.current?.(e)
   }, [])
 
+  const refreshControl = (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      tintColor={Palette.cyan}
+      colors={[Palette.cyan]}
+      progressBackgroundColor={Palette.dark}
+    />
+  )
+
+  if (keyboardAware) {
+    return (
+      <KeyboardAwareScrollView
+        ref={scrollRef as any}
+        bottomOffset={24}
+        disableScrollOnKeyboardHide
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        bounces
+        overScrollMode="always"
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        style={{ flex: 1 }}
+        refreshControl={refreshControl}
+      >
+        {children}
+      </KeyboardAwareScrollView>
+    )
+  }
+
   return (
     <Animated.ScrollView
       ref={scrollRef}
@@ -55,15 +87,7 @@ export default function PullToRefresh({ onRefresh, refreshing, onEndReached, onE
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       style={{ flex: 1 }}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={Palette.cyan}
-          colors={[Palette.cyan]}
-          progressBackgroundColor={Palette.dark}
-        />
-      }
+      refreshControl={refreshControl}
     >
       {children}
     </Animated.ScrollView>
