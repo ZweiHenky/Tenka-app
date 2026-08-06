@@ -16,16 +16,25 @@ import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import { AuthGate } from "@/shared/components/AuthGate"
 import { canCreateLeague, type UserRole } from "@/domain/interfaces/user"
+import type { CreateLeagueInput } from "@/domain/interfaces/league"
+import { createCourtDrafts, toCourtPayload, validateCourtConfig, type CourtDraft } from "@/features/league/utils/court-config"
+
+let nextCourtKey = 0
+
+function newCourt(): CourtDraft {
+  nextCourtKey += 1
+  return { key: `new-court-${nextCourtKey}`, nombre: "", activa: true }
+}
 
 interface FormState {
   nombre: string
   descripcion: string
   logo: string
-  logoPublicId: string
+  logoAssetId: string
   cancha: string
-  canchaPublicId: string
+  coverAssetId: string
   multiplesCanchas: boolean
-  canchaNombres: string[]
+  canchas: CourtDraft[]
   usaArbitros: boolean
   arbitroNombres: string[]
   ubicacionId: string
@@ -41,11 +50,11 @@ const EMPTY_FORM: FormState = {
   nombre: "",
   descripcion: "",
   logo: "",
-  logoPublicId: "",
+  logoAssetId: "",
   cancha: "",
-  canchaPublicId: "",
+  coverAssetId: "",
   multiplesCanchas: false,
-  canchaNombres: [""],
+  canchas: [],
   usaArbitros: false,
   arbitroNombres: [""],
   ubicacionId: "",
@@ -75,19 +84,15 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
         nombre: league.nombre,
         descripcion: league.descripcion,
         logo: league.logo || "",
-        logoPublicId: (league as any).logoPublicId || "",
+        logoAssetId: "",
         cancha: league.cancha || "",
-        canchaPublicId: (league as any).canchaPublicId || "",
-        multiplesCanchas: (league as any).multiplesCanchas ?? false,
-        canchaNombres: (() => {
-          const nombres = (league as any).canchas?.map((c: any) => c.nombre) ?? []
-          if (!(league as any).multiplesCanchas) return nombres.length > 0 ? nombres : [""]
-          return [...nombres, ...Array(Math.max(0, 2 - nombres.length)).fill("")]
-        })(),
-        usaArbitros: (league as any).usaArbitros ?? false,
+        coverAssetId: "",
+        multiplesCanchas: league.multiplesCanchas ?? false,
+        canchas: createCourtDrafts(league.canchas),
+        usaArbitros: league.usaArbitros ?? false,
         arbitroNombres: (() => {
-          const nombres = (league as any).arbitros?.map((a: any) => a.nombre) ?? []
-          if ((league as any).usaArbitros) {
+          const nombres = league.arbitros?.map((arbitro) => arbitro.nombre) ?? []
+          if (league.usaArbitros) {
             return [...nombres, ...Array(Math.max(0, 2 - nombres.length)).fill("")]
           }
           return nombres.length > 0 ? nombres : [""]
@@ -106,21 +111,14 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
 
   const [form, setForm] = useState<FormState>(initForm)
   const [showLocationPicker, setShowLocationPicker] = useState(false)
-  const [uploading, setUploading] = useState<string | null>(null)
+  const [picked, setPicked] = useState<Record<string, { uri: string; fileSize: number | null; mimeType: string | null }>>({})
   const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
     if (!form.nombre.trim()) { toast.error("El nombre es obligatorio"); return }
 
-    const canchaNombres = form.canchaNombres.map((n) => n.trim()).filter(Boolean)
-    if (form.multiplesCanchas && canchaNombres.length < 2) {
-      toast.error("Agrega al menos 2 canchas")
-      return
-    }
-    if (new Set(canchaNombres.map((n) => n.toLocaleLowerCase())).size !== canchaNombres.length) {
-      toast.error("Los nombres de las canchas no pueden repetirse")
-      return
-    }
+    const courtError = validateCourtConfig(form.multiplesCanchas, form.canchas)
+    if (courtError) { toast.error(courtError); return }
 
     const arbitroNombres = form.arbitroNombres.map((n) => n.trim()).filter(Boolean)
     if (form.usaArbitros && arbitroNombres.length < 2) {
@@ -151,17 +149,28 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
 
     if (!ubicacionId) { toast.error("Debes seleccionar una ubicación"); return }
 
+    let logoAssetId = form.logoAssetId
+    let coverAssetId = form.coverAssetId
+    const uploadedAssets: string[] = []
     setSaving(true)
     try {
-      const payload: Record<string, unknown> = {
+      if (picked.logo) {
+        const { mediaAssetId } = await uploadToCloudinary(picked.logo.uri, "LEAGUE_LOGO", { fileSize: picked.logo.fileSize, mimeType: picked.logo.mimeType })
+        logoAssetId = mediaAssetId
+        uploadedAssets.push(mediaAssetId)
+      }
+      if (picked.cancha) {
+        const { mediaAssetId } = await uploadToCloudinary(picked.cancha.uri, "LEAGUE_COVER", { fileSize: picked.cancha.fileSize, mimeType: picked.cancha.mimeType })
+        coverAssetId = mediaAssetId
+        uploadedAssets.push(mediaAssetId)
+      }
+      const payload: CreateLeagueInput = {
         nombre: form.nombre,
         descripcion: form.descripcion,
-        logo: form.logo || undefined,
-        logoPublicId: form.logoPublicId || undefined,
-        cancha: form.cancha || undefined,
-        canchaPublicId: form.canchaPublicId || undefined,
+        logoAssetId: logoAssetId || undefined,
+        coverAssetId: coverAssetId || undefined,
         multiplesCanchas: form.multiplesCanchas,
-        canchas: form.multiplesCanchas && canchaNombres.length > 0 ? canchaNombres.map((nombre) => ({ nombre })) : undefined,
+        canchas: toCourtPayload(form.canchas),
         usaArbitros: form.usaArbitros,
         arbitros: form.usaArbitros && arbitroNombres.length > 0 ? arbitroNombres.map((nombre) => ({ nombre })) : undefined,
         ubicacionId,
@@ -171,11 +180,12 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
         await updateLeague.mutateAsync({ id: leagueId!, data: payload })
         toast.success("Cambios guardados")
       } else {
-        await createLeague.mutateAsync(payload as any)
+        await createLeague.mutateAsync(payload)
         toast.success("Liga creada")
       }
       router.back()
     } catch (e: any) {
+      for (const id of uploadedAssets) { await api.post(`/api/media/${id}/abandon`).catch(() => undefined) }
       toast.error(e.message || "Error al guardar")
     } finally {
       setSaving(false)
@@ -189,12 +199,12 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
       if (k.startsWith("ubicacion")) return v !== ""
       if (k === "logo") return v !== (isEdit ? (league.logo || "") : "")
       if (k === "cancha") return v !== (isEdit ? (league.cancha || "") : "")
-      if (k === "multiplesCanchas") return v !== (isEdit ? (league as any).multiplesCanchas ?? false : false)
-      if (k === "canchaNombres") return JSON.stringify(v) !== JSON.stringify(isEdit ? (((league as any).canchas?.length ? (league as any).canchas.map((c: any) => c.nombre) : [""])) : [""])
-      if (k === "usaArbitros") return v !== (isEdit ? (league as any).usaArbitros ?? false : false)
-      if (k === "arbitroNombres") return JSON.stringify(v) !== JSON.stringify(isEdit ? (((league as any).arbitros?.length ? (league as any).arbitros.map((a: any) => a.nombre) : [""])) : [""])
+      if (k === "multiplesCanchas") return v !== (isEdit ? league.multiplesCanchas ?? false : false)
+      if (k === "canchas") return JSON.stringify(v) !== JSON.stringify(isEdit ? createCourtDrafts(league.canchas) : [])
+      if (k === "usaArbitros") return v !== (isEdit ? league.usaArbitros ?? false : false)
+      if (k === "arbitroNombres") return JSON.stringify(v) !== JSON.stringify(isEdit ? ((league.arbitros?.length ? league.arbitros.map((arbitro) => arbitro.nombre) : [""])) : [""])
       return v !== ""
-    })
+    }) || !!picked.logo || !!picked.cancha
     if (dirty) {
       Alert.alert("Descartar cambios", "¿Seguro que quieres salir? Los cambios no guardados se perderán.", [
         { text: "Seguir editando", style: "cancel" },
@@ -203,23 +213,14 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
     } else {
       router.back()
     }
-  }, [form, isEdit, league])
+  }, [form, isEdit, league, picked])
 
   const pickImage = async (field: string, aspect: [number, number]) => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (!perm.granted) { toast.error("Se necesita acceso a la galería"); return }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect, quality: 0.8 })
     if (!result.canceled && result.assets[0]) {
-      setUploading(field)
-      try {
-        const { url, publicId } = await uploadToCloudinary(result.assets[0].uri)
-        const publicIdField = `${field}PublicId`
-        setForm((p) => ({ ...p, [field]: url, [publicIdField]: publicId }))
-      } catch {
-        toast.error("No se pudo subir la imagen")
-      } finally {
-        setUploading(null)
-      }
+      setPicked((p) => ({ ...p, [field]: { uri: result.assets[0].uri, fileSize: result.assets[0].fileSize ?? null, mimeType: result.assets[0].mimeType ?? null } }))
     }
   }
 
@@ -291,37 +292,109 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
             <View>
               <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Logo</Text>
               <TouchableOpacity
-                onPress={uploading === "logo" ? undefined : () => pickImage("logo", [1, 1])}
+                onPress={() => pickImage("logo", [1, 1])}
                 style={{ flexDirection: "row", alignItems: "center", gap: Gap.base, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
               >
                 <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                  <Image source={form.logo ? { uri: form.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
+                  <Image source={picked.logo?.uri ? { uri: picked.logo.uri } : form.logo ? { uri: form.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
                 </View>
-                {uploading === "logo" ? (
-                  <ActivityIndicator color={Palette.cyan} size="small" />
-                ) : (
-                  <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar imagen</Text>
-                )}
+                <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar imagen</Text>
               </TouchableOpacity>
               <Text style={{ color: Palette.textMuted, fontSize: 11, marginTop: 4 }}>200×200px — PNG o WebP (~20-50 KB)</Text>
             </View>
             <View>
-              <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Campo / Cancha</Text>
+              <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Imagen de portada del campo</Text>
               <TouchableOpacity
-                onPress={uploading === "cancha" ? undefined : () => pickImage("cancha", [16, 9])}
+                onPress={() => pickImage("cancha", [16, 9])}
                 style={{ flexDirection: "row", alignItems: "center", gap: Gap.base, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
               >
                 <View style={{ width: 64, height: 48, borderRadius: Radius.md, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                  <Image source={form.cancha ? { uri: form.cancha } : require("@/assets/ejemplos/campo.jpg")} style={{ width: 64, height: 48 }} resizeMode="cover" />
+                  <Image source={picked.cancha?.uri ? { uri: picked.cancha.uri } : form.cancha ? { uri: form.cancha } : require("@/assets/ejemplos/campo.jpg")} style={{ width: 64, height: 48 }} resizeMode="cover" />
                 </View>
-                {uploading === "cancha" ? (
-                  <ActivityIndicator color={Palette.cyan} size="small" />
-                ) : (
-                  <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar imagen</Text>
-                )}
+                <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar imagen</Text>
               </TouchableOpacity>
-              <Text style={{ color: Palette.textMuted, fontSize: 11, marginTop: 4 }}>1200×675px — 16:9, JPEG 80% (~200-400 KB)</Text>
+              <Text style={{ color: Palette.textMuted, fontSize: 11, marginTop: 4 }}>Solo es la imagen principal de la liga, no una cancha programable. 1200×675px, 16:9.</Text>
             </View>
+          </View>
+        </View>
+
+        <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
+          <View style={{ backgroundColor: Palette.cyan10, borderBottomWidth: 1, borderBottomColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.sm }}>
+            <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.cyan }}>Canchas programables</Text>
+          </View>
+          <View style={{ padding: Pad.base, gap: Gap.md }}>
+            <TouchableOpacity
+              onPress={() => setForm((previous) => {
+                const multiplesCanchas = !previous.multiplesCanchas
+                if (!multiplesCanchas) return { ...previous, multiplesCanchas }
+
+                const activeCount = previous.canchas.filter((court) => court.activa).length
+                return {
+                  ...previous,
+                  multiplesCanchas,
+                  canchas: [...previous.canchas, ...Array.from({ length: Math.max(0, 2 - activeCount) }, newCourt)],
+                }
+              })}
+              style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}
+            >
+              <View style={{
+                width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: form.multiplesCanchas ? Palette.cyan : Palette.border,
+                backgroundColor: form.multiplesCanchas ? Palette.cyan : "transparent", alignItems: "center", justifyContent: "center",
+              }}>
+                {form.multiplesCanchas && <Text style={{ color: Palette.black, fontSize: 14, fontFamily: Fonts.bold }}>✓</Text>}
+              </View>
+              <Text style={{ flex: 1, fontSize: 14, color: Palette.text, fontFamily: Fonts.medium }}>¿Programas partidos en varias canchas?</Text>
+            </TouchableOpacity>
+
+            {form.multiplesCanchas && (
+              <>
+                {form.canchas.map((court, index) => (
+                  <View key={court.key} style={{ gap: Gap.sm, padding: Pad.md, borderRadius: Radius.md, borderWidth: 1, borderColor: court.activa ? Palette.border : Palette.warning, backgroundColor: Palette.surfaceLight }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: Gap.sm }}>
+                      <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.semiBold }}>Cancha {index + 1}</Text>
+                      {!court.activa && (
+                        <View style={{ backgroundColor: Palette.warning10, borderRadius: Radius.full, paddingHorizontal: Pad.sm, paddingVertical: Pad.micro }}>
+                          <Text style={{ color: Palette.warning, fontSize: 11, fontFamily: Fonts.semiBold }}>Inactiva</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+                      <TextInput
+                        style={{ flex: 1, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.md, fontSize: 15, color: Palette.text }}
+                        placeholder="Ej: Cancha principal"
+                        placeholderTextColor={Palette.textMuted}
+                        value={court.nombre}
+                        onChangeText={(nombre) => setForm((previous) => ({
+                          ...previous,
+                          canchas: previous.canchas.map((item) => item.key === court.key ? { ...item, nombre } : item),
+                        }))}
+                        maxLength={50}
+                      />
+                      <TouchableOpacity
+                        onPress={() => setForm((previous) => ({
+                          ...previous,
+                          canchas: court.id
+                            ? previous.canchas.map((item) => item.key === court.key ? { ...item, activa: !item.activa } : item)
+                            : previous.canchas.filter((item) => item.key !== court.key),
+                        }))}
+                        style={{ padding: Pad.sm }}
+                      >
+                        <Text style={{ color: court.activa ? Palette.danger : Palette.success, fontSize: 13, fontFamily: Fonts.semiBold }}>
+                          {court.id ? (court.activa ? "Desactivar" : "Reactivar") : "Quitar"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+                <TouchableOpacity
+                  onPress={() => setForm((previous) => ({ ...previous, canchas: [...previous.canchas, newCourt()] }))}
+                  style={{ paddingVertical: Pad.sm }}
+                >
+                  <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>+ Agregar cancha</Text>
+                </TouchableOpacity>
+                <Text style={{ color: Palette.textMuted, fontSize: 11 }}>Se requieren al menos 2 canchas activas con nombres únicos. Las canchas inactivas se conservan para el historial.</Text>
+              </>
+            )}
           </View>
         </View>
 

@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react"
-import { View, Text, FlatList, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image, RefreshControl } from "react-native"
+import { View, Text, FlatList, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, RefreshControl } from "react-native"
 import { router, useIsFocused } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import AsyncStorage from "@react-native-async-storage/async-storage"
@@ -15,6 +15,7 @@ import EmptyState from "@/shared/components/EmptyState"
 import CustomHeader from "@/shared/components/CustomHeader"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { useLigaFavoritaStore } from "@/stores/ligaFavoritaStore"
+import LogoImage from "@/shared/components/LogoImage"
 
 interface AccordionFilterSectionProps {
   title: string
@@ -279,15 +280,7 @@ export default function Home() {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Gap.md, paddingVertical: Gap.sm }}>
                 {favoritos.map((fav) => (
                   <TouchableOpacity key={fav.id} onPress={() => router.push({ pathname: "/(drawer)/(public)/liga/[id]", params: { id: fav.id } })} style={{ alignItems: "center", gap: 4 }}>
-                    <View style={{ width: 56, height: 56, borderRadius: 28, overflow: "hidden", borderWidth: 2, borderColor: Palette.warning, alignItems: "center", justifyContent: "center", backgroundColor: Palette.surface }}>
-                      {fav.logo ? (
-                        <Image source={{ uri: fav.logo }} style={{ width: 56, height: 56 }} resizeMode="cover" />
-                      ) : fav.cancha ? (
-                        <Image source={{ uri: fav.cancha }} style={{ width: 56, height: 56 }} resizeMode="cover" />
-                      ) : (
-                        <Text style={{ fontSize: 22, fontFamily: Fonts.bold, color: Palette.cyan }}>{fav.nombre.charAt(0).toUpperCase()}</Text>
-                      )}
-                    </View>
+                    <LogoImage uri={fav.logo ?? fav.cancha} size={56} ring={Palette.warning} fallbackText={fav.nombre} />
                     <Text numberOfLines={1} style={{ fontSize: 11, color: Palette.textSecondary, maxWidth: 64, textAlign: "center" }}>{fav.nombre}</Text>
                   </TouchableOpacity>
                 ))}

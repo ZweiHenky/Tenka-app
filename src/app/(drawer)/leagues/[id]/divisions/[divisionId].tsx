@@ -7,6 +7,7 @@ import { useDivisionEquipos, useRemoveTeam } from "@/features/division-equipo/ho
 import { useTeams } from "@/features/team/hooks/useTeams"
 import { useJornadas, useDeleteJornada } from "@/features/jornada/hooks/useJornadas"
 import { useLookups } from "@/features/league/hooks/useLookups"
+import { useLeague } from "@/features/league/hooks/useLeagues"
 import { resolveNombre } from "@/shared/utils/resolve-lookup"
 import { divisionApi } from "@/features/division/api/divisions"
 import EquiposTab from "@/features/division/components/EquiposTab"
@@ -27,7 +28,7 @@ import { useRondasPlayoff, useGenerateRondas, useDeleteRondasByDivision } from "
 import EliminatoriasTab from "@/features/division/components/EliminatoriasTab"
 import PlayoffTeamSelectorModal from "@/features/division/components/PlayoffTeamSelectorModal"
 import DivisionConfirmDialogs from "@/features/division/components/DivisionConfirmDialogs"
-import { useResetDivision } from "@/features/division/hooks/useDivisions"
+import { useResetDivision, useUpdateDivision } from "@/features/division/hooks/useDivisions"
 import { TabBar } from "@/shared/components/TabBar"
 import DivisionScheduleManager from "@/features/division/components/DivisionScheduleManager"
 import PosicionesTab from "@/features/division/components/PosicionesTab"
@@ -38,6 +39,8 @@ import { useTour } from "@/shared/hooks/useTour"
 import { useJornadaGeneration } from "@/features/division/hooks/useJornadaGeneration"
 import { preparePlayoffSlots } from "@/features/division/utils/preparePlayoffSlots"
 import { getPlayoffTeamOptions } from "@/features/division/utils/playoff"
+import { useGoleadores } from "@/features/goleador/hooks/useGoleadores"
+import GoleadoresTable from "@/features/goleador/components/GoleadoresTable"
 
 export default function DivisionDetailScreen() {
   const toast = useToast()
@@ -49,6 +52,7 @@ export default function DivisionDetailScreen() {
     enabled: !!divisionId,
   })
   const lookups = useLookups()
+  const { data: league } = useLeague(ligaId!)
   const { data: links = [], isLoading: linksLoading, error: linksError, refetch: refetchLinks } = useDivisionEquipos(divisionId!)
   const { data: allTeams = [], isLoading: teamsLoading, error: teamsError } = useTeams()
   const removeTeam = useRemoveTeam()
@@ -60,10 +64,12 @@ export default function DivisionDetailScreen() {
   const rewindSchedule = useDivisionScheduleStore((s) => s.rewindSchedule)
   const { data: rondas = [], isLoading: rondasLoading, error: rondasError } = useRondasPlayoff(divisionId!)
   const { data: standings = [], isLoading: standingsLoading, error: standingsError } = useTablaPosiciones(divisionId!)
+  const goleadores = useGoleadores(divisionId)
   const playoffMode = rondas.length > 0
   const generateRondas = useGenerateRondas()
   const deleteRondas = useDeleteRondasByDivision()
   const resetDivision = useResetDivision()
+  const updateDivision = useUpdateDivision(ligaId!)
   const generatingLlaves = useRef(false)
   const clearEliminatoriaSlots = useDivisionScheduleStore((s) => s.clearEliminatoriaSlots)
   const setPlayoffMode = useDivisionScheduleStore((s) => s.setPlayoffMode)
@@ -113,6 +119,7 @@ export default function DivisionDetailScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["division", divisionId] })
       qc.invalidateQueries({ queryKey: ["divisions"] })
+      qc.invalidateQueries({ queryKey: ["ligas-infinitas"] })
       toast.success(isBorrador ? "División publicada" : "División regresada a borrador")
     },
     onError: (e: any) => toast.error(e.message),
@@ -130,6 +137,7 @@ export default function DivisionDetailScreen() {
         qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] }),
         qc.invalidateQueries({ queryKey: ["tabla-posiciones", divisionId] }),
         qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] }),
+        qc.invalidateQueries({ queryKey: ["goleadores", divisionId] }),
       ])
     } finally {
       setRefreshing(false)
@@ -243,6 +251,16 @@ export default function DivisionDetailScreen() {
     setActionSheetOpen(false)
     setShowResetConfirm(true)
   }, [])
+
+  const handleCanchaUnica = useCallback((canchaUnicaId: string | null) => {
+    updateDivision.mutate(
+      { id: divisionId!, data: { canchaUnicaId } },
+      {
+        onSuccess: () => toast.success(canchaUnicaId ? "Cancha fija actualizada" : "Cancha fija desactivada"),
+        onError: (error: Error) => toast.error(error.message),
+      },
+    )
+  }, [divisionId, toast, updateDivision])
 
   const handleSelectPlayoffTeams = useCallback((n: number) => {
     if (generatingLlaves.current || !division) return
@@ -361,6 +379,7 @@ export default function DivisionDetailScreen() {
     { key: "programacion", label: "Programación" },
     { key: "jornadas", label: "Jornada" },
     { key: "posiciones", label: "Posiciones" },
+    { key: "goleo", label: "Goleo" },
     ...(tieneEliminatorias && rondas.length > 0
       ? [{ key: "eliminatorias", label: "Eliminatoria" }]
       : []),
@@ -396,6 +415,10 @@ export default function DivisionDetailScreen() {
                   habilitados={habilitados ?? []}
                   onToggleArbitraje={handleToggleArbitraje}
                   onRemove={handleRemove}
+                  onManagePlayers={(teamId) => router.push({
+                    pathname: "/(drawer)/leagues/[id]/divisions/[divisionId]/teams/[teamId]",
+                    params: { id: ligaId!, divisionId: divisionId!, teamId },
+                  })}
                   onScannerOpen={handleScannerOpen}
                   onToggleSelectAll={() => { const all = assignedTeams.map((t) => t.id); const current = habilitados ?? []; setHabilitados(divisionId!, current.length === all.length ? [] : all) }}
                   linksError={linksError}
@@ -427,6 +450,8 @@ export default function DivisionDetailScreen() {
                 />
               </View>
             ) : null}
+
+            {tab === "goleo" ? <GoleadoresTable data={goleadores.data} isLoading={goleadores.isLoading} error={goleadores.error} /> : null}
 
             {tab === "eliminatorias" && tieneEliminatorias && rondas.length > 0 ? (
               <View ref={playoffsSectionRef} collapsable={false}>
@@ -507,6 +532,12 @@ export default function DivisionDetailScreen() {
         tieneEliminatorias={tieneEliminatorias}
         hasRondas={rondas.length > 0}
         isPending={cambioEstadoMutation.isPending}
+        multiplesCanchas={league?.multiplesCanchas === true}
+        canchas={league?.canchas ?? []}
+        canchaUnicaId={division.canchaUnicaId}
+        canchaUnicaPending={updateDivision.isPending}
+        onSelectCanchaUnica={(canchaId) => handleCanchaUnica(canchaId)}
+        onClearCanchaUnica={() => handleCanchaUnica(null)}
         onPublish={handlePublish}
         onRevertToBorrador={handleRevertToBorrador}
         onGeneratePlayoffs={handleGeneratePlayoffs}

@@ -9,6 +9,7 @@ export default function LeagueDetailLayout() {
       <Stack.Screen name="divisions/[divisionId]" />
       <Stack.Screen name="divisions/[divisionId]/jornadas/[jornadaId]" />
       <Stack.Screen name="divisions/[divisionId]/partidos/[partidoId]" />
+      <Stack.Screen name="divisions/[divisionId]/teams/[teamId]" />
     </Stack>
   )
 }

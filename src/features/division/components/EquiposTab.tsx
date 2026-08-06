@@ -8,6 +8,8 @@ interface TeamItem {
   id: string
   nombre: string
   logo: string | null
+  codigo: string
+  esPropio: boolean
   saldoPendiente?: string
 }
 
@@ -17,6 +19,7 @@ interface Props {
   habilitados: string[]
   onToggleArbitraje: (id: string) => void
   onRemove: (nombre: string, equipoId: string) => void
+  onManagePlayers: (equipoId: string) => void
   onScannerOpen: () => void
   onToggleSelectAll: () => void
   linksError: Error | null
@@ -29,6 +32,7 @@ export default function EquiposTab({
   habilitados,
   onToggleArbitraje,
   onRemove,
+  onManagePlayers,
   onScannerOpen,
   onToggleSelectAll,
   linksError,
@@ -72,6 +76,7 @@ export default function EquiposTab({
           arbitrajePagado={habilitados ?? []}
           onRemove={onRemove}
           onToggleArbitraje={onToggleArbitraje}
+          onManagePlayers={onManagePlayers}
           flat
         />
       )}

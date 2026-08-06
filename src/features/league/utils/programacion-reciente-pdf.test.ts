@@ -13,8 +13,8 @@ function match(id: string, fecha: string | null, local = `Local ${id}`): Program
   }
 }
 
-function schedule(divisiones: ProgramacionRecienteLigaDto["divisiones"]): ProgramacionRecienteLigaDto {
-  return { id: "liga", nombre: "Liga Central", divisiones }
+function schedule(divisiones: ProgramacionRecienteLigaDto["divisiones"], multiplesCanchas = true): ProgramacionRecienteLigaDto {
+  return { id: "liga", nombre: "Liga Central", multiplesCanchas, divisiones }
 }
 
 function jornada(partidos: ProgramacionRecientePartidoDto[]) {
@@ -83,6 +83,20 @@ describe("recent league schedule PDF", () => {
     expect(html).toContain("thead { display: table-header-group; }")
     expect(html).toContain("tr { break-inside: avoid; page-break-inside: avoid; }")
     expect(html).not.toMatch(/table \{[^}]*break-inside/)
+  })
+
+  it("omits the entire court column and court placeholder in single-court mode", () => {
+    const singleMatch = match("one", "2026-08-02T08:00:00")
+    singleMatch.cancha = null
+    const html = programacionRecienteHtml(schedule([
+      division("one", "Primera", [singleMatch]),
+    ], false))
+
+    expect(html).toContain("<th>Hora</th><th>Jornada</th><th>División</th><th>Categoría</th><th>Local</th><th>Visitante</th>")
+    expect(html.match(/<th>/g)).toHaveLength(6)
+    expect(html).not.toContain("<th>Cancha</th>")
+    expect(html).not.toContain("Por definir")
+    expect(html).toContain('<col style="width:10%" /><col style="width:10%" /><col style="width:16%" /><col style="width:16%" /><col style="width:24%" /><col style="width:24%" />')
   })
 
   it("orders dates globally and puts undated matches last", () => {

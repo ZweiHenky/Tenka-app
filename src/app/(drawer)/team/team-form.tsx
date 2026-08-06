@@ -6,6 +6,7 @@ import * as ImagePicker from "expo-image-picker"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { useTeam, useCreateTeam, useUpdateTeam } from "@/features/team/hooks/useTeams"
 import { uploadToCloudinary } from "@/infrastructure/cloudinary/upload"
+import { api } from "@/infrastructure/api/client"
 import { useToast } from "@/shared/components/Toast"
 import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
@@ -17,13 +18,12 @@ import { canCreateTeam, type UserRole } from "@/domain/interfaces/user"
 interface FormState {
   nombre: string
   logo: string
-  logoPublicId: string
 }
 
 interface FormContentProps {
   teamId: string | null
   isEdit: boolean
-  team: { id: string; nombre: string; logo: string | null; logoPublicId?: string | null }
+  team: { id: string; nombre: string; logo: string | null }
 }
 
 function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
@@ -34,9 +34,8 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
   const [form, setForm] = useState<FormState>(() => ({
     nombre: isEdit ? team.nombre : "",
     logo: isEdit ? (team.logo || "") : "",
-    logoPublicId: isEdit ? (team.logoPublicId || "") : "",
   }))
-  const [uploading, setUploading] = useState(false)
+  const [pickedLogo, setPickedLogo] = useState<{ uri: string; fileSize: number | null; mimeType: string | null } | null>(null)
   const [saving, setSaving] = useState(false)
 
   const pickLogo = async () => {
@@ -49,33 +48,30 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
       quality: 0.8,
     })
     if (!result.canceled && result.assets[0]) {
-      setUploading(true)
-      try {
-        const { url, publicId } = await uploadToCloudinary(result.assets[0].uri)
-        setForm((p) => ({ ...p, logo: url, logoPublicId: publicId }))
-      } catch {
-        toast.error("No se pudo subir la imagen")
-      } finally {
-        setUploading(false)
-      }
+      setPickedLogo({ uri: result.assets[0].uri, fileSize: result.assets[0].fileSize ?? null, mimeType: result.assets[0].mimeType ?? null })
     }
   }
 
   const handleSave = async () => {
     if (!form.nombre.trim()) { toast.error("El nombre del equipo es obligatorio"); return }
-    if (uploading) { toast.error("Espera a que termine la subida del logo"); return }
 
+    let logoAssetId = ""
     setSaving(true)
     try {
+      if (pickedLogo) {
+        const { mediaAssetId } = await uploadToCloudinary(pickedLogo.uri, "TEAM_LOGO", { fileSize: pickedLogo.fileSize, mimeType: pickedLogo.mimeType })
+        logoAssetId = mediaAssetId
+      }
       if (isEdit) {
-        await updateTeam.mutateAsync({ id: teamId!, data: { nombre: form.nombre.trim(), logo: form.logo || undefined, logoPublicId: form.logoPublicId || undefined } })
+        await updateTeam.mutateAsync({ id: teamId!, data: { nombre: form.nombre.trim(), logoAssetId: logoAssetId || undefined } })
         toast.success("Cambios guardados")
       } else {
-        await createTeam.mutateAsync({ nombre: form.nombre.trim(), logo: form.logo || undefined, logoPublicId: form.logoPublicId || undefined })
+        await createTeam.mutateAsync({ nombre: form.nombre.trim(), logoAssetId: logoAssetId || undefined })
         toast.success("Equipo creado")
       }
       router.back()
     } catch (e: any) {
+      if (logoAssetId) { await api.post(`/api/media/${logoAssetId}/abandon`).catch(() => undefined) }
       toast.error(e.message || "Error al guardar")
     } finally {
       setSaving(false)
@@ -83,7 +79,7 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
   }
 
   const handleBack = useCallback(() => {
-    const dirty = form.nombre !== (isEdit ? team.nombre : "") || form.logo !== (isEdit ? (team.logo || "") : "")
+    const dirty = form.nombre !== (isEdit ? team.nombre : "") || form.logo !== (isEdit ? (team.logo || "") : "") || !!pickedLogo
     if (dirty) {
       Alert.alert("Descartar cambios", "¿Seguro que quieres salir? Los cambios no guardados se perderán.", [
         { text: "Seguir editando", style: "cancel" },
@@ -92,7 +88,7 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
     } else {
       router.back()
     }
-  }, [form, isEdit, team])
+  }, [form, isEdit, team, pickedLogo])
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
@@ -121,17 +117,13 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
             <View>
               <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Logo</Text>
               <TouchableOpacity
-                onPress={uploading ? undefined : pickLogo}
+                onPress={pickLogo}
                 style={{ flexDirection: "row", alignItems: "center", gap: Gap.base, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
               >
                 <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                  <Image source={form.logo ? { uri: form.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
+                  <Image source={pickedLogo?.uri ? { uri: pickedLogo.uri } : form.logo ? { uri: form.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
                 </View>
-                {uploading ? (
-                  <ActivityIndicator color={Palette.cyan} size="small" />
-                ) : (
-                  <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar imagen</Text>
-                )}
+                <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar imagen</Text>
               </TouchableOpacity>
               <Text style={{ color: Palette.textMuted, fontSize: 11, marginTop: 4 }}>200×200px — PNG o WebP (~20-50 KB)</Text>
             </View>
@@ -140,8 +132,8 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
 
         <TouchableOpacity
           onPress={handleSave}
-          disabled={saving || uploading}
-          style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, alignItems: "center", opacity: (saving || uploading) ? 0.6 : 1 }}
+          disabled={saving}
+          style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, alignItems: "center", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? (
             <ActivityIndicator size="small" color={Palette.black} />

@@ -1,11 +1,13 @@
-import { View, Text, Image, TouchableOpacity } from "react-native"
+import { View, Text, TouchableOpacity } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
+import LogoImage from "@/shared/components/LogoImage"
 
 interface Props {
   id: string
   nombre: string
   logo: string | null
+  codigo: string
   onQr: (id: string) => void
   onEdit: (id: string) => void
   onDelete: (id: string, nombre: string) => void
@@ -14,15 +16,14 @@ interface Props {
   editButtonRef?: React.RefObject<any>
 }
 
-export default function TeamCard({ id, nombre, logo, onQr, onEdit, onDelete, onPress, qrButtonRef, editButtonRef }: Props) {
+export default function TeamCard({ id, nombre, logo, codigo, onQr, onEdit, onDelete, onPress, qrButtonRef, editButtonRef }: Props) {
   return (
     <TouchableOpacity activeOpacity={0.82} onPress={() => onPress?.(id)} style={{ backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
       <View style={{ flexDirection: "row", padding: Pad.base, alignItems: "center", gap: Gap.base }}>
-        <View style={{ width: 52, height: 52, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight, borderWidth: 2, borderColor: Palette.cyan }}>
-          <Image source={logo ? { uri: logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 52, height: 52 }} resizeMode="cover" />
-        </View>
+        <LogoImage uri={logo} size={52} ring={Palette.cyan} backgroundColor={Palette.surfaceLight} />
         <View style={{ flex: 1 }}>
           <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.bold }}>{nombre}</Text>
+          <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.medium }}>Código #{codigo}</Text>
         </View>
         <View style={{ flexDirection: "row", gap: Gap.sm, alignItems: "center" }}>
           <TouchableOpacity ref={qrButtonRef} onPress={() => onQr(id)} style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>

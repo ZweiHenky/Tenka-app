@@ -11,13 +11,14 @@ import TimePickerModal from "@/features/division/components/TimePickerModal"
 import ErrorState from "@/shared/components/ErrorState"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
-import { useDivisionScheduleStore, computeRefDateFromJornada, ensureUniqueSlotIds, getActiveSlots, isSlotManual, localDateFromString, reconcilePlayoffSlots, type PlayoffSlotCandidate, type TimeSlotConfig } from "@/stores/divisionSchedule"
+import { useDivisionScheduleStore, computeRefDateFromJornada, ensureUniqueSlotIds, generateSlots, getActiveSlots, isSlotManual, localDateFromString, reconcilePlayoffSlots, type PlayoffSlotCandidate, type TimeSlotConfig } from "@/stores/divisionSchedule"
 import { parseDiasPartido } from "@/shared/utils/parse-dias-partido"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { jornadaApi } from "@/features/jornada/api/jornadas"
 import { useRondasPlayoff } from "@/features/ronda-playoff/hooks/useRondasPlayoff"
 import { useToast } from "@/shared/components/Toast"
-import { api } from "@/infrastructure/api/client"
+import { useCourtAvailability } from "@/features/court-availability/hooks/useCourtAvailability"
+import { applyAutomaticCourtAssignments, isCourtOccupiedForSlot, planFromAvailability } from "@/features/court-availability/planner"
 
 const DIA_NOMBRES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
 const DIA_NOMBRES_FULL = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
@@ -111,11 +112,11 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
   const initSchedule = useDivisionScheduleStore((s) => s.initSchedule)
   const setSlotTeams = useDivisionScheduleStore((s) => s.setSlotTeams)
   const setSlotCancha = useDivisionScheduleStore((s) => s.setSlotCancha)
-  const setAllSlotsCancha = useDivisionScheduleStore((s) => s.setAllSlotsCancha)
   const clearSlot = useDivisionScheduleStore((s) => s.clearSlot)
   const addSlot = useDivisionScheduleStore((s) => s.addSlot)
   const removeSlot = useDivisionScheduleStore((s) => s.removeSlot)
   const replaceSlots = useDivisionScheduleStore((s) => s.replaceSlots)
+  const syncCanchaUnica = useDivisionScheduleStore((s) => s.syncCanchaUnica)
   const moveSlotToDay = useDivisionScheduleStore((s) => s.moveSlotToDay)
   const moveSlotToTime = useDivisionScheduleStore((s) => s.moveSlotToTime)
   const setDescansoEquipoId = useDivisionScheduleStore((s) => s.setDescansoEquipoId)
@@ -125,13 +126,6 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
   const advanceSchedule = useDivisionScheduleStore((s) => s.advanceSchedule)
 
   const ligaId = division?.ligaId
-  const { data: canchas = [] } = useQuery({
-    queryKey: ["ligas-canchas", ligaId],
-    queryFn: () => api.get(`/api/ligas/${ligaId}/canchas`).then((r) => r.data.data ?? []),
-    enabled: !!ligaId,
-    staleTime: 1000 * 60 * 2,
-  })
-  const showCanchaPicker = canchas.length > 0
 
   const [pickingSlot, setPickingSlot] = useState<{ slotId: string; side: "local" | "visitante" } | null>(null)
   const [timePickerSlot, setTimePickerSlot] = useState<TimeSlotConfig | null>(null)
@@ -343,68 +337,12 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
         qc.invalidateQueries({ queryKey: ["teams"] }),
         qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] }),
         qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] }),
+        qc.invalidateQueries({ queryKey: ["court-availability", ligaId] }),
       ])
     } finally {
       setRefreshing(false)
     }
-  }, [qc, divisionId])
-
-  const handleGenerateSlots = () => {
-    if (!division?.horarioPartido || !division?.duracionPartido || !division?.diasPartido) {
-      toast.error("La división no tiene horario o días de partido configurados")
-      return
-    }
-    const neededSlots = Math.floor((habilitados ?? []).length / 2)
-    const eliminatoriaCount = slots.filter((s) => s.tipo === 'eliminatoria').length
-    const regularSlotsNeeded = Math.max(0, neededSlots - eliminatoriaCount)
-
-    // Calculate weekly capacity
-    const validDays = parseDiasPartido(division.diasPartido)
-    const ranges = parseRanges(division.horarioPartido)
-    const slotTotal = (division.duracionPartido ?? 60) + (division.descanso ?? 0)
-    let weeklyCapacity = 0
-    for (const r of ranges) {
-      const s = timeToMinutes(r.start)
-      const e = timeToMinutes(r.end)
-      if (division.duracionPartido && e > s) {
-        weeklyCapacity += Math.floor((e - s) / slotTotal)
-      }
-    }
-    weeklyCapacity *= validDays.length
-    if (regularSlotsNeeded > weeklyCapacity) {
-      toast.info(`Se necesitan ${regularSlotsNeeded} slots, pero la semana solo tiene capacidad para ${weeklyCapacity}. Agrega más horarios o días de juego.`)
-      setGenerating(false)
-      return
-    }
-
-    setGenerating(true)
-    const refDate = lastJornada?.fechaInicio ? computeRefDateFromJornada(lastJornada.fechaInicio) : undefined
-    requestAnimationFrame(() => {
-      initSchedule(divisionId!, division.diasPartido ?? '', division.horarioPartido ?? '', division.duracionPartido ?? 60, division.descanso ?? 0, refDate, regularSlotsNeeded, habilitados)
-      setTimeout(() => setGenerating(false), 250)
-    })
-  }
-
-  useEffect(() => {
-    if (!division || !divisionId || !division.horarioPartido || !division.duracionPartido || !division.diasPartido) {
-      return
-    }
-    if (!habilitados || habilitados.length < 2) {
-      return
-    }
-    if (lastJornada === undefined) return
-    // Skip auto-generation if user has manually assigned teams or set descanso
-    const hasManualEdits = slots.some(
-      (s) => (s.equipoLocalId || s.equipoVisitanteId) && s.tipo !== 'eliminatoria'
-    ) || slots.some((s) => s.tipo === 'amistoso' || s.tipo === 'complemento')
-      || !!schedule?.descansoEquipoId
-    if (hasManualEdits) {
-      return
-    }
-    const frame = requestAnimationFrame(handleGenerateSlots)
-    return () => cancelAnimationFrame(frame)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [divisionId, division?.horarioPartido, division?.duracionPartido, division?.diasPartido, habilitados, lastJornada])
+  }, [qc, divisionId, ligaId])
 
   // Sync schedule if refDate is out of sync with last jornada
   useEffect(() => {
@@ -475,6 +413,140 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
       return fechaStr
     }).filter(Boolean) as string[]
   }, [schedule, validDays])
+
+  const availabilityRange = useMemo(() => {
+    const dates = slots.map((slot) => slot.fecha).filter(Boolean).sort()
+    let first = dates[0] ?? weekDates[0] ?? schedule?.refDate ?? (lastJornada?.fechaInicio ? computeRefDateFromJornada(lastJornada.fechaInicio) : undefined)
+    if (!first) {
+      const next = new Date()
+      next.setHours(0, 0, 0, 0)
+      const daysUntilMonday = next.getDay() === 0 ? 1 : 8 - next.getDay()
+      next.setDate(next.getDate() + daysUntilMonday)
+      first = formatDateObj(next)
+    }
+    let last = dates.at(-1) ?? weekDates.at(-1)
+    if (!last) {
+      const end = localDateFromString(first)
+      end.setDate(end.getDate() + 7)
+      last = formatDateObj(end)
+    }
+    return {
+      inicio: new Date(`${first}T00:00:00`).toISOString(),
+      fin: new Date(`${last}T23:59:59.999`).toISOString(),
+    }
+  }, [lastJornada?.fechaInicio, schedule?.refDate, slots, weekDates])
+  const availabilityQuery = useCourtAvailability(ligaId, availabilityRange?.inicio, availabilityRange?.fin)
+  const availability = availabilityQuery.data
+  const canchas = useMemo(() => availability?.canchas ?? [], [availability?.canchas])
+  const multipleCourts = availability?.mode === "MULTIPLE"
+  const canchaUnicaId = division?.canchaUnicaId ?? null
+  const canchaUnica = canchas.find((cancha) => cancha.id === canchaUnicaId)
+  const canchaUnicaInactiva = !!canchaUnicaId && !canchaUnica
+  const showCanchaPicker = multipleCourts && canchas.length > 0 && !canchaUnicaId
+  const courtSetupError = multipleCourts && canchas.length < 2
+  const courtPlan = useMemo(
+    () => availability && !canchaUnicaInactiva ? planFromAvailability(activeSlots, availability) : null,
+    [activeSlots, availability, canchaUnicaInactiva],
+  )
+  const conflictSlotIds = useMemo(
+    () => new Set(courtPlan?.conflicts.map((conflict) => conflict.slotId) ?? []),
+    [courtPlan],
+  )
+
+  useEffect(() => {
+    if (!multipleCourts || !courtPlan || canchaUnicaId) return
+    const nextSlots = applyAutomaticCourtAssignments(slots, courtPlan.slots, canchas.map((court) => court.id))
+    if (!nextSlots.some((slot, index) => slot.canchaId !== slots[index]?.canchaId)) return
+    replaceSlots(divisionId, nextSlots)
+  }, [canchas, canchaUnicaId, courtPlan, divisionId, multipleCourts, replaceSlots, slots])
+
+  useEffect(() => {
+    if (!schedule || !availability || !division?.horarioPartido || !division.duracionPartido || !division.diasPartido) return
+    const hasFixedCourtMismatch = !!canchaUnicaId && slots.some((slot) => slot.canchaId !== canchaUnicaId)
+    if (schedule.canchaUnicaIdSnapshot === canchaUnicaId && !hasFixedCourtMismatch) return
+
+    if (!canchaUnicaId) {
+      const nextSlots = schedule.canchaUnicaIdSnapshot === undefined
+        ? slots
+        : slots.map((slot) => ({ ...slot, canchaId: undefined }))
+      syncCanchaUnica(divisionId, null, nextSlots)
+      return
+    }
+
+    const candidates = generateSlots(
+      division.diasPartido,
+      division.horarioPartido,
+      division.duracionPartido,
+      division.descanso ?? 0,
+      schedule.refDate,
+      undefined,
+      [canchaUnicaId],
+    ).filter((candidate) => !isCourtOccupiedForSlot(candidate, canchaUnicaId, availability, []))
+    const hasCapacity = candidates.length >= slots.length
+    const nextSlots = slots.map((slot, index) => {
+      const candidate = hasCapacity ? candidates[index] : undefined
+      return {
+        ...slot,
+        fecha: candidate?.fecha ?? slot.fecha,
+        horaInicio: candidate?.horaInicio ?? slot.horaInicio,
+        horaFin: candidate?.horaFin ?? slot.horaFin,
+        canchaId: canchaUnicaId,
+      }
+    })
+    syncCanchaUnica(divisionId, canchaUnicaId, nextSlots)
+    if (!hasCapacity && slots.length > 0) {
+      toast.info("La cancha fija no tiene espacio suficiente para reacomodar todos los slots de esta semana")
+    }
+  }, [availability, canchaUnicaId, division?.descanso, division?.diasPartido, division?.duracionPartido, division?.horarioPartido, divisionId, schedule, slots, syncCanchaUnica, toast])
+
+  const handleGenerateSlots = useCallback(() => {
+    if (!division?.horarioPartido || !division?.duracionPartido || !division?.diasPartido) {
+      toast.error("La división no tiene horario o días de partido configurados")
+      return
+    }
+    if (availabilityQuery.isLoading) {
+      toast.info("Verificando disponibilidad de canchas")
+      return
+    }
+    if (availabilityQuery.error || !availability) {
+      toast.error("No se pudo cargar la disponibilidad de canchas")
+      return
+    }
+    if (courtSetupError) {
+      toast.error("Configura al menos 2 canchas activas para usar el modo de múltiples canchas")
+      return
+    }
+    if (canchaUnicaInactiva) {
+      toast.error("La cancha fija de la división no está activa")
+      return
+    }
+    const neededSlots = Math.floor((habilitados ?? []).length / 2)
+    const eliminatoriaCount = slots.filter((slot) => slot.tipo === "eliminatoria").length
+    const regularSlotsNeeded = Math.max(0, neededSlots - eliminatoriaCount)
+    const ranges = parseRanges(division.horarioPartido)
+    const slotTotal = division.duracionPartido + (division.descanso ?? 0)
+    const perDay = ranges.reduce((total, range) => total + Math.floor((timeToMinutes(range.end) - timeToMinutes(range.start)) / slotTotal), 0)
+    const weeklyCapacity = perDay * parseDiasPartido(division.diasPartido).length * (multipleCourts && !canchaUnicaId ? canchas.length : 1)
+    if (regularSlotsNeeded > weeklyCapacity) {
+      toast.info(`Se necesitan ${regularSlotsNeeded} slots, pero la semana solo tiene capacidad para ${weeklyCapacity}. Agrega más horarios o días de juego.`)
+      return
+    }
+    setGenerating(true)
+    const refDate = lastJornada?.fechaInicio ? computeRefDateFromJornada(lastJornada.fechaInicio) : undefined
+    requestAnimationFrame(() => {
+      initSchedule(divisionId, division.diasPartido!, division.horarioPartido!, division.duracionPartido!, division.descanso ?? 0, refDate, regularSlotsNeeded, habilitados, multipleCourts ? (canchaUnicaId ? [canchaUnicaId] : canchas.map((court) => court.id)) : [], canchaUnicaId)
+      setTimeout(() => setGenerating(false), 250)
+    })
+  }, [availability, availabilityQuery.error, availabilityQuery.isLoading, canchas, canchaUnicaId, canchaUnicaInactiva, courtSetupError, division, divisionId, habilitados, initSchedule, lastJornada, multipleCourts, slots, toast])
+
+  useEffect(() => {
+    if (!division?.horarioPartido || !division.duracionPartido || !division.diasPartido || !habilitados || habilitados.length < 2 || lastJornada === undefined || availabilityQuery.isLoading) return
+    const hasManualEdits = slots.some((slot) => ((slot.equipoLocalId || slot.equipoVisitanteId) && slot.tipo !== "eliminatoria") || slot.tipo === "amistoso" || slot.tipo === "complemento") || !!schedule?.descansoEquipoId
+    if (hasManualEdits) return
+    if (slots.length > 0 && activeSlots.length >= Math.floor(habilitados.length / 2)) return
+    const frame = requestAnimationFrame(handleGenerateSlots)
+    return () => cancelAnimationFrame(frame)
+  }, [activeSlots.length, availabilityQuery.isLoading, division?.diasPartido, division?.duracionPartido, division?.horarioPartido, habilitados, handleGenerateSlots, lastJornada, schedule?.descansoEquipoId, slots])
 
   useEffect(() => {
     if (!autoOpenedRef.current && weekDates.length > 0) {
@@ -599,6 +671,29 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
 
   const content = (
     <View style={{ gap: Gap.md }}>
+      {availabilityQuery.isLoading ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, padding: Pad.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md }}>
+          <ActivityIndicator size="small" color={Palette.cyan} />
+          <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, fontSize: 12 }}>Cargando disponibilidad de canchas...</Text>
+        </View>
+      ) : availabilityQuery.error ? (
+        <TouchableOpacity onPress={() => availabilityQuery.refetch()} style={{ padding: Pad.md, backgroundColor: Palette.danger10, borderRadius: Radius.md }}>
+          <Text style={{ color: Palette.danger, fontFamily: Fonts.semiBold, fontSize: 12 }}>No se pudo cargar la disponibilidad. Toca para reintentar.</Text>
+        </TouchableOpacity>
+      ) : availability ? (
+        <View style={{ padding: Pad.md, gap: Gap.micro, backgroundColor: courtSetupError || canchaUnicaInactiva ? Palette.danger10 : Palette.cyan10, borderRadius: Radius.md }}>
+          <Text style={{ color: courtSetupError || canchaUnicaInactiva ? Palette.danger : Palette.text, fontFamily: Fonts.semiBold, fontSize: 13 }}>
+            {canchaUnicaId ? `Cancha fija: ${canchaUnica?.nombre ?? "inactiva"}` : availability.mode === "SINGLE" ? "Cancha única" : `${canchas.length} canchas activas`}
+          </Text>
+          <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, fontSize: 11 }}>
+            {canchaUnicaInactiva
+              ? "Selecciona otra cancha desde Opciones de división."
+              : courtSetupError
+              ? "El modo múltiples canchas requiere al menos 2 canchas activas."
+              : `${availability.ocupaciones.length} ocupaciones guardadas en el rango · ${courtPlan?.conflicts.length ?? 0} conflictos en borradores`}
+          </Text>
+        </View>
+      ) : null}
       {habilitados && habilitados.length < 2 ? (
         <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, alignItems: "center", paddingVertical: Pad.xxl, paddingHorizontal: Pad.base, gap: Gap.md, borderWidth: 1, borderColor: Palette.border }}>
           <MaterialIcons name="group" size={48} color={Palette.textMuted} />
@@ -704,7 +799,8 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
                             visitanteNombre={allTeams.find((t) => t.id === sl.equipoVisitanteId)?.nombre}
                             canchaNombre={canchas.find((c: any) => c.id === sl.canchaId)?.nombre}
                             showSwapIcon={validDays.length > 1}
-                            showCanchaPicker={showCanchaPicker}
+                             showCanchaPicker={showCanchaPicker}
+                             hasCourtConflict={conflictSlotIds.has(sl.id)}
                             pendingDelete={pendingDeleteSlotId === sl.id}
                             onCycleDay={(s) => { disarmDelete(); cycleDay(s) }}
                             onClearSlot={handleClearSlot}
@@ -743,21 +839,6 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
           {!playoffMode && habilitados && habilitados.length >= 3 && habilitados.length % 2 !== 0 && !hasComplementoSlot ? (
             <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans, marginTop: Gap.sm }}>O puedes agregar un partido Completar para que ese equipo no se quede sin jugar</Text>
           ) : null}
-          {showCanchaPicker && slots.length > 0 ? (
-            <View style={{ flexDirection: "row", gap: Gap.sm }}>
-              {canchas.filter((c: any) => c.activa !== false).map((c: any) => (
-                <TouchableOpacity
-                  key={c.id}
-                  onPress={() => setAllSlotsCancha(divisionId!, c.id)}
-                  activeOpacity={0.7}
-                  style={{ flex: 1, backgroundColor: Palette.warning10, borderRadius: Radius.md, padding: Pad.sm, alignItems: "center", gap: Gap.micro }}
-                >
-                  <MaterialIcons name="place" size={14} color={Palette.warning} />
-                  <Text style={{ color: Palette.warning, fontSize: 11, fontFamily: Fonts.sans }}>{c.nombre}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
           <View style={{ flexDirection: "row", gap: Gap.sm }}>
             {!playoffMode ? (
               <TouchableOpacity
@@ -795,7 +876,27 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
         <View style={{ gap: Gap.sm, paddingTop: Gap.md, borderTopWidth: 1, borderTopColor: Palette.border }}>
           <TouchableOpacity
             activeOpacity={0.7}
-            onPress={() => {
+             onPress={() => {
+               if (availabilityQuery.isLoading) {
+                 toast.info("Espera a que termine la verificación de canchas")
+                 return
+               }
+               if (availabilityQuery.error || !availability) {
+                 toast.error("No se pudo verificar la disponibilidad de canchas")
+                 return
+               }
+                if (courtSetupError) {
+                 toast.error("Configura al menos 2 canchas activas antes de generar")
+                  return
+                }
+                if (canchaUnicaInactiva) {
+                  toast.error("Selecciona una cancha fija activa desde Opciones de división")
+                  return
+                }
+               if (courtPlan && courtPlan.conflicts.length > 0) {
+                 toast.error("Hay conflictos de cancha visibles. Corrígelos antes de generar")
+                 return
+               }
               for (let i = 0; i < activeSlots.length; i++) {
                 const current = activeSlots[i]
                 const currentCanchaKey = current.canchaId ?? "__sin_cancha__"
@@ -853,10 +954,6 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
                 toast.error("Asigna el equipo que obtiene puntos antes de generar la jornada")
                 return
               }
-              if (showCanchaPicker && activeSlots.some((slot) => !slot.canchaId)) {
-                toast.error("Asigna una cancha a todos los partidos antes de generar la jornada")
-                return
-              }
               onGenerateJornada()
             }}
             disabled={generating || isGeneratingJornada}
@@ -876,7 +973,9 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
       <TeamPickerModal
         visible={!!pickingSlot}
         pickingSlot={pickingSlot}
-        slots={slots}
+        slots={multipleCourts && timePickerSlot
+          ? slots.filter((slot) => slot.id === timePickerSlot.id || (!!timePickerSlot.canchaId && slot.canchaId === timePickerSlot.canchaId))
+          : slots}
         assignedTeams={pickerTeams}
         onSelectTeam={handleSelectTeam}
         onClearTeam={(slotId, side) => {
@@ -928,23 +1027,19 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
       </AppBottomSheetModal>
 
       <AppBottomSheetModal
-        visible={canchaPickerSlotId !== null}
+        visible={multipleCourts && canchas.length > 0 && canchaPickerSlotId !== null}
         onClose={() => setCanchaPickerSlotId(null)}
         title="Seleccionar cancha"
         snapPoints={["50%"]}
       >
         <ScrollView>
-          {canchaPickerSlotId && (
-            <TouchableOpacity
-              onPress={() => { setSlotCancha(divisionId!, canchaPickerSlotId, undefined); setCanchaPickerSlotId(null) }}
-              style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", marginBottom: Gap.sm }}
-            >
-              <Text style={{ color: Palette.textMuted, fontSize: 14, fontFamily: Fonts.sans }}>Sin cancha</Text>
-            </TouchableOpacity>
-          )}
-          {canchas.filter((c: any) => c.activa !== false).map((c: any) => (
+          {canchas.map((c) => {
+            const pickerSlot = slots.find((slot) => slot.id === canchaPickerSlotId)
+            const occupied = !!pickerSlot && !!availability && isCourtOccupiedForSlot(pickerSlot, c.id, availability, slots)
+            return (
             <TouchableOpacity
               key={c.id}
+              disabled={occupied}
               onPress={() => { setSlotCancha(divisionId!, canchaPickerSlotId!, c.id); setCanchaPickerSlotId(null) }}
               style={{
                 backgroundColor: Palette.surfaceLight,
@@ -953,11 +1048,12 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
                 marginBottom: Gap.sm,
                 borderWidth: 1,
                 borderColor: slots.find((s) => s.id === canchaPickerSlotId)?.canchaId === c.id ? Palette.cyan : Palette.border,
+                opacity: occupied ? 0.45 : 1,
               }}
             >
-              <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>{c.nombre}</Text>
+              <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>{c.nombre}{occupied ? " · Ocupada" : ""}</Text>
             </TouchableOpacity>
-          ))}
+          )})}
           <TouchableOpacity onPress={() => setCanchaPickerSlotId(null)} style={{ paddingVertical: Pad.md, alignItems: "center" }}>
             <Text style={{ color: Palette.textMuted, fontSize: 14, fontFamily: Fonts.sans }}>Cancelar</Text>
           </TouchableOpacity>

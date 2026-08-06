@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react"
-import { View, Text, TouchableOpacity, Image, Modal, TextInput, ActivityIndicator } from "react-native"
+import { View, Text, TouchableOpacity, Image, Modal, TextInput, ActivityIndicator, Keyboard, Platform } from "react-native"
 import { Flag, CountryModalProvider, CountryFilter, CountryList, getAllCountries, FlagType } from "react-native-country-picker-modal"
 import type { Country, CountryCode } from "react-native-country-picker-modal"
 import { router, useLocalSearchParams, useIsFocused } from "expo-router"
@@ -8,11 +8,12 @@ import { useTourGuide } from "@wrack/react-native-tour-guide"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useQuery } from "@tanstack/react-query"
 import { MaterialIcons } from "@expo/vector-icons"
-import * as ImagePicker from "expo-image-picker"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
+import LogoImage from "@/shared/components/LogoImage"
 import { useTeam } from "@/features/team/hooks/useTeams"
-import { useCreateJugador, useRemoveJugadorFromTeam, useJugadores } from "@/features/jugador/hooks/useJugadores"
-import { POSICIONES_JUGADOR, type PosicionJugador } from "@/domain/interfaces/player"
+import { useAssignJugadorToTeam, useBuscarJugadorParaEquipo, useRemoveJugadorFromTeam, useJugadores } from "@/features/jugador/hooks/useJugadores"
+import { POSICIONES_JUGADOR, type BuscarJugadorEquipoResult } from "@/domain/interfaces/player"
+import { normalizeJugadorPhone } from "@/features/jugador/utils/phone"
 import { divisionEquipoApi } from "@/features/division-equipo/api/division-equipo"
 import { authClient } from "@/infrastructure/auth/client"
 import CustomHeader from "@/shared/components/CustomHeader"
@@ -21,13 +22,10 @@ import ErrorState from "@/shared/components/ErrorState"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import EmptyState from "@/shared/components/EmptyState"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
-import CrudModal from "@/shared/components/CrudModal"
-import { uploadToCloudinary } from "@/infrastructure/cloudinary/upload"
+import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
+import { TabBar } from "@/shared/components/TabBar"
 import { useToast } from "@/shared/components/Toast"
-
-function emptyForm() {
-  return { nombre: "", dorsal: "", posicion: "", edad: "", phoneNumber: "", foto: "", fotoPublicId: "" }
-}
+import TeamDetailHeaderCard from "@/features/team/components/TeamDetailHeaderCard"
 
 const PAISES_COMUNES: CountryCode[] = [
   "MX", "US", "CA", "AR", "BO", "BR", "CL", "CO", "CR", "CU", "DO", "EC",
@@ -48,23 +46,27 @@ export default function TeamDetailScreen() {
     queryFn: () => divisionEquipoApi.findByEquipo(id!),
     enabled: !!id,
   })
-  const createJugador = useCreateJugador()
+  const buscarJugador = useBuscarJugadorParaEquipo()
+  const assignJugador = useAssignJugadorToTeam()
   const removeJugadorFromTeam = useRemoveJugadorFromTeam()
   const [refreshing, setRefreshing] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; jugadorId: string; nombre: string } | null>(null)
   const [tab, setTab] = useState<"jugadores" | "divisiones">("jugadores")
-  const [createOpen, setCreateOpen] = useState(false)
-  const [form, setForm] = useState<Record<string, string>>(emptyForm())
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [phoneNumber, setPhoneNumber] = useState("")
+  const [dorsal, setDorsal] = useState("")
+  const [foundPlayer, setFoundPlayer] = useState<BuscarJugadorEquipoResult | null>(null)
+  const [flowError, setFlowError] = useState("")
   const [countryCode, setCountryCode] = useState<CountryCode>("MX")
   const [callingCode, setCallingCode] = useState("52")
   const [countryPickerOpen, setCountryPickerOpen] = useState(false)
   const [countryFilter, setCountryFilter] = useState("")
   const [allCountries, setAllCountries] = useState<Country[]>([])
-  const [uploading, setUploading] = useState(false)
+  const [keyboardH, setKeyboardH] = useState(0)
 
   const newPlayerBtnRef = useRef<any>(null)
   const firstPlayerRef = useRef<any>(null)
-  const divisionsTabRef = useRef<any>(null)
+  const tabBarRef = useRef<any>(null)
   const scrollRef = useRef<any>(null)
   const scrollOffsetRef = useRef(0)
   const tourStartedRef = useRef(false)
@@ -75,7 +77,7 @@ export default function TeamDetailScreen() {
   const { data: session } = authClient.useSession()
   const { startTour, endTour } = useTourGuide()
 
-  const blocked = createOpen || countryPickerOpen || !!deleteTarget || uploading || refreshing
+  const blocked = searchOpen || countryPickerOpen || !!deleteTarget || refreshing
 
   useEffect(() => {
     if (blocked) endTour()
@@ -87,15 +89,15 @@ export default function TeamDetailScreen() {
     const init = async () => {
       const seen = await AsyncStorage.getItem("@tour_guide:team-detail-v1")
       if (seen === "completed") { tourStartedRef.current = true; return }
-      if (!newPlayerBtnRef.current || !divisionsTabRef.current) return
+      if (!newPlayerBtnRef.current || !tabBarRef.current) return
       if (jugadores.length > 0 && (!firstPlayerRef.current || !firstPlayerReady)) return
       tourStartedRef.current = true
       const steps: any[] = [
         {
           id: "team-detail-add-player",
           targetRef: newPlayerBtnRef,
-          title: "Registra jugadores",
-          description: "Agrega jugadores con su dorsal, posición y teléfono para formar la plantilla del equipo.",
+          title: "Busca jugadores",
+          description: "Busca un perfil por teléfono y agrégalo con su dorsal a la plantilla del equipo.",
           spotlightPadding: 8,
           tooltipPosition: "bottom",
         },
@@ -112,7 +114,7 @@ export default function TeamDetailScreen() {
       }
       steps.push({
         id: "team-detail-divisions",
-        targetRef: divisionsTabRef,
+        targetRef: tabBarRef,
         title: "Configura cada división",
         description: "Abre Divisiones para elegir qué jugadores participan en cada competencia.",
         spotlightPadding: 8,
@@ -145,6 +147,12 @@ export default function TeamDetailScreen() {
 
   useEffect(() => { getAllCountries(FlagType.EMOJI, "common", undefined, undefined, PAISES_COMUNES).then(setAllCountries) }, [])
 
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", (e) => setKeyboardH(e.endCoordinates.height))
+    const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardH(0))
+    return () => { show.remove(); hide.remove() }
+  }, [])
+
   const filteredCountries = useMemo(() => {
     if (!countryFilter) return allCountries
     const lower = countryFilter.toLowerCase()
@@ -153,13 +161,6 @@ export default function TeamDetailScreen() {
       return name.toLowerCase().includes(lower) || c.callingCode.some((cc) => cc.includes(countryFilter)) || c.cca2.toLowerCase().includes(lower)
     })
   }, [allCountries, countryFilter])
-
-  const fields = [
-    { name: "nombre", label: "Nombre", placeholder: "Nombre del jugador", required: true, maxLength: 40 },
-    { name: "dorsal", label: "Dorsal", placeholder: "10", required: true, keyboardType: "numeric" as const, maxLength: 3 },
-    { name: "posicion", label: "Posición", required: true, options: POSICIONES_JUGADOR.map((p) => ({ label: p.nombre, value: p.id })) },
-    { name: "edad", label: "Edad", placeholder: "Opcional", keyboardType: "numeric" as const, maxLength: 3 },
-  ]
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -170,60 +171,61 @@ export default function TeamDetailScreen() {
     }
   }
 
-  const pickPhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (!permission.granted) {
-      toast.error("Se necesita acceso a la galería")
+  const resetSearchFlow = () => {
+    setPhoneNumber("")
+    setDorsal("")
+    setFoundPlayer(null)
+    setFlowError("")
+    setCountryCode("MX")
+    setCallingCode("52")
+  }
+
+  const closeSearch = () => {
+    setSearchOpen(false)
+    resetSearchFlow()
+  }
+
+  const handleSearch = async () => {
+    if (!id) return
+    Keyboard.dismiss()
+    const telefono = normalizeJugadorPhone(callingCode, phoneNumber)
+    if (!telefono) {
+      setFoundPlayer(null)
+      setFlowError("Ingresa un teléfono válido")
       return
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.8 })
-    if (!result.canceled && result.assets[0]) {
-      setUploading(true)
-      try {
-        const { url, publicId } = await uploadToCloudinary(result.assets[0].uri)
-        setForm((prev) => ({ ...prev, foto: url, fotoPublicId: publicId }))
-      } catch {
-        toast.error("No se pudo subir la foto")
-      } finally {
-        setUploading(false)
+    setFoundPlayer(null)
+    setDorsal("")
+    setFlowError("")
+    try {
+      const result = await buscarJugador.mutateAsync({ equipoId: id, telefono })
+      if (!result) {
+        setFlowError("No encontramos un perfil de jugador con este teléfono")
+        return
       }
+      setFoundPlayer(result)
+    } catch (error: any) {
+      setFlowError(error?.response?.status === 404
+        ? "No encontramos un perfil de jugador con este teléfono"
+        : error?.message || "No se pudo buscar al jugador")
     }
   }
 
-  const handleCreate = async () => {
-    if (!id || !form.nombre.trim() || !form.dorsal.trim() || !form.posicion || !form.phoneNumber.trim()) {
-      toast.error("Nombre, dorsal, posición y teléfono son obligatorios")
+  const handleAssign = async () => {
+    if (!id || !foundPlayer || foundPlayer.yaPertenece) return
+    const dorsalNumber = Number(dorsal)
+    if (!dorsal.trim() || !Number.isInteger(dorsalNumber)) {
+      setFlowError("Ingresa un dorsal válido")
       return
     }
-    const dorsal = Number(form.dorsal)
-    const edad = form.edad.trim() ? Number(form.edad) : undefined
-    const phoneDigits = form.phoneNumber.replace(/\D/g, "")
-    if (!Number.isInteger(dorsal) || (form.edad.trim() && !Number.isInteger(edad))) {
-      toast.error("Dorsal y edad deben ser numéricos")
-      return
-    }
-    if (phoneDigits.length < 8 || phoneDigits.length > 15) {
-      toast.error("Ingresa un teléfono válido")
-      return
-    }
+    Keyboard.dismiss()
+    setFlowError("")
     try {
-      await createJugador.mutateAsync({
-        nombre: form.nombre.trim(),
-        dorsal,
-        posicion: form.posicion as PosicionJugador,
-        edad,
-        telefono: `+${callingCode}${phoneDigits}`,
-        foto: form.foto || undefined,
-        fotoPublicId: form.fotoPublicId || undefined,
-        equipoId: id,
-      })
-      setCreateOpen(false)
-      setForm(emptyForm())
-      setCountryCode("MX")
-      setCallingCode("52")
-      toast.success("Jugador registrado")
-    } catch (e: any) {
-      toast.error(e.message)
+      await assignJugador.mutateAsync({ equipoId: id, jugadorId: foundPlayer.id, dorsal: dorsalNumber })
+      closeSearch()
+      toast.success("Jugador agregado al equipo")
+    } catch (error: any) {
+      setFlowError(error?.message || "No se pudo agregar al jugador")
     }
   }
 
@@ -254,24 +256,24 @@ export default function TeamDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title="Detalle equipo" />
+      <CustomHeader title={team.nombre} />
       <PullToRefresh scrollRef={scrollRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
-          <View style={{ flexDirection: "row", backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
-            <TouchableOpacity activeOpacity={0.8} onPress={() => setTab("jugadores")} style={{ flex: 1, paddingVertical: Pad.md, alignItems: "center", backgroundColor: tab === "jugadores" ? Palette.cyan : "transparent" }}>
-              <Text style={{ color: tab === "jugadores" ? Palette.black : Palette.textSecondary, fontFamily: Fonts.semiBold }}>Jugadores</Text>
-            </TouchableOpacity>
-            <TouchableOpacity ref={divisionsTabRef} activeOpacity={0.8} onPress={() => setTab("divisiones")} style={{ flex: 1, paddingVertical: Pad.md, alignItems: "center", backgroundColor: tab === "divisiones" ? Palette.cyan : "transparent" }}>
-              <Text style={{ color: tab === "divisiones" ? Palette.black : Palette.textSecondary, fontFamily: Fonts.semiBold }}>Divisiones</Text>
-            </TouchableOpacity>
-          </View>
+          <TeamDetailHeaderCard nombre={team.nombre} logo={team.logo} codigo={team.codigo} />
+          <View ref={tabBarRef}>
+             <TabBar
+               tabs={[{ key: "jugadores", label: "Jugadores" }, { key: "divisiones", label: "Divisiones" }]}
+               activeTab={tab}
+               onTabChange={(nextTab) => setTab(nextTab as "jugadores" | "divisiones")}
+             />
+           </View>
 
           {tab === "jugadores" ? (
           <View style={{ gap: Gap.sm }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.semiBold, textTransform: "uppercase", letterSpacing: 0.5 }}>Jugadores</Text>
-              <TouchableOpacity ref={newPlayerBtnRef} onPress={() => setCreateOpen(true)} style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.sm, paddingHorizontal: Pad.md }}>
-                <Text style={{ color: Palette.black, fontFamily: Fonts.semiBold, fontSize: 12 }}>Nuevo jugador</Text>
+               <TouchableOpacity ref={newPlayerBtnRef} accessibilityRole="button" accessibilityLabel="Buscar jugador" onPress={() => setSearchOpen(true)} style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.sm, paddingHorizontal: Pad.md }}>
+                 <Text style={{ color: Palette.black, fontFamily: Fonts.semiBold, fontSize: 12 }}>Buscar jugador</Text>
               </TouchableOpacity>
             </View>
             <Text style={{ color: Palette.textMuted, fontSize: 12 }}>Todos los jugadores del equipo</Text>
@@ -281,7 +283,7 @@ export default function TeamDetailScreen() {
               <EmptyState message="Este equipo todavía no tiene jugadores" icon="groups" />
             ) : (
               jugadores.map((j, i) => {
-                const dorsal = j.equipos?.[0]?.dorsal
+                 const dorsal = j.equipos?.find((equipo) => equipo.equipoId === id)?.dorsal
                 const card = (
                   <TouchableOpacity key={j.id} activeOpacity={0.8} onPress={() => router.push(`/(drawer)/player/${j.id}`)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}>
                     <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight }}>
@@ -318,12 +320,10 @@ export default function TeamDetailScreen() {
                   const division = link.division
                   return (
                     <TouchableOpacity key={link.divisionId} activeOpacity={0.8} onPress={() => router.push(`/(drawer)/team/${id}/divisions/${link.divisionId}`)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}>
-                      <View style={{ width: 46, height: 46, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight, borderWidth: 1, borderColor: Palette.cyan20 }}>
-                        <Image source={division?.liga?.logo ? { uri: division.liga.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 46, height: 46 }} resizeMode="cover" />
-                      </View>
+                      <LogoImage uri={division?.liga?.logo} size={46} backgroundColor={Palette.surfaceLight} ring={Palette.cyan20} ringWidth={1} radius={Radius.lg} />
                       <View style={{ flex: 1 }}>
-                        <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>{division?.nombre ?? link.divisionId}</Text>
-                        <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{division?.liga?.nombre ?? "Liga"}</Text>
+                         <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>{division?.nombre ?? link.divisionId}</Text>
+                         <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{division ? `${division.liga?.nombre ?? "Liga"} · ${division.categoria?.nombre ?? "Sin categoría"}` : "Liga"}</Text>
                       </View>
                       {division?.estadoLiga?.nombre ? (
                         <View style={{ backgroundColor: Palette.cyan10, borderRadius: Radius.full, paddingHorizontal: Pad.sm, paddingVertical: Pad.micro }}>
@@ -339,39 +339,108 @@ export default function TeamDetailScreen() {
         </View>
       </PullToRefresh>
 
-      <CrudModal visible={createOpen} onClose={() => setCreateOpen(false)} title="Nuevo jugador" fields={fields} values={form} onChange={(name, value) => setForm((prev) => ({ ...prev, [name]: value }))} onSave={handleCreate} saveLabel="Crear">
-        <View style={{ gap: Gap.sm }}>
-          <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 13 }}>Teléfono *</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-            <TouchableOpacity
-              onPress={() => setCountryPickerOpen(true)}
-              style={{ flexDirection: "row", alignItems: "center", backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.md, gap: Gap.sm }}
-            >
-              <Flag countryCode={countryCode} flagSize={24} />
-              <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold }}>+{callingCode}</Text>
-            </TouchableOpacity>
-            <TextInput
-              value={form.phoneNumber}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, phoneNumber: value }))}
-              placeholder="555 123 4567"
-              placeholderTextColor={Palette.textMuted}
-              keyboardType="phone-pad"
-              maxLength={18}
-              style={{ flex: 1, backgroundColor: Palette.surfaceLight, borderWidth: 1, borderColor: Palette.border, borderRadius: Radius.md, paddingHorizontal: Pad.base, paddingVertical: Pad.md, color: Palette.text }}
-            />
-          </View>
-          <Text style={{ color: Palette.textMuted, fontSize: 11 }}>Si el teléfono ya existe, se agregará ese jugador a este equipo.</Text>
-        </View>
-        <View style={{ gap: Gap.sm }}>
-          <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 13 }}>Foto</Text>
-          <TouchableOpacity onPress={uploading ? undefined : pickPhoto} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderWidth: 1, borderColor: Palette.border, borderRadius: Radius.md, padding: Pad.base }}>
-            <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.black }}>
-              <Image source={form.foto ? { uri: form.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
-            </View>
-            {uploading ? <ActivityIndicator size="small" color={Palette.cyan} /> : <Text style={{ color: Palette.text, fontFamily: Fonts.medium }}>Seleccionar foto</Text>}
-          </TouchableOpacity>
-        </View>
-      </CrudModal>
+       <AppBottomSheetModal visible={searchOpen} onClose={closeSearch} title="Buscar jugador" snapPoints={["75%"]}>
+         <View style={{ gap: Gap.sm }}>
+           <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 13 }}>Teléfono</Text>
+           <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+             <TouchableOpacity
+               accessibilityRole="button"
+               accessibilityLabel={`Seleccionar país, código actual más ${callingCode}`}
+               accessibilityState={{ disabled: buscarJugador.isPending }}
+               disabled={buscarJugador.isPending}
+               onPress={() => setCountryPickerOpen(true)}
+               style={{ minHeight: 48, flexDirection: "row", alignItems: "center", backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.base, gap: Gap.sm }}
+             >
+               <Flag countryCode={countryCode} flagSize={24} />
+               <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold }}>+{callingCode}</Text>
+             </TouchableOpacity>
+             <TextInput
+               accessibilityLabel="Número de teléfono del jugador"
+               editable={!buscarJugador.isPending}
+               value={phoneNumber}
+               onChangeText={(value) => {
+                 setPhoneNumber(value)
+                 setFoundPlayer(null)
+                 setDorsal("")
+                 setFlowError("")
+               }}
+               onSubmitEditing={handleSearch}
+               returnKeyType="search"
+               placeholder="555 123 4567"
+               placeholderTextColor={Palette.textMuted}
+               keyboardType="phone-pad"
+               maxLength={20}
+               style={{ minHeight: 48, flex: 1, backgroundColor: Palette.surfaceLight, borderWidth: 1, borderColor: Palette.border, borderRadius: Radius.md, paddingHorizontal: Pad.base, color: Palette.text }}
+             />
+           </View>
+           <TouchableOpacity
+             accessibilityRole="button"
+             accessibilityLabel="Buscar jugador por teléfono"
+             accessibilityState={{ disabled: buscarJugador.isPending }}
+             disabled={buscarJugador.isPending}
+             onPress={handleSearch}
+             style={{ minHeight: 48, borderRadius: Radius.md, backgroundColor: Palette.cyan, alignItems: "center", justifyContent: "center", opacity: buscarJugador.isPending ? 0.6 : 1 }}
+           >
+             {buscarJugador.isPending ? <ActivityIndicator size="small" color={Palette.black} /> : <Text style={{ color: Palette.black, fontFamily: Fonts.semiBold }}>Buscar</Text>}
+           </TouchableOpacity>
+         </View>
+
+         {foundPlayer ? (
+           <View style={{ gap: Gap.md }}>
+             <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}>
+               <Image source={foundPlayer.foto ? { uri: foundPlayer.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 52, height: 52, borderRadius: Radius.full }} resizeMode="cover" />
+               <View style={{ flex: 1, gap: Gap.micro }}>
+                 <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>{foundPlayer.nombre}</Text>
+                 <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{formatPosicion(foundPlayer.posicion)}</Text>
+               </View>
+             </View>
+             {foundPlayer.yaPertenece ? (
+               <>
+                 <View style={{ backgroundColor: Palette.cyan10, borderRadius: Radius.md, padding: Pad.md }}>
+                   <Text style={{ color: Palette.cyan, fontFamily: Fonts.medium }}>Este jugador ya pertenece al equipo · Dorsal #{foundPlayer.dorsal ?? "-"}</Text>
+                 </View>
+                 <TouchableOpacity accessibilityRole="button" accessibilityLabel="Jugador ya agregado al equipo" accessibilityState={{ disabled: true }} disabled style={{ minHeight: 48, borderRadius: Radius.md, backgroundColor: Palette.cyan, alignItems: "center", justifyContent: "center", opacity: 0.45 }}>
+                   <Text style={{ color: Palette.black, fontFamily: Fonts.semiBold }}>Agregar al equipo</Text>
+                 </TouchableOpacity>
+               </>
+             ) : (
+               <>
+                 <View style={{ gap: Gap.sm }}>
+                   <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 13 }}>Dorsal</Text>
+                   <TextInput
+                     accessibilityLabel="Dorsal del jugador"
+                     value={dorsal}
+                     onChangeText={(value) => { setDorsal(value.replace(/\D/g, "")); setFlowError("") }}
+                     onSubmitEditing={handleAssign}
+                     returnKeyType="done"
+                     placeholder="10"
+                     placeholderTextColor={Palette.textMuted}
+                     keyboardType="number-pad"
+                     maxLength={3}
+                     style={{ minHeight: 48, backgroundColor: Palette.surfaceLight, borderWidth: 1, borderColor: Palette.border, borderRadius: Radius.md, paddingHorizontal: Pad.base, color: Palette.text }}
+                   />
+                 </View>
+                 <TouchableOpacity
+                   accessibilityRole="button"
+                   accessibilityLabel="Agregar jugador al equipo"
+                   accessibilityState={{ disabled: assignJugador.isPending }}
+                   disabled={assignJugador.isPending}
+                   onPress={handleAssign}
+                   style={{ minHeight: 48, borderRadius: Radius.md, backgroundColor: Palette.cyan, alignItems: "center", justifyContent: "center", opacity: assignJugador.isPending ? 0.6 : 1 }}
+                 >
+                   {assignJugador.isPending ? <ActivityIndicator size="small" color={Palette.black} /> : <Text style={{ color: Palette.black, fontFamily: Fonts.semiBold }}>Agregar al equipo</Text>}
+                 </TouchableOpacity>
+               </>
+             )}
+           </View>
+         ) : null}
+
+         {flowError ? <Text accessibilityRole="alert" style={{ color: Palette.danger, fontFamily: Fonts.medium, fontSize: 13 }}>{flowError}</Text> : null}
+         <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancelar búsqueda" onPress={closeSearch} style={{ minHeight: 48, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.danger, backgroundColor: Palette.danger10, alignItems: "center", justifyContent: "center" }}>
+           <Text style={{ color: Palette.danger, fontFamily: Fonts.medium }}>Cancelar</Text>
+         </TouchableOpacity>
+         {keyboardH ? <View style={{ height: keyboardH }} /> : null}
+       </AppBottomSheetModal>
 
       <Modal visible={countryPickerOpen} transparent animationType="slide" onRequestClose={() => setCountryPickerOpen(false)}>
         <View style={{ flex: 1, backgroundColor: Palette.black, paddingTop: Pad.xl }}>
@@ -385,10 +454,13 @@ export default function TeamDetailScreen() {
             <CountryFilter onChangeText={setCountryFilter} autoFocus={true} placeholder="Buscar país..." />
             <CountryList
               data={filteredCountries}
-              onSelect={(country) => {
-                setCountryCode(country.cca2)
-                setCallingCode(country.callingCode[0] ?? "52")
-                setCountryPickerOpen(false)
+               onSelect={(country) => {
+                 setCountryCode(country.cca2)
+                 setCallingCode(country.callingCode[0] ?? "52")
+                 setFoundPlayer(null)
+                 setDorsal("")
+                 setFlowError("")
+                 setCountryPickerOpen(false)
                 setCountryFilter("")
               }}
             />

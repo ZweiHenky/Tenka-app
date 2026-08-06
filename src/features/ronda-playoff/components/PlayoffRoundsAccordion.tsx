@@ -87,7 +87,7 @@ export default function PlayoffRoundsAccordion({ rondas, onPartidoPress }: Props
                   </View>
                 ) : (
                   partidos.map((partido) => (
-                    <PartidoCard key={partido.id} partido={partido} onPress={onPartidoPress} />
+                    <PartidoCard key={partido.id} partido={partido} onPress={() => onPartidoPress(partido)} />
                   ))
                 )}
               </View>

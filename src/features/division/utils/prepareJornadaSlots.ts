@@ -1,11 +1,12 @@
 import { getActiveSlots } from "@/stores/divisionSchedule"
 import type { TimeSlotConfig } from "@/stores/divisionSchedule"
+import type { SlotInput } from "@/features/jornada/api/jornadas"
 
 export function prepareJornadaSlots(
   slots: TimeSlotConfig[],
   habilitados: string[],
   playoffMode: boolean,
-): TimeSlotConfig[] {
+): SlotInput[] {
   const habSet = new Set(habilitados)
   const activeSlots = getActiveSlots(slots, habilitados.length, playoffMode)
 
@@ -16,10 +17,10 @@ export function prepareJornadaSlots(
     if (slot.equipoVisitanteId) eliminatoriaTeamIds.add(slot.equipoVisitanteId)
   }
 
-  return activeSlots.map((slot) => ({
-    ...slot,
-    equipoLocalId:
-      slot.tipo === "eliminatoria"
+  return activeSlots.map((slot) => {
+    const tipo = playoffMode && slot.tipo !== "eliminatoria" ? "amistoso" : slot.tipo
+    const equipoLocalId =
+      tipo === "eliminatoria"
         ? slot.equipoLocalId
         : slot.tipo === "amistoso"
           ? slot.equipoLocalId && habSet.has(slot.equipoLocalId)
@@ -27,9 +28,9 @@ export function prepareJornadaSlots(
             : undefined
           : slot.equipoLocalId && habSet.has(slot.equipoLocalId) && !eliminatoriaTeamIds.has(slot.equipoLocalId)
             ? slot.equipoLocalId
-            : undefined,
-    equipoVisitanteId:
-      slot.tipo === "eliminatoria"
+            : undefined
+    const equipoVisitanteId =
+      tipo === "eliminatoria"
         ? slot.equipoVisitanteId
         : slot.tipo === "amistoso"
           ? slot.equipoVisitanteId && habSet.has(slot.equipoVisitanteId)
@@ -37,6 +38,17 @@ export function prepareJornadaSlots(
             : undefined
           : slot.equipoVisitanteId && habSet.has(slot.equipoVisitanteId) && !eliminatoriaTeamIds.has(slot.equipoVisitanteId)
             ? slot.equipoVisitanteId
-            : undefined,
-  }))
+            : undefined
+
+    return {
+      fecha: slot.fecha,
+      horaInicio: slot.horaInicio,
+      horaFin: slot.horaFin,
+      equipoLocalId,
+      equipoVisitanteId,
+      tipo,
+      canchaId: slot.canchaId,
+      partidoId: slot.partidoId,
+    }
+  })
 }

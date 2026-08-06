@@ -17,7 +17,7 @@ export function useMyProfile(enabled = true) {
 export function useCreateMyProfile() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { nombre: string; posicion: PosicionJugador; foto?: string; fotoPublicId?: string; edad?: number }) =>
+    mutationFn: (data: { nombre: string; posicion: PosicionJugador; photoAssetId?: string | null; edad?: number }) =>
       jugadorApi.createMe(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY, "me"] }),
   })
@@ -77,6 +77,13 @@ export function useAssignJugadorToTeam() {
   return useMutation({
     mutationFn: jugadorApi.assignToTeam,
     onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: [KEY, "equipo", vars.equipoId] }),
+  })
+}
+
+export function useBuscarJugadorParaEquipo() {
+  return useMutation({
+    mutationFn: ({ equipoId, telefono }: { equipoId: string; telefono: string }) =>
+      jugadorApi.findForTeam(equipoId, telefono),
   })
 }
 

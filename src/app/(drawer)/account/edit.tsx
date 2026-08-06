@@ -31,11 +31,13 @@ export default function AccountEditScreen() {
 
   const [name, setName] = useState(currentName)
   const [imageUri, setImageUri] = useState(currentImage)
+  const [imageMeta, setImageMeta] = useState<{ fileSize: number | null; mimeType: string | null } | null>(null)
   const [saving, setSaving] = useState(false)
   const [phoneStep, setPhoneStep] = useState<"input" | "otp" | "verified">(currentPhone ? "verified" : "input")
   const [otpCode, setOtpCode] = useState("")
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
+  const [resendCountdown, setResendCountdown] = useState(0)
   const insets = useSafeAreaInsets()
 
   const initialCountry = useMemo(() => {
@@ -54,6 +56,14 @@ export default function AccountEditScreen() {
   const [allCountries, setAllCountries] = useState<Country[]>([])
 
   useEffect(() => { getAllCountries(FlagType.EMOJI, "common", undefined, undefined, PAISES_COMUNES).then(setAllCountries) }, [])
+
+  useEffect(() => {
+    if (phoneStep !== "otp") return
+    const id = setInterval(() => {
+      setResendCountdown((s) => (s > 1 ? s - 1 : 0))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [phoneStep])
 
   const filteredCountries = useMemo(() => {
     if (!countryFilter) return allCountries
@@ -80,6 +90,7 @@ export default function AccountEditScreen() {
     })
     if (!result.canceled && result.assets[0]) {
       setImageUri(result.assets[0].uri)
+      setImageMeta({ fileSize: result.assets[0].fileSize ?? null, mimeType: result.assets[0].mimeType ?? null })
     }
   }
 
@@ -96,6 +107,8 @@ export default function AccountEditScreen() {
         return
       }
       setPhoneStep("otp")
+      setResendCountdown(40)
+      toast.success("Código enviado")
     } catch (error) {
       toast.error(getAuthErrorMessage(error, "No se pudo enviar el código"))
     } finally {
@@ -133,17 +146,14 @@ export default function AccountEditScreen() {
     }
     setSaving(true)
     try {
-      let finalImage = currentImage
-      let finalImagePublicId: string | undefined
+      let avatarAssetId: string | undefined
       if (imageUri && imageUri !== currentImage) {
-        const result = await uploadToCloudinary(imageUri)
-        finalImage = result.url
-        finalImagePublicId = result.publicId
+        const result = await uploadToCloudinary(imageUri, "ACCOUNT_AVATAR", imageMeta ?? undefined)
+        avatarAssetId = result.mediaAssetId
       }
       await api.patch("/api/users/me", {
         name: name.trim(),
-        image: finalImage || null,
-        imagePublicId: finalImagePublicId || null,
+        ...(hasImageChanged ? { avatarAssetId: avatarAssetId ?? null } : {}),
       })
       await refetchSession({ query: { disableCookieCache: true } })
       toast.success("Perfil actualizado")
@@ -275,6 +285,17 @@ export default function AccountEditScreen() {
                   <TouchableOpacity onPress={() => { setPhoneStep("input"); setOtpCode(""); setPhoneNumber("") }}>
                     <Text style={{ color: Palette.cyan, fontSize: 12 }}>Cambiar número</Text>
                   </TouchableOpacity>
+                  {resendCountdown > 0 ? (
+                    <Text style={{ color: Palette.textMuted, fontSize: 13, textAlign: "center" }}>
+                      Reenviar código en {resendCountdown}s
+                    </Text>
+                  ) : (
+                    <TouchableOpacity onPress={handleSendOtp} disabled={sendingOtp}>
+                      <Text style={{ color: Palette.cyan, fontSize: 13, fontWeight: "600", textAlign: "center" }}>
+                        Reenviar código
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             </View>

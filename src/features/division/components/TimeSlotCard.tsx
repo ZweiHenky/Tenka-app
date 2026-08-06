@@ -10,6 +10,7 @@ interface Props {
   canchaNombre?: string
   showSwapIcon: boolean
   showCanchaPicker: boolean
+  hasCourtConflict?: boolean
   pendingDelete?: boolean
   onCycleDay: (slot: TimeSlotConfig) => void
   onClearSlot: (slotId: string) => void
@@ -39,7 +40,7 @@ function tipoLabel(tipo: string | undefined): string {
   return 'Regular'
 }
 
-export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canchaNombre, showSwapIcon, showCanchaPicker, pendingDelete, onCycleDay, onClearSlot, onAssignTeam, onChangeTime, onSelectCancha }: Props) {
+export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canchaNombre, showSwapIcon, showCanchaPicker, hasCourtConflict, pendingDelete, onCycleDay, onClearSlot, onAssignTeam, onChangeTime, onSelectCancha }: Props) {
   const color = tipoColor(slot.tipo)
   const bg = tipoBg(slot.tipo)
   const esEliminatoria = slot.tipo === "eliminatoria"
@@ -47,7 +48,7 @@ export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canch
   const textMuted = Palette.textMuted
 
   return (
-    <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.base, gap: Gap.sm, borderWidth: 1, borderColor: color, position: "relative" }}>
+    <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.base, gap: Gap.sm, borderWidth: 1, borderColor: hasCourtConflict ? Palette.danger : color, position: "relative" }}>
       {slot.tipo ? (
         <View style={{ position: "absolute", top: -10, left: 12, height: 18, flexDirection: "row", alignItems: "center", gap: Gap.micro, backgroundColor: Palette.surfaceLight, paddingHorizontal: Pad.sm }}>
           {slot.tipo === "eliminatoria" ? <MaterialIcons name="emoji-events" size={12} color={color} /> : null}
@@ -61,12 +62,6 @@ export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canch
               <MaterialIcons name="access-time" size={16} color={color} />
               <Text style={{ color: textColor, fontSize: 14, fontFamily: Fonts.semiBold }}>{slot.horaInicio} - {slot.horaFin}</Text>
             </TouchableOpacity>
-            {showCanchaPicker && onSelectCancha ? (
-              <TouchableOpacity onPress={() => onSelectCancha(slot.id)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, marginLeft: Gap.sm }}>
-                <MaterialIcons name="place" size={16} color={Palette.warning} />
-                <Text style={{ color: canchaNombre ? Palette.text : Palette.textMuted, fontSize: 12, fontFamily: Fonts.sans }}>{canchaNombre || "Cancha"}</Text>
-              </TouchableOpacity>
-            ) : null}
           </View>
           <View style={{ flexDirection: "row", gap: Gap.sm }}>
             {showSwapIcon ? (
@@ -87,12 +82,6 @@ export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canch
               <MaterialIcons name="access-time" size={16} color={color} />
               <Text style={{ color: textColor, fontSize: 14, fontFamily: Fonts.semiBold }}>{slot.horaInicio} - {slot.horaFin}</Text>
             </TouchableOpacity>
-            {showCanchaPicker && onSelectCancha ? (
-              <TouchableOpacity onPress={() => onSelectCancha(slot.id)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, marginLeft: Gap.sm }}>
-                <MaterialIcons name="place" size={16} color={Palette.warning} />
-                <Text style={{ color: canchaNombre ? Palette.text : Palette.textMuted, fontSize: 12, fontFamily: Fonts.sans }}>{canchaNombre || "Cancha"}</Text>
-              </TouchableOpacity>
-            ) : null}
             {showSwapIcon ? (
               <TouchableOpacity onPress={() => onCycleDay(slot)} style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
                 <MaterialIcons name="swap-horiz" size={16} color={Palette.cyan} />
@@ -127,11 +116,17 @@ export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canch
           </TouchableOpacity>
         </View>
       )}
-      {showCanchaPicker && onSelectCancha && !esEliminatoria ? (
+      {showCanchaPicker && onSelectCancha ? (
         <TouchableOpacity onPress={() => onSelectCancha(slot.id)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, marginTop: Gap.sm }}>
           <MaterialIcons name="place" size={16} color={Palette.warning} />
           <Text style={{ color: canchaNombre ? Palette.text : Palette.textMuted, fontSize: 12, fontFamily: Fonts.sans }}>{canchaNombre ? `Cancha: ${canchaNombre}` : "Asignar cancha"}</Text>
         </TouchableOpacity>
+      ) : null}
+      {hasCourtConflict ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.danger10, borderRadius: Radius.md, padding: Pad.sm }}>
+          <MaterialIcons name="error-outline" size={16} color={Palette.danger} />
+          <Text style={{ color: Palette.danger, fontSize: 11, fontFamily: Fonts.semiBold, flex: 1 }}>Esta cancha está ocupada en ese horario</Text>
+        </View>
       ) : null}
     </View>
   )

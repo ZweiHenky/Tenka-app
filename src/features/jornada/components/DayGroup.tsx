@@ -26,7 +26,7 @@ export default function DayGroup({ dateKey, partidos, expanded, onToggle, onPart
     fechaFormateada = `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`
     diaNombre = DIA_NOMBRES_FULL[new Date(y, m - 1, d).getDay()]
   }
-  const finalizados = partidos.filter((partido) => partido.estado === "FINALIZADO").length
+  const finalizados = partidos.filter((partido) => partido.estado === "FINALIZADO" || partido.estado === "SUSPENDIDO").length
 
   return (
     <View style={{ gap: Gap.md }}>

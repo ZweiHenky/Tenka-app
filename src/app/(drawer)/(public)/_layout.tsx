@@ -5,6 +5,7 @@ export default function PublicLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="liga/[id]" />
       <Stack.Screen name="equipo/[id]" />
+      <Stack.Screen name="equipo/[id]/division/[divisionId]" />
       <Stack.Screen name="jugador/[id]" />
     </Stack>
   )

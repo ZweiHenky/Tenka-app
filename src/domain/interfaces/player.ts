@@ -15,7 +15,6 @@ export interface Jugador {
   nombre: string
   posicion: PosicionJugador
   foto: string | null
-  fotoPublicId: string | null
   edad: number | null
   telefono: string | null
   showPhoneInPublicProfile: boolean
@@ -33,10 +32,20 @@ export interface EquipoJugador {
   equipo?: { id: string; nombre: string; logo: string | null }
 }
 
+export interface BuscarJugadorEquipoResult {
+  id: string
+  nombre: string
+  foto: string | null
+  posicion: PosicionJugador
+  yaPertenece: boolean
+  dorsal: number | null
+}
+
 export interface DivisionJugador {
   divisionId: string
   equipoId: string
   jugadorId: string
+  dorsal: number
   createdAt: string
   jugador: Jugador
 }
@@ -45,6 +54,7 @@ export interface DivisionJugadorConRel {
   divisionId: string
   equipoId: string
   jugadorId: string
+  dorsal: number
   createdAt: string
   division: {
     id: string
@@ -58,8 +68,7 @@ export interface DivisionJugadorConRel {
 export interface CreateJugadorInput {
   nombre: string
   posicion: PosicionJugador
-  foto?: string
-  fotoPublicId?: string
+  photoAssetId?: string | null
   edad?: number
   telefono?: string
   equipoId: string
@@ -69,8 +78,7 @@ export interface CreateJugadorInput {
 export interface UpdateJugadorInput {
   nombre?: string
   posicion?: PosicionJugador
-  foto?: string | null
-  fotoPublicId?: string | null
+  photoAssetId?: string | null
   edad?: number | null
   telefono?: string | null
   equipoId?: string
@@ -80,8 +88,7 @@ export interface UpdateJugadorInput {
 export interface UpdateMyProfileInput {
   nombre?: string
   posicion?: PosicionJugador
-  foto?: string | null
-  fotoPublicId?: string | null
+  photoAssetId?: string | null
   edad?: number | null
   showPhoneInPublicProfile?: boolean
 }

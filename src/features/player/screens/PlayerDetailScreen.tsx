@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
 import { useQuery } from "@tanstack/react-query"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
+import LogoImage from "@/shared/components/LogoImage"
 import { POSICIONES_JUGADOR } from "@/domain/interfaces/player"
 import { useJugador } from "@/features/jugador/hooks/useJugadores"
 import { jugadorApi } from "@/features/jugador/api/jugadores"
@@ -103,10 +104,8 @@ export default function PlayerDetailScreen() {
               <EmptyState message="No está habilitado en ninguna división" icon="emoji-events" />
             ) : (
               divisiones.map((dj) => (
-                <TouchableOpacity key={`${dj.divisionId}-${dj.equipoId}`} activeOpacity={0.8} onPress={() => router.push({ pathname: "/(drawer)/(public)/equipo/[id]", params: { id: dj.equipoId } })} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.sm }}>
-                  <View style={{ width: 38, height: 38, borderRadius: 19, overflow: "hidden", backgroundColor: Palette.cyan10 }}>
-                    <Image source={dj.division.liga?.logo ? { uri: dj.division.liga.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 38, height: 38 }} resizeMode="cover" />
-                  </View>
+                <TouchableOpacity key={`${dj.divisionId}-${dj.equipoId}`} activeOpacity={0.8} onPress={() => router.push({ pathname: "/(drawer)/(public)/equipo/[id]/division/[divisionId]", params: { id: dj.equipoId, divisionId: dj.divisionId } })} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.sm }}>
+                  <LogoImage uri={dj.division.liga?.logo} size={38} backgroundColor={Palette.cyan10} radius={Radius.lg} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 14 }}>{dj.division.nombre}</Text>
                     <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{dj.division.liga?.nombre ?? "Liga"} · {dj.equipo.nombre}</Text>

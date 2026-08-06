@@ -32,7 +32,10 @@ export function useCreateLeague() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: CreateLeagueInput) => leagueApi.create(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] })
+      qc.invalidateQueries({ queryKey: ["ligas-infinitas"] })
+    },
   })
 }
 
@@ -41,7 +44,10 @@ export function useUpdateLeague() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<CreateLeagueInput> }) =>
       leagueApi.update(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] })
+      qc.invalidateQueries({ queryKey: ["ligas-infinitas"] })
+    },
   })
 }
 
@@ -49,6 +55,9 @@ export function useDeleteLeague() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => leagueApi.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] })
+      qc.invalidateQueries({ queryKey: ["ligas-infinitas"] })
+    },
   })
 }

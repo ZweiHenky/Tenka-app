@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Image } from "react-native"
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { router } from "expo-router"
@@ -9,7 +9,11 @@ import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { useToast } from "@/shared/components/Toast"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import LoadingScreen from "@/shared/components/LoadingScreen"
+import LogoImage from "@/shared/components/LogoImage"
 import { refereeApiClient, type RefereePartidoResponse } from "@/features/partido/api/partidos"
+import { getPlayoffFinalizationError } from "@/shared/utils/playoff-finalization"
+import ScorerAllocationEditor from "@/features/partido/components/ScorerAllocationEditor"
+import { allocationsFromAnnotations, buildResultPayload, hasValidAllocations, type ScorerAllocation } from "@/features/partido/scoring"
 
 const TIPO_INFO = {
   REGULAR: { label: "Regular", color: Palette.cyan, background: Palette.cyan10 },
@@ -44,6 +48,7 @@ export default function ArbitroScreen() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [allocations, setAllocations] = useState<ScorerAllocation[]>([])
 
   useEffect(() => {
     if (!client) return
@@ -53,7 +58,14 @@ export default function ArbitroScreen() {
       setError(null)
       try {
         const data = await client.getPartido()
-        if (!cancelled) setPartido(data)
+        if (!cancelled) {
+          setPartido(data)
+          setGolesLocal(data.estado === "PROGRAMADO" ? "" : String(data.golesLocal))
+          setGolesVisitante(data.estado === "PROGRAMADO" ? "" : String(data.golesVisitante))
+          setPenalesLocal(data.penalesLocal == null ? "" : String(data.penalesLocal))
+          setPenalesVisitante(data.penalesVisitante == null ? "" : String(data.penalesVisitante))
+          setAllocations(allocationsFromAnnotations(data.anotaciones))
+        }
       } catch (requestError: any) {
         if (!cancelled) setError(requestError.message)
       } finally {
@@ -73,6 +85,11 @@ export default function ArbitroScreen() {
 
   const handleSave = () => {
     if (!partido || !client) return
+    const schedulingError = getPlayoffFinalizationError(partido, partido.multiplesCanchas)
+    if (schedulingError) {
+      toast.error(schedulingError)
+      return
+    }
     if (golesLocal === "" || golesVisitante === "") {
       toast.error("Ingresa los goles de ambos equipos")
       return
@@ -81,6 +98,10 @@ export default function ArbitroScreen() {
     const gv = Number(golesVisitante)
     if (isNaN(gl) || isNaN(gv) || gl < 0 || gv < 0) {
       toast.error("Ingresa goles válidos")
+      return
+    }
+    if (!hasValidAllocations(allocations, gl, gv)) {
+      toast.error("Los goles asignados no pueden superar el marcador")
       return
     }
 
@@ -96,13 +117,29 @@ export default function ArbitroScreen() {
     }
 
     setSubmitting(true)
-    client.updateResult({ golesLocal: gl, golesVisitante: gv, penalesLocal: pl, penalesVisitante: pv, estado: "FINALIZADO" })
-      .then(() => {
-        setPartido((current) => current ? { ...current, golesLocal: gl, golesVisitante: gv, penalesLocal: pl, penalesVisitante: pv, estado: "FINALIZADO" } : current)
+    const payload = buildResultPayload({ expectedVersion: partido.version, golesLocal: gl, golesVisitante: gv, penalesLocal: pl, penalesVisitante: pv, estado: "FINALIZADO", allocations })
+    client.updateResult(payload)
+      .then((updated) => {
+        setPartido((current) => current ? { ...current, ...updated, anotaciones: payload.allocations } : current)
         setSubmitted(true)
         toast.success("Resultado guardado")
       })
-      .catch((requestError) => toast.error(requestError.message))
+      .catch(async (requestError) => {
+        if (requestError?.response?.status === 409) {
+          try {
+            const fresh = await client.getPartido()
+            setPartido(fresh)
+            setGolesLocal(fresh.estado === "PROGRAMADO" ? "" : String(fresh.golesLocal))
+            setGolesVisitante(fresh.estado === "PROGRAMADO" ? "" : String(fresh.golesVisitante))
+            setPenalesLocal(fresh.penalesLocal == null ? "" : String(fresh.penalesLocal))
+            setPenalesVisitante(fresh.penalesVisitante == null ? "" : String(fresh.penalesVisitante))
+            setAllocations(allocationsFromAnnotations(fresh.anotaciones))
+          } catch {}
+          toast.error("El partido cambió. Recargamos el resultado para que lo revises.")
+          return
+        }
+        toast.error(requestError.message)
+      })
       .finally(() => setSubmitting(false))
   }
 
@@ -204,9 +241,7 @@ export default function ArbitroScreen() {
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
             <View style={{ flex: 1, alignItems: "center", gap: Gap.sm }}>
-              <View style={{ width: 60, height: 60, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Palette.border }}>
-                {partido.equipoLocal?.logo ? <Image source={{ uri: partido.equipoLocal.logo }} style={{ width: 60, height: 60 }} /> : <MaterialIcons name="shield" size={28} color={Palette.textMuted} />}
-              </View>
+              <LogoImage uri={partido.equipoLocal?.logo} size={60} backgroundColor={Palette.surfaceLight} ring={Palette.border} ringWidth={1} iconFallback="shield" />
               <Text style={{ minHeight: 36, color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold, textAlign: "center" }} numberOfLines={2}>{equipoLocalNombre}</Text>
               <TextInput accessibilityLabel={`Goles de ${equipoLocalNombre}`} style={scoreInputStyle} editable={!finalized} keyboardType="number-pad" maxLength={2} value={localGoals} onChangeText={setGolesLocal} placeholder="0" placeholderTextColor={Palette.textMuted} />
               <Text style={{ color: Palette.textMuted, fontSize: 10, fontFamily: Fonts.semiBold }}>LOCAL</Text>
@@ -218,14 +253,14 @@ export default function ArbitroScreen() {
             </View>
 
             <View style={{ flex: 1, alignItems: "center", gap: Gap.sm }}>
-              <View style={{ width: 60, height: 60, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Palette.border }}>
-                {partido.equipoVisitante?.logo ? <Image source={{ uri: partido.equipoVisitante.logo }} style={{ width: 60, height: 60 }} /> : <MaterialIcons name="shield" size={28} color={Palette.textMuted} />}
-              </View>
+              <LogoImage uri={partido.equipoVisitante?.logo} size={60} backgroundColor={Palette.surfaceLight} ring={Palette.border} ringWidth={1} iconFallback="shield" />
               <Text style={{ minHeight: 36, color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold, textAlign: "center" }} numberOfLines={2}>{equipoVisitanteNombre}</Text>
               <TextInput accessibilityLabel={`Goles de ${equipoVisitanteNombre}`} style={scoreInputStyle} editable={!finalized} keyboardType="number-pad" maxLength={2} value={visitorGoals} onChangeText={setGolesVisitante} placeholder="0" placeholderTextColor={Palette.textMuted} />
               <Text style={{ color: Palette.textMuted, fontSize: 10, fontFamily: Fonts.semiBold }}>VISITANTE</Text>
             </View>
           </View>
+
+          <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, Number(localGoals) || 0)} visitorScore={Math.max(0, Number(visitorGoals) || 0)} localPlayers={partido.jugadoresLocal} visitorPlayers={partido.jugadoresVisitante} allocations={allocations} onChange={setAllocations} disabled={finalized || submitting} />
 
           {showPenales ? (
             <View style={{ backgroundColor: Palette.warning10, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.warning, padding: Pad.md, gap: Gap.md }}>

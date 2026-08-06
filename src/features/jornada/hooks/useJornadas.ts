@@ -14,7 +14,7 @@ export function useJornadas(divisionId: string) {
 export function useGenerateNextJornada() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ divisionId, slots, equipoIds, descansoEquipoId }: { divisionId: string; slots?: SlotInput[]; equipoIds?: string[]; descansoEquipoId?: string }) => jornadaApi.generateNext(divisionId, slots, equipoIds, descansoEquipoId),
+    mutationFn: ({ divisionId, slots, equipoIds, descansoEquipoId, idempotencyKey }: { divisionId: string; slots?: SlotInput[]; equipoIds?: string[]; descansoEquipoId?: string; idempotencyKey: string }) => jornadaApi.generateNext(divisionId, slots, equipoIds, descansoEquipoId, idempotencyKey),
     onSuccess: (_, { divisionId }) => {
       qc.invalidateQueries({ queryKey: [KEY, divisionId] })
       qc.invalidateQueries({ queryKey: ["jornadas-infinitas", divisionId] })

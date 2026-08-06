@@ -8,6 +8,8 @@ import PullToRefresh from "@/shared/components/PullToRefresh"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import EmptyState from "@/shared/components/EmptyState"
+import LogoImage from "@/shared/components/LogoImage"
+import { TabBar } from "@/shared/components/TabBar"
 import { useLocalSearchParams, useRouter, useIsFocused } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
@@ -26,10 +28,13 @@ import { useLigaFavoritaStore } from "@/stores/ligaFavoritaStore"
 import { useDivisionNotificationStore } from "@/stores/divisionNotificationStore"
 import { useToast } from "@/shared/components/Toast"
 import { OneSignal } from "react-native-onesignal"
-import { env } from "@/infrastructure/config/env"
 import { notificationSubscriptionApi } from "@/features/notification/api/notificationSubscription"
+import { nonemptyId } from "@/infrastructure/notifications/notificationIdentity"
+import { changeDivisionSubscription } from "@/features/notification/subscriptionFlow"
 import { formatLocalTime, toLocalDateKey } from "@/shared/utils/date-time"
 import { getPlayoffRoundMatchCounts } from "@/features/division/utils/playoff"
+import { useGoleadores } from "@/features/goleador/hooks/useGoleadores"
+import GoleadoresTable from "@/features/goleador/components/GoleadoresTable"
 
 function fmtHora(f: string) {
   return formatLocalTime(f)
@@ -87,7 +92,7 @@ export default function PublicLeagueScreen() {
   const { id, divisionId: initialDiv, tab: initialTab } = useLocalSearchParams<{
     id: string
     divisionId?: string
-    tab?: "posiciones" | "horario"
+    tab?: "posiciones" | "horario" | "goleo"
   }>()
   const router = useRouter()
   const toggleFav = useLigaFavoritaStore((s) => s.toggle)
@@ -111,8 +116,8 @@ export default function PublicLeagueScreen() {
 
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(initialDiv ?? null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [tab, setTab] = useState<"posiciones" | "horario">(
-    initialTab === "horario" ? "horario" : "posiciones"
+  const [tab, setTab] = useState<"posiciones" | "horario" | "goleo">(
+    initialTab === "horario" || initialTab === "goleo" ? initialTab : "posiciones"
   )
 
   const rangePickerRef = useRef<BottomSheetModal>(null)
@@ -175,6 +180,7 @@ export default function PublicLeagueScreen() {
       currentDivisionId ? qc.invalidateQueries({ queryKey: ["tabla-posiciones", currentDivisionId] }) : Promise.resolve(),
       currentDivisionId ? qc.invalidateQueries({ queryKey: ["jornadas-infinitas", currentDivisionId] }) : Promise.resolve(),
       currentDivisionId ? qc.invalidateQueries({ queryKey: ["rondas-playoff", currentDivisionId] }) : Promise.resolve(),
+      currentDivisionId ? qc.invalidateQueries({ queryKey: ["goleadores", currentDivisionId] }) : Promise.resolve(),
     ])
     setRefreshing(false)
   }, [qc, id, currentDivisionId])
@@ -183,6 +189,7 @@ export default function PublicLeagueScreen() {
   const teamCount = links.length
 
   const { data: standings = [], isLoading: standingsLoading } = useTablaPosiciones(currentDivision?.id ?? null)
+  const goleadores = useGoleadores(currentDivision?.id)
   const { data, isLoading: jornadasLoading, fetchNextPage, error: jornadasError, refetch: refetchJornadas } = useJornadasInfinitas(currentDivision?.id ?? null)
 
   const { data: rondas = [] } = useRondasPlayoff(currentDivision?.id ?? null)
@@ -246,9 +253,12 @@ export default function PublicLeagueScreen() {
   }
 
   const goToTeam = useCallback((teamId?: string | null) => {
-    if (!teamId) return
-    router.push({ pathname: "/(drawer)/(public)/equipo/[id]", params: { id: teamId } })
-  }, [router])
+    if (!teamId || !currentDivisionId) return
+    router.push({
+      pathname: "/(drawer)/(public)/equipo/[id]/division/[divisionId]",
+      params: { id: teamId, divisionId: currentDivisionId },
+    })
+  }, [currentDivisionId, router])
 
   const rondaMap = useMemo(() => {
     const map: Record<string, string> = {}
@@ -355,34 +365,35 @@ export default function PublicLeagueScreen() {
                     : null
                   return (
                   <View key={p.id}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
-                      <View style={{ width: 60, alignItems: "center" }}>
-                        {p.fecha ? (
-                          <Text style={{ color: Palette.cyan, fontSize: 13, fontFamily: Fonts.semiBold }}>{fmtHora(p.fecha)}</Text>
-            ) : null}
-          </View>
+                     <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, paddingVertical: Pad.sm }}>
+                       <View style={{ width: 72, alignItems: "center", gap: Gap.sm }}>
+                         {badgeTipo ? (
+                           <View style={{ maxWidth: 72, backgroundColor: badgeTipo.bg, borderRadius: Radius.sm, borderWidth: 1, borderColor: badgeTipo.border, paddingHorizontal: 6, paddingVertical: 2 }}>
+                             <Text numberOfLines={1} style={{ fontSize: 8, fontFamily: Fonts.semiBold, color: badgeTipo.text }}>{badgeTipo.label}</Text>
+                           </View>
+                         ) : null}
+                         {p.fecha ? (
+                           <Text style={{ color: Palette.cyan, fontSize: 13, fontFamily: Fonts.semiBold }}>{fmtHora(p.fecha)}</Text>
+                         ) : null}
+                         {p.cancha?.nombre ? (
+                           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                             <MaterialIcons name="place" size={11} color={Palette.cyan} />
+                             <Text numberOfLines={2} style={{ color: Palette.textMuted, fontSize: 9, fontFamily: Fonts.sans, textAlign: "center", flexShrink: 1 }}>{p.cancha.nombre}</Text>
+                           </View>
+                         ) : null}
+                       </View>
                         <View style={{ flex: 1, gap: 6 }}>
                         <TouchableOpacity activeOpacity={p.equipoLocal?.id ? 0.75 : 1} onPress={() => goToTeam(p.equipoLocal?.id)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-                          <View style={{ width: 22, height: 22, borderRadius: 11, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                            <Image source={p.equipoLocal?.logo ? { uri: p.equipoLocal.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 22, height: 22 }} resizeMode="cover" />
-                          </View>
+                          <LogoImage uri={p.equipoLocal?.logo} size={22} backgroundColor={Palette.dark40} radius={Radius.sm} />
                           <Text style={{ fontSize: 13, color: Palette.text, fontFamily: Fonts.medium, flexShrink: 1 }} numberOfLines={1}>{p.equipoLocal?.nombre ?? ""}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity activeOpacity={p.equipoVisitante?.id ? 0.75 : 1} onPress={() => goToTeam(p.equipoVisitante?.id)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-                          <View style={{ width: 22, height: 22, borderRadius: 11, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                            <Image source={p.equipoVisitante?.logo ? { uri: p.equipoVisitante.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 22, height: 22 }} resizeMode="cover" />
-                          </View>
+                          <LogoImage uri={p.equipoVisitante?.logo} size={22} backgroundColor={Palette.dark40} radius={Radius.sm} />
                           <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.medium, flexShrink: 1 }} numberOfLines={1}>{p.equipoVisitante?.nombre ?? ""}</Text>
                         </TouchableOpacity>
                       </View>
-                      <View style={{ flexDirection: "column", gap: 4, alignItems: "center" }}>
-                        {badgeTipo ? (
-                          <View style={{ backgroundColor: badgeTipo.bg, borderRadius: Radius.sm, borderWidth: 1, borderColor: badgeTipo.border, paddingHorizontal: 6, paddingVertical: 2 }}>
-                            <Text style={{ fontSize: 8, fontFamily: Fonts.semiBold, color: badgeTipo.text }}>{badgeTipo.label}</Text>
-                          </View>
-                        ) : null}
-                        <View style={{ width: 50, alignItems: "center", justifyContent: "center" }}>
-                          {p.estado === "FINALIZADO" ? (
+                       <View style={{ width: 50, alignItems: "center", justifyContent: "center" }}>
+                           {p.estado === "FINALIZADO" ? (
                             <View style={{ alignItems: "center" }}>
                               <Text style={{ fontSize: 16, fontFamily: Fonts.displayBold, color: Palette.cyan }}>{p.golesLocal}</Text>
                               <View style={{ width: 20, height: 1, backgroundColor: Palette.border, marginVertical: 1 }} />
@@ -399,8 +410,7 @@ export default function PublicLeagueScreen() {
                           ) : (
                             <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.textMuted }}>VS</Text>
                           )}
-                        </View>
-                      </View>
+                       </View>
                     </View>
                     {idx < partidos.length - 1 ? (
                       <View style={{ height: 1, backgroundColor: Palette.border, marginVertical: Gap.sm }} />
@@ -423,7 +433,7 @@ export default function PublicLeagueScreen() {
       <View style={{ position: "relative" }}>
         <Image source={league?.cancha ? { uri: league.cancha } : require("@/assets/ejemplos/campo.jpg")} style={{ width: "100%", height: 180 }} resizeMode="cover" />
         <LinearGradient
-          colors={["rgba(0,0,0,0.20)", "rgba(0,0,0,0.72)"]}
+          colors={["rgba(0,0,0,0.20)", "rgba(0,0,0,0.90)"]}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
         />
         <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, padding: Pad.base, justifyContent: "flex-end" }}>
@@ -444,9 +454,7 @@ export default function PublicLeagueScreen() {
             <MaterialIcons name={esFav ? "star" : "star-outline"} size={20} color={esFav ? Palette.warning : Palette.text} />
           </TouchableOpacity>
           <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.base }}>
-            <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surface, borderWidth: 2, borderColor: Palette.cyan }}>
-              <Image source={league?.logo ? { uri: league.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
-            </View>
+            <LogoImage uri={league?.logo} size={48} ring={Palette.cyan} />
             <View style={{ flex: 1 }}>
               <Text style={{ color: Palette.text, fontSize: 18, fontFamily: Fonts.display }}>{league?.nombre}</Text>
               <View style={{ width: 80, height: 1, backgroundColor: Palette.cyan, borderRadius: 1, marginVertical: Gap.sm }} />
@@ -481,7 +489,7 @@ export default function PublicLeagueScreen() {
             onPress={() => setPickerOpen((prev) => !prev)}
             style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.borderActive, paddingHorizontal: Pad.base, paddingVertical: Pad.md }}
           >
-            <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.medium }}>{currentDivision?.nombre ?? "Seleccionar"}</Text>
+            <Text numberOfLines={1} style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.medium, flex: 1 }}>{currentDivision ? `${currentDivision.nombre} · ${currentDivision.categoria.nombre}` : "Seleccionar"}</Text>
             <MaterialIcons name={pickerOpen ? "expand-less" : "expand-more"} size={22} color={Palette.cyan} />
           </TouchableOpacity>
 
@@ -494,7 +502,7 @@ export default function PublicLeagueScreen() {
                   onPress={() => { setSelectedDivisionId(d.id); setPickerOpen(false) }}
                   style={{ paddingHorizontal: Pad.base, paddingVertical: Pad.lg, backgroundColor: currentDivision?.id === d.id ? Palette.cyan10 : "transparent" }}
                 >
-                  <Text style={{ color: currentDivision?.id === d.id ? Palette.cyan : Palette.text, fontSize: 14, fontFamily: currentDivision?.id === d.id ? Fonts.semiBold : Fonts.medium }}>{d.nombre}</Text>
+                  <Text numberOfLines={1} style={{ color: currentDivision?.id === d.id ? Palette.cyan : Palette.text, fontSize: 14, fontFamily: currentDivision?.id === d.id ? Fonts.semiBold : Fonts.medium }}>{d.nombre} · {d.categoria.nombre}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -513,33 +521,27 @@ export default function PublicLeagueScreen() {
               const divId = currentDivision.id
               setSubscribing(divId)
               try {
-                const [oneSignalId, pushSubscriptionId] = await Promise.all([
+                const [rawOneSignalId, rawPushSubscriptionId] = await Promise.all([
                   OneSignal.User.getOnesignalId(),
                   OneSignal.User.pushSubscription.getIdAsync(),
                 ])
-                if (divisionSubscribed) {
-                  await notificationSubscriptionApi.unsubscribe({ divisionId: divId, oneSignalId: oneSignalId ?? '' })
-                  toggleSub({
+                const oneSignalId = nonemptyId(rawOneSignalId)
+                const pushSubscriptionId = nonemptyId(rawPushSubscriptionId)
+                if (!oneSignalId || !pushSubscriptionId) throw new Error("Las notificaciones aún no están disponibles en este dispositivo")
+                await changeDivisionSubscription({
+                  subscribed: divisionSubscribed,
+                  divisionId: divId,
+                  oneSignalId,
+                  pushSubscriptionId,
+                  subscribe: (data) => notificationSubscriptionApi.subscribe(data),
+                  unsubscribe: (data) => notificationSubscriptionApi.unsubscribe(data),
+                  commitLocalState: () => toggleSub({
                     divisionId: divId,
                     ligaId: id!,
                     ligaNombre: league?.nombre ?? "",
                     divisionNombre: currentDivision.nombre,
-                  })
-                  if (env.ONESIGNAL_APP_ID) {
-                    OneSignal.User.removeTag(`division_${divId}`)
-                  }
-                } else {
-                  await notificationSubscriptionApi.subscribe({ divisionId: divId, oneSignalId: oneSignalId ?? '', pushSubscriptionId })
-                  toggleSub({
-                    divisionId: divId,
-                    ligaId: id!,
-                    ligaNombre: league?.nombre ?? "",
-                    divisionNombre: currentDivision.nombre,
-                  })
-                  if (env.ONESIGNAL_APP_ID) {
-                    OneSignal.User.addTag(`division_${divId}`, "true")
-                  }
-                }
+                  }),
+                })
               } catch (e: any) {
                 toast.error(e?.message ?? 'Error al cambiar suscripción')
               } finally {
@@ -667,25 +669,17 @@ export default function PublicLeagueScreen() {
           </>
         ) : null}
 
-        <View
-          ref={tabBarRef}
-          onLayout={() => setTabBarReady(true)}
-          style={{ flexDirection: "row", backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}
-        >
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => setTab("posiciones")}
-            style={{ flex: 1, paddingVertical: Pad.sm, alignItems: "center", backgroundColor: tab === "posiciones" ? Palette.cyan : "transparent" }}
-          >
-            <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: tab === "posiciones" ? Palette.black : Palette.textSecondary }}>Posiciones</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => setTab("horario")}
-            style={{ flex: 1, paddingVertical: Pad.sm, alignItems: "center", backgroundColor: tab === "horario" ? Palette.cyan : "transparent" }}
-          >
-            <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: tab === "horario" ? Palette.black : Palette.textSecondary }}>Horario</Text>
-          </TouchableOpacity>
+        <View ref={tabBarRef} collapsable={false} onLayout={() => setTabBarReady(true)}>
+          <TabBar
+            tabs={[
+              { key: "posiciones", label: "Posiciones" },
+              { key: "horario", label: "Horario" },
+              { key: "goleo", label: "Goleo" },
+            ]}
+            activeTab={tab}
+            onTabChange={(k) => setTab(k as "posiciones" | "horario" | "goleo")}
+            stretch
+          />
         </View>
 
         {tab === "posiciones" ? (
@@ -897,6 +891,7 @@ export default function PublicLeagueScreen() {
               )}
             </View>
           ) : null}
+          {tab === "goleo" ? <View style={{ marginHorizontal: Pad.base }}><GoleadoresTable data={goleadores.data} isLoading={goleadores.isLoading} error={goleadores.error} /></View> : null}
           {contactContent}
         </View>
       </PullToRefresh>

@@ -3,12 +3,13 @@ import { Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import type { PartidoResponse } from "@/features/jornada/api/jornadas"
 import PartidoResultEditor from "./PartidoResultEditor"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
+import type { ScorerAllocation } from "@/features/partido/scoring"
 
 interface Props {
   partido: PartidoResponse | null
   visible: boolean
   isUpdating: boolean
-  onSave: (golesLocal: number, golesVisitante: number, estado: string, penalesLocal?: number, penalesVisitante?: number, tipoPartido?: string) => void
+  onSave: (golesLocal: number, golesVisitante: number, estado: string, anotaciones: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number, tipoPartido?: string) => void
   onClose: () => void
 }
 

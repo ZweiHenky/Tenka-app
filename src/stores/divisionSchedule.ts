@@ -23,6 +23,7 @@ export interface PlantillaSlot {
   horaInicio: string
   horaFin: string
   tipo?: TimeSlotConfig['tipo']
+  canchaId?: string
 }
 
 export interface DivisionSchedule {
@@ -36,13 +37,14 @@ export interface DivisionSchedule {
   descansoSnapshot?: number
   descansoEquipoId?: string
   playoffMode?: boolean
+  canchaUnicaIdSnapshot?: string | null
 }
 
 interface DivisionScheduleState {
   schedules: Record<string, DivisionSchedule>
   habilitados: Record<string, string[]>
   programacionGuardada: Record<string, boolean>
-  initSchedule: (divisionId: string, diasPartido: string, horarioPartido: string, duracionPartido: number, descanso: number, refDate?: string, maxSlots?: number, habilitados?: string[]) => void
+  initSchedule: (divisionId: string, diasPartido: string, horarioPartido: string, duracionPartido: number, descanso: number, refDate?: string, maxSlots?: number, habilitados?: string[], courtIds?: string[], canchaUnicaId?: string | null) => void
   getSchedule: (divisionId: string) => DivisionSchedule | undefined
   setSlotTeams: (divisionId: string, slotId: string, localId?: string, visitanteId?: string) => void
   setSlotTipo: (divisionId: string, slotId: string, tipo: 'regular' | 'complemento' | 'amistoso' | 'eliminatoria') => void
@@ -51,6 +53,7 @@ interface DivisionScheduleState {
   setSlotPartido: (divisionId: string, slotId: string, data: { partidoId?: string; equipoLocalId?: string; equipoVisitanteId?: string; rondaNombre?: string; llave?: number }) => void
   setScheduleTipoSlots: (divisionId: string, slots: TimeSlotConfig[]) => void
   replaceSlots: (divisionId: string, slots: TimeSlotConfig[]) => void
+  syncCanchaUnica: (divisionId: string, canchaUnicaId: string | null, slots: TimeSlotConfig[]) => void
   clearEliminatoriaSlots: (divisionId: string) => void
   clearExtraSlots: (divisionId: string) => void
   resetSchedule: (divisionId: string) => void
@@ -162,6 +165,14 @@ export function isSlotManual(sl: TimeSlotConfig): boolean {
   return sl.id.startsWith('extra-')
 }
 
+export function normalizePlayoffSlotTypes(slots: TimeSlotConfig[]): TimeSlotConfig[] {
+  return slots.map((slot) => {
+    if (slot.tipo === 'eliminatoria' || slot.tipo === 'amistoso') return slot
+    const prePlayoffTipo = slot.prePlayoffTipo ?? (slot.tipo === 'complemento' ? 'complemento' : 'regular')
+    return { ...slot, tipo: 'amistoso', prePlayoffTipo }
+  })
+}
+
 export function ensureUniqueSlotIds(slots: TimeSlotConfig[]): TimeSlotConfig[] {
   const reservedEliminatoriaIds = new Set(
     slots.filter((slot) => slot.tipo === 'eliminatoria' && slot.partidoId).map((slot) => `elim-${slot.partidoId}`),
@@ -220,11 +231,12 @@ export function reconcilePlayoffSlots(
   targetAutoAmistosos: number,
   candidates: PlayoffSlotCandidate[],
 ): TimeSlotConfig[] {
-  const autoAmistosos = slots.filter((slot) => slot.tipo === 'amistoso' && !isSlotManual(slot))
+  const playoffSlots = normalizePlayoffSlotTypes(slots)
+  const autoAmistosos = playoffSlots.filter((slot) => slot.tipo === 'amistoso' && !isSlotManual(slot))
   const keptAutoAmistosos = new Set(autoAmistosos.slice(0, targetAutoAmistosos))
   const normalized = autoAmistosos.length > targetAutoAmistosos
-    ? slots.filter((slot) => slot.tipo !== 'amistoso' || isSlotManual(slot) || keptAutoAmistosos.has(slot))
-    : [...slots]
+    ? playoffSlots.filter((slot) => slot.tipo !== 'amistoso' || isSlotManual(slot) || keptAutoAmistosos.has(slot))
+    : [...playoffSlots]
 
   const currentAutoCount = normalized.filter((slot) => slot.tipo === 'amistoso' && !isSlotManual(slot)).length
   const missingAutoCount = Math.max(0, targetAutoAmistosos - currentAutoCount)
@@ -305,82 +317,9 @@ export function getActiveSlots(slots: TimeSlotConfig[], equipoCount: number, pla
 }
 
 export function resolveCanchaConflicts(slots: TimeSlotConfig[], schedule: DivisionSchedule): TimeSlotConfig[] {
-  const dias = sortValidDays(parseDiasPartido(schedule.diasSnapshot ?? ""))
-  const ranges = parseHorario(schedule.horarioSnapshot ?? "")
-  const duracion = schedule.duracionSnapshot
-  if (dias.length === 0 || ranges.length === 0 || !duracion) return slots
-
-  const ref = schedule.refDate && isValidDateStr(schedule.refDate)
-    ? localDateFromString(schedule.refDate)
-    : slots[0]?.fecha && isValidDateStr(slots[0].fecha)
-      ? localDateFromString(slots[0].fecha)
-      : null
-  if (!ref) return slots
-
-  const monday = getMondayOfThisWeek(ref)
-  const descanso = schedule.descansoSnapshot ?? 0
-  const candidates: { fecha: string; horaInicio: string; horaFin: string; start: number; end: number }[] = []
-  for (const day of dias) {
-    const date = new Date(monday)
-    date.setDate(monday.getDate() + (day === 0 ? 6 : day - 1))
-    for (const range of ranges) {
-      let current = timeToMinutes(range.inicio)
-      const end = timeToMinutes(range.fin)
-      while (current + duracion <= end) {
-        const startDate = new Date(date)
-        startDate.setHours(Math.floor(current / 60), current % 60, 0, 0)
-        candidates.push({
-          fecha: formatDate(date),
-          horaInicio: minutesToTime(current),
-          horaFin: minutesToTime(current + duracion),
-          start: startDate.getTime(),
-          end: startDate.getTime() + duracion * 60_000,
-        })
-        current += duracion + descanso
-      }
-    }
-  }
-
-  const interval = (slot: TimeSlotConfig) => {
-    if (!isValidDateStr(slot.fecha)) return null
-    const start = localDateFromString(slot.fecha)
-    const end = localDateFromString(slot.fecha)
-    const startMinutes = timeToMinutes(slot.horaInicio)
-    const endMinutes = timeToMinutes(slot.horaFin)
-    start.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0)
-    end.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0)
-    if (end <= start) end.setDate(end.getDate() + 1)
-    return { start: start.getTime(), end: end.getTime() }
-  }
-
-  const indexed = slots.map((slot, index) => ({ slot: { ...slot }, index }))
-  indexed.sort((a, b) => Number(a.slot.tipo === "eliminatoria") - Number(b.slot.tipo === "eliminatoria") || a.index - b.index)
-  const occupied = new Map<string, { start: number; end: number }[]>()
-
-  for (const item of indexed) {
-    const slot = item.slot
-    const canchaKey = slot.canchaId ?? "__sin_cancha__"
-    const canchaOccupied = occupied.get(canchaKey) ?? []
-    let current = interval(slot)
-    if (!current) continue
-    const overlaps = canchaOccupied.some((other) => current!.start < other.end && current!.end > other.start)
-    if (overlaps) {
-      const replacement = candidates.find((candidate) =>
-        !canchaOccupied.some((other) => candidate.start < other.end && candidate.end > other.start)
-      )
-      if (replacement) {
-        slot.fecha = replacement.fecha
-        slot.horaInicio = replacement.horaInicio
-        slot.horaFin = replacement.horaFin
-        current = { start: replacement.start, end: replacement.end }
-      }
-    }
-    canchaOccupied.push(current)
-    occupied.set(canchaKey, canchaOccupied)
-  }
-
-  indexed.sort((a, b) => a.index - b.index)
-  return ensureUniqueSlotIds(indexed.map((item) => item.slot))
+  // Court conflicts are validation errors. Never hide them by moving a draft.
+  void schedule
+  return ensureUniqueSlotIds(slots)
 }
 
 export function computeRefDateFromJornada(fechaInicio: string | null | undefined): string | undefined {
@@ -396,7 +335,7 @@ export function computeRefDateFromJornada(fechaInicio: string | null | undefined
   return formatDate(fecha)
 }
 
-export function generateSlots(diasPartido: string, horarioPartido: string, duracion: number, descanso: number, refDate?: string, maxSlots?: number): TimeSlotConfig[] {
+export function generateSlots(diasPartido: string, horarioPartido: string, duracion: number, descanso: number, refDate?: string, maxSlots?: number, courtIds: string[] = []): TimeSlotConfig[] {
   const ranges = parseHorario(horarioPartido)
   if (ranges.length === 0) return []
 
@@ -444,11 +383,36 @@ export function generateSlots(diasPartido: string, horarioPartido: string, durac
 
     for (const ts of dayTimeSlots) {
       if (slots.length >= (maxSlots ?? Infinity)) break
-      slots.push({ id: `slot-${slots.length}`, fecha, horaInicio: ts.horaInicio, horaFin: ts.horaFin, tipo: 'regular' })
+      const capacity = courtIds.length > 0 ? courtIds : [undefined]
+      for (const canchaId of capacity) {
+        if (slots.length >= (maxSlots ?? Infinity)) break
+        slots.push({ id: `slot-${slots.length}`, fecha, horaInicio: ts.horaInicio, horaFin: ts.horaFin, tipo: 'regular', canchaId })
+      }
     }
   }
 
   return slots
+}
+
+export function migrateDivisionScheduleState(persisted: unknown) {
+  const state = (persisted && typeof persisted === 'object' ? persisted : {}) as Partial<DivisionScheduleState>
+  const schedules = Object.fromEntries(Object.entries(state.schedules ?? {}).map(([divisionId, schedule]) => {
+    const sanitizedSlots = Array.isArray(schedule.slots) ? schedule.slots.map((slot) => ({
+      ...slot,
+      canchaId: typeof slot.canchaId === 'string' && slot.canchaId ? slot.canchaId : undefined,
+    })) : []
+    const playoffMode = schedule.playoffMode === true || sanitizedSlots.some((slot) => slot.tipo === 'eliminatoria')
+    return [divisionId, {
+      ...schedule,
+      playoffMode,
+      slots: playoffMode ? normalizePlayoffSlotTypes(sanitizedSlots) : sanitizedSlots,
+      plantilla: Array.isArray(schedule.plantilla) ? schedule.plantilla.map((slot) => ({
+        ...slot,
+        canchaId: typeof slot.canchaId === 'string' && slot.canchaId ? slot.canchaId : undefined,
+      })) : undefined,
+    }]
+  }))
+  return { ...state, schedules }
 }
 
 export const useDivisionScheduleStore = create<DivisionScheduleState>()(
@@ -459,7 +423,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
   programacionGuardada: {},
   hasUnsaved: false,
 
-  initSchedule: (divisionId, diasPartido, horarioPartido, duracionPartido, descanso, refDate, maxSlots, habilitados) => {
+  initSchedule: (divisionId, diasPartido, horarioPartido, duracionPartido, descanso, refDate, maxSlots, habilitados, courtIds = [], canchaUnicaId = null) => {
     let existing = get().schedules[divisionId]
 
     // Collect eliminatoria slots before any repair
@@ -521,6 +485,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
               horaInicio: sl.horaInicio,
               horaFin: sl.horaFin,
               tipo: sl.tipo,
+              canchaId: typeof old.canchaId === 'string' ? old.canchaId : undefined,
             } as PlantillaSlot
           })
         : undefined
@@ -529,6 +494,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
           horaInicio: s.horaInicio,
           horaFin: s.horaFin,
           tipo: s.tipo,
+          canchaId: s.canchaId,
         }))
       const templateCount = Math.min(rawTemplate.length, maxSlots ?? Infinity)
       const templateSlots = rawTemplate.slice(0, templateCount)
@@ -547,6 +513,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
           tipo: sl.tipo ?? 'regular',
           equipoLocalId: existingSlot?.equipoLocalId,
           equipoVisitanteId: existingSlot?.equipoVisitanteId,
+          canchaId: courtIds.includes(sl.canchaId ?? '') ? sl.canchaId : courtIds.includes(existingSlot?.canchaId ?? '') ? existingSlot?.canchaId : undefined,
         }
       })
 
@@ -598,24 +565,23 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
         slots = [...slotsWithHabilitados, ...newSlots, ...eliminatoriaSlots]
       }
 
-      const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: migratedPlantilla, refDate: formatDate(weekMonday), horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false }
+      if (existing?.playoffMode) slots = normalizePlayoffSlotTypes(slots)
+
+      const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: migratedPlantilla, refDate: formatDate(weekMonday), horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, canchaUnicaIdSnapshot: canchaUnicaId }
       nextSchedule.slots = resolveCanchaConflicts(nextSchedule.slots, nextSchedule)
       set((s) => ({ schedules: { ...s.schedules, [divisionId]: nextSchedule }, hasUnsaved: false, programacionGuardada: { ...s.programacionGuardada, [divisionId]: false } }))
       return
     }
 
-    const newSlots = generateSlots(diasPartido, horarioPartido, duracionPartido, descanso, refDate, maxSlots)
+     const newSlots = generateSlots(diasPartido, horarioPartido, duracionPartido, descanso, refDate, maxSlots, courtIds)
     if (existing) {
       for (let i = 0; i < newSlots.length && i < existing.slots.length; i++) {
         newSlots[i].equipoLocalId = existing.slots[i].equipoLocalId
         newSlots[i].equipoVisitanteId = existing.slots[i].equipoVisitanteId
         newSlots[i].tipo = existing.slots[i].tipo
+        if (courtIds.includes(existing.slots[i].canchaId ?? '')) newSlots[i].canchaId = existing.slots[i].canchaId
       }
-      if (existing.playoffMode) {
-        for (const sl of newSlots) {
-          if (sl.tipo === 'regular') sl.tipo = 'amistoso'
-        }
-      }
+      if (existing.playoffMode) newSlots.splice(0, newSlots.length, ...normalizePlayoffSlotTypes(newSlots))
     }
     const slots = [...newSlots, ...eliminatoriaSlots]
     const firstFecha = newSlots.length > 0 ? newSlots[0].fecha : undefined
@@ -624,7 +590,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       : refDate && isValidDateStr(refDate)
         ? formatDate(getMondayOfThisWeek(localDateFromString(refDate)))
         : existing?.refDate
-    const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: undefined, refDate: refDateForStore, horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false }
+    const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: undefined, refDate: refDateForStore, horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, canchaUnicaIdSnapshot: canchaUnicaId }
     nextSchedule.slots = resolveCanchaConflicts(nextSchedule.slots, nextSchedule)
     set((s) => ({ schedules: { ...s.schedules, [divisionId]: nextSchedule }, hasUnsaved: false, programacionGuardada: { ...s.programacionGuardada, [divisionId]: false } }))
   },
@@ -678,10 +644,9 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     set((s) => {
       const schedule = s.schedules[divisionId]
       if (!schedule) return s
-      let slots = schedule.slots.map((sl) =>
+      const slots = schedule.slots.map((sl) =>
         sl.id === slotId ? { ...sl, canchaId } : sl
       )
-      slots = resolveCanchaConflicts(slots, schedule)
       return {
         schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, plantilla: undefined } },
         hasUnsaved: true,
@@ -694,8 +659,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     set((s) => {
       const schedule = s.schedules[divisionId]
       if (!schedule) return s
-      let slots: TimeSlotConfig[] = schedule.slots.map((sl) => ({ ...sl, canchaId }))
-      slots = resolveCanchaConflicts(slots, schedule)
+      const slots: TimeSlotConfig[] = schedule.slots.map((sl) => ({ ...sl, canchaId }))
       return {
         schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, plantilla: undefined } },
         hasUnsaved: true,
@@ -713,6 +677,27 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       )
       return {
         schedules: { ...s.schedules, [divisionId]: { ...schedule, slots } },
+        hasUnsaved: true,
+        programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
+      }
+    })
+  },
+
+  syncCanchaUnica: (divisionId, canchaUnicaId, slots) => {
+    set((s) => {
+      const schedule = s.schedules[divisionId]
+      if (!schedule) return s
+      const normalizedSlots = schedule.playoffMode ? normalizePlayoffSlotTypes(slots) : slots
+      return {
+        schedules: {
+          ...s.schedules,
+          [divisionId]: {
+            ...schedule,
+            slots: normalizedSlots,
+            plantilla: undefined,
+            canchaUnicaIdSnapshot: canchaUnicaId,
+          },
+        },
         hasUnsaved: true,
         programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
       }
@@ -743,9 +728,11 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
           canchaId: sl.canchaId ?? replaced.canchaId,
         }
       })
-      const slots = resolveCanchaConflicts([...regulars.slice(0, keepRegular), ...other, ...replacementSlots], schedule)
+      const activatingPlayoffs = normalized.some((slot) => slot.tipo === 'eliminatoria')
+      const mergedSlots = [...regulars.slice(0, keepRegular), ...other, ...replacementSlots]
+      const slots = resolveCanchaConflicts(activatingPlayoffs ? normalizePlayoffSlotTypes(mergedSlots) : mergedSlots, schedule)
       return {
-        schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, plantilla: undefined } },
+        schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, plantilla: undefined, playoffMode: activatingPlayoffs || schedule.playoffMode } },
         hasUnsaved: true,
         programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
       }
@@ -756,9 +743,10 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     set((s) => {
       const schedule = s.schedules[divisionId]
       if (!schedule) return s
-      const normalized = newSlots.map((sl) =>
+      let normalized = newSlots.map((sl) =>
         sl.tipo === 'eliminatoria' && sl.partidoId ? { ...sl, id: `elim-${sl.partidoId}` } : sl
       )
+      if (schedule.playoffMode) normalized = normalizePlayoffSlotTypes(normalized)
       // Separate dedup namespaces: eliminatoria by partidoId, others by id
       const eliminatorias = normalized.filter((sl) => sl.tipo === 'eliminatoria')
       const others = normalized.filter((sl) => sl.tipo !== 'eliminatoria')
@@ -777,7 +765,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       const deduped = resolveCanchaConflicts([...dedupedOthers, ...dedupedElim], schedule)
       if (deduped.length === schedule.slots.length && deduped.every((d, i) => {
         const o = schedule.slots[i]
-        return d.id === o.id && d.fecha === o.fecha && d.horaInicio === o.horaInicio && d.horaFin === o.horaFin && d.equipoLocalId === o.equipoLocalId && d.equipoVisitanteId === o.equipoVisitanteId && d.tipo === o.tipo && d.partidoId === o.partidoId && d.rondaNombre === o.rondaNombre
+        return d.id === o.id && d.fecha === o.fecha && d.horaInicio === o.horaInicio && d.horaFin === o.horaFin && d.equipoLocalId === o.equipoLocalId && d.equipoVisitanteId === o.equipoVisitanteId && d.tipo === o.tipo && d.canchaId === o.canchaId && d.partidoId === o.partidoId && d.rondaNombre === o.rondaNombre
       })) return s
       return {
         schedules: { ...s.schedules, [divisionId]: { ...schedule, slots: deduped } },
@@ -862,13 +850,8 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       const schedule = s.schedules[divisionId]
       if (!schedule) return s
       if (active) {
-        if (schedule.playoffMode) return s
-        let slots = schedule.slots.map((sl) => {
-          if (sl.tipo === 'regular' || sl.tipo === 'complemento') {
-            return { ...sl, prePlayoffTipo: sl.tipo, tipo: 'amistoso' as const }
-          }
-          return sl
-        })
+        let slots = normalizePlayoffSlotTypes(schedule.slots)
+        if (schedule.playoffMode && slots.every((slot, index) => slot === schedule.slots[index])) return s
         slots = resolveCanchaConflicts(slots, schedule)
         return {
           schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, playoffMode: true } },
@@ -1107,7 +1090,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
 
     const conflicting = schedule.slots.find(
       (sl) => {
-        if (sl.id === slotId || sl.fecha !== newFecha) return false
+        if (sl.id === slotId || sl.fecha !== newFecha || sl.canchaId !== slot.canchaId) return false
         if (!sl.horaInicio || !sl.horaFin || !slot.horaInicio || !slot.horaFin) return false
         const aStart = timeToMinutes(slot.horaInicio)
         const aEnd = timeToMinutes(slot.horaFin)
@@ -1178,6 +1161,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
                 horaInicio: sl.horaInicio,
                 horaFin: sl.horaFin,
                 tipo: sl.tipo,
+                canchaId: sl.canchaId,
               })),
           },
         },
@@ -1258,7 +1242,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
 
     const conflicting = schedule.slots.find(
       (sl) => {
-        if (sl.id === slotId || sl.fecha !== slot.fecha) return false
+        if (sl.id === slotId || sl.fecha !== slot.fecha || sl.canchaId !== slot.canchaId) return false
         if (!sl.horaInicio || !sl.horaFin) return false
         const sStart = timeToMinutes(sl.horaInicio)
         const sEnd = timeToMinutes(sl.horaFin)
@@ -1295,6 +1279,8 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     {
       name: "division-schedule-store",
       storage: createJSONStorage(() => AsyncStorage),
+      version: 4,
+      migrate: migrateDivisionScheduleState,
       partialize: (state) => ({ habilitados: state.habilitados, schedules: state.schedules, programacionGuardada: state.programacionGuardada }),
     },
   ),

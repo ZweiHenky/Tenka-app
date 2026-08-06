@@ -212,6 +212,7 @@ export default function JornadaDetailScreen() {
         divisionName: division.nombre,
         categoryName: division.categoria.nombre,
         jornadaNumero: jornada.numero,
+        includeCourt: league.multiplesCanchas,
       }
       await downloadPdf(programacionJornadaHtml(metadata, jornada.partidos), programacionJornadaFilename(metadata))
     } catch {

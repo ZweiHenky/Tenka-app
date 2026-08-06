@@ -4,6 +4,7 @@ import {
   parseTimeRanges,
   setTimeHour,
   setTimeMinute,
+  shiftTimeHour,
   TIME_MINUTES,
   validateTimeRange,
 } from "../time-range"
@@ -16,6 +17,12 @@ describe("time-range", () => {
   it("changes hour and minute independently", () => {
     expect(setTimeHour("13:20", "15")).toBe("15:20")
     expect(setTimeMinute("13:20", "40")).toBe("13:40")
+  })
+
+  it("shifts hours cyclically without changing minutes", () => {
+    expect(shiftTimeHour("13:20", 1)).toBe("14:20")
+    expect(shiftTimeHour("00:40", -1)).toBe("23:40")
+    expect(shiftTimeHour("23:10", 1)).toBe("00:10")
   })
 
   it("parses and accepts ranges containing minutes", () => {

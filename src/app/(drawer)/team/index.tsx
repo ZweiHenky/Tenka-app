@@ -217,6 +217,7 @@ export default function TeamScreen() {
                   id={t.id}
                   nombre={t.nombre}
                   logo={t.logo}
+                  codigo={t.codigo}
                   onQr={setQrTeamId}
                   onEdit={(id) => router.push({ pathname: "/(drawer)/team/team-form", params: { teamId: id } })}
                   onDelete={confirmDelete}
@@ -237,6 +238,11 @@ export default function TeamScreen() {
         <AppBottomSheetModal visible={!!qrTeamId} onClose={() => setQrTeamId(null)} snapPoints={["60%"]}>
             <View style={{ alignItems: "center", gap: Gap.lg, width: "100%" }}>
               <Text style={{ fontSize: 18, fontWeight: "700", color: Palette.text }}>Código QR del equipo</Text>
+              {qrTeamId ? (
+                <Text style={{ fontSize: 13, color: Palette.textSecondary }}>
+                  {teams.find((team) => team.id === qrTeamId)?.nombre ?? "Equipo"} · #{teams.find((team) => team.id === qrTeamId)?.codigo ?? "----"}
+                </Text>
+              ) : null}
               {qrTeamId ? (
                 <View style={{ backgroundColor: Palette.white, borderRadius: Radius.md, padding: Pad.md }}>
                   <QRCode value={qrTeamId} size={200} backgroundColor={Palette.white} color={Palette.black} />

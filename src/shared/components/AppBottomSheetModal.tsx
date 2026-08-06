@@ -31,7 +31,7 @@ export default function AppBottomSheetModal({
   dismissible = true,
 }: Props) {
   const insets = useSafeAreaInsets()
-  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 32 : 0)
+  const bottomContentInset = Math.max(insets.bottom, Platform.OS === "android" ? 32 : 0)
   const ref = useRef<BottomSheetModal>(null)
   const points = useMemo(() => snapPoints ?? ["50%"], [snapPoints])
   const suppressDismissRef = useRef(false)
@@ -72,7 +72,6 @@ export default function AppBottomSheetModal({
       stackBehavior={stackBehavior}
       enablePanDownToClose={dismissible}
       enableContentPanningGesture={enableContentPanningGesture}
-      bottomInset={bottomInset}
       backdropComponent={renderBackdrop}
       onDismiss={handleDismiss}
       handleIndicatorStyle={{ backgroundColor: Palette.borderActive, width: 40, height: 4 }}
@@ -80,7 +79,7 @@ export default function AppBottomSheetModal({
     >
       {scrollable ? (
         <BottomSheetScrollView
-          contentContainerStyle={contentPadding ? { padding: Pad.xl, paddingTop: title ? Pad.sm : Pad.xl, gap: Gap.md } : undefined}
+          contentContainerStyle={contentPadding ? { padding: Pad.xl, paddingTop: title ? Pad.sm : Pad.xl, paddingBottom: bottomContentInset + Pad.xl, gap: Gap.md } : undefined}
           keyboardShouldPersistTaps="handled"
           nestedScrollEnabled
         >
@@ -88,7 +87,7 @@ export default function AppBottomSheetModal({
           {children}
         </BottomSheetScrollView>
       ) : (
-        <BottomSheetView style={contentPadding ? { padding: Pad.xl, paddingTop: title ? Pad.sm : Pad.xl, gap: Gap.md } : undefined}>
+        <BottomSheetView style={contentPadding ? { padding: Pad.xl, paddingTop: title ? Pad.sm : Pad.xl, paddingBottom: bottomContentInset + Pad.xl, gap: Gap.md } : undefined}>
           {title ? <Text style={{ fontSize: 18, fontFamily: Fonts.display, color: Palette.text }}>{title}</Text> : null}
           {children}
         </BottomSheetView>

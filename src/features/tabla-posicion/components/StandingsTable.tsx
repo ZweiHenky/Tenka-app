@@ -2,6 +2,7 @@ import { View, Text, TouchableOpacity } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import type { TablaPosicionRow } from "../api/tablaPosicion"
+import { getDuplicateTeamNames, getTeamCode, normalizeTeamDisplayName } from "@/features/team/utils/teamDisplay"
 
 interface Props {
   rows: TablaPosicionRow[]
@@ -18,6 +19,8 @@ export default function StandingsTable({ rows, isLoading, onTeamPress }: Props) 
     return <Text style={{ color: Palette.text, fontSize: 13, fontFamily: Fonts.sans, padding: Pad.base }}>Sin posiciones registradas</Text>
   }
 
+  const duplicateNames = getDuplicateTeamNames(rows.map((row) => ({ nombre: row.equipo?.nombre ?? row.equipoId })))
+
   return (
     <View>
       <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: Palette.cyan10, paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: Palette.border }}>
@@ -31,19 +34,24 @@ export default function StandingsTable({ rows, isLoading, onTeamPress }: Props) 
         <Text style={{ width: 22, fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.text, textAlign: "center" }}>G</Text>
         <Text style={{ width: 22, fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.text, textAlign: "center" }}>E</Text>
         <Text style={{ width: 22, fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.danger, textAlign: "center" }}>P</Text>
-        <Text style={{ width: 26, fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.text, textAlign: "center" }}>DG</Text>
+        <Text style={{ width: 42, fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.text, textAlign: "center" }}>GF:GC</Text>
         <Text style={{ width: 26, fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.cyan, textAlign: "center" }}>PTS</Text>
       </View>
       <View style={{ gap: 6 }}>
         {rows.map((r, i) => (
           <TouchableOpacity key={r.id} activeOpacity={onTeamPress ? 0.75 : 1} onPress={() => onTeamPress?.(r.equipoId)} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 8, backgroundColor: i < 3 ? Palette.cyan10 : "transparent" }}>
             <Text style={{ width: 26, fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.cyan, textAlign: "center" }}>{i + 1}</Text>
-            <Text style={{ flex: 1, fontSize: 12, color: Palette.text, fontFamily: Fonts.semiBold }} numberOfLines={1}>{r.equipo?.nombre ?? r.equipoId.slice(0, 8)}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, color: Palette.text, fontFamily: Fonts.semiBold }} numberOfLines={1}>{r.equipo?.nombre ?? r.equipoId.slice(0, 8)}</Text>
+              {duplicateNames.has(normalizeTeamDisplayName(r.equipo?.nombre ?? r.equipoId)) ? (
+                <Text style={{ fontSize: 9, color: Palette.textMuted, fontFamily: Fonts.medium }}>#{getTeamCode(r.equipoId)}</Text>
+              ) : null}
+            </View>
             <Text style={{ width: 22, fontSize: 12, color: Palette.text, textAlign: "center" }}>{r.partidosJugados}</Text>
             <Text style={{ width: 22, fontSize: 12, color: Palette.text, textAlign: "center" }}>{r.ganados}</Text>
             <Text style={{ width: 22, fontSize: 12, color: Palette.text, textAlign: "center" }}>{r.empatados}</Text>
             <Text style={{ width: 22, fontSize: 12, color: Palette.danger, textAlign: "center" }}>{r.perdidos}</Text>
-            <Text style={{ width: 26, fontSize: 12, color: r.diferenciaGoles < 0 ? Palette.danger : Palette.text, textAlign: "center" }}>{r.diferenciaGoles > 0 ? `+${r.diferenciaGoles}` : r.diferenciaGoles}</Text>
+            <Text style={{ width: 42, fontSize: 12, color: r.golesFavor > r.golesContra ? Palette.cyan : r.golesFavor < r.golesContra ? Palette.danger : Palette.text, textAlign: "center" }}>{r.golesFavor}:{r.golesContra}</Text>
             <Text style={{ width: 26, fontSize: 13, fontFamily: Fonts.displayBold, color: Palette.cyan, textAlign: "center" }}>{r.puntos}</Text>
           </TouchableOpacity>
         ))}

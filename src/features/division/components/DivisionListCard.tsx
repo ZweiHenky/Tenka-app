@@ -32,8 +32,9 @@ export default function DivisionListCard({ divisions, categorias, onNavigate, on
     <View style={{ gap: Gap.md }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingBottom: Pad.sm, borderBottomWidth: 1, borderBottomColor: Palette.border }}>
         <Text style={{ fontSize: 15, fontFamily: Fonts.semiBold, color: Palette.text }}>Divisiones ({divisions.length})</Text>
-        <TouchableOpacity ref={addButtonRef} onLayout={onAddButtonLayout} onPress={onAdd} style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan, alignItems: "center", justifyContent: "center" }}>
+        <TouchableOpacity ref={addButtonRef} onLayout={onAddButtonLayout} onPress={onAdd} accessibilityRole="button" accessibilityLabel="Nueva división" style={{ height: 36, paddingHorizontal: Pad.md, borderRadius: Radius.md, backgroundColor: Palette.cyan, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.micro }}>
           <MaterialIcons name="add" size={16} color={Palette.black} />
+          <Text style={{ color: Palette.black, fontSize: 12, fontFamily: Fonts.semiBold }}>Nueva división</Text>
         </TouchableOpacity>
       </View>
       {divisions.length === 0 ? (

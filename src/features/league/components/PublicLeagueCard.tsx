@@ -6,6 +6,7 @@ import { LinearGradient } from "expo-linear-gradient"
 import { MaterialIcons } from "@expo/vector-icons"
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
+import LogoImage from "@/shared/components/LogoImage"
 import type { League } from "@/domain/interfaces/league"
 import { useLigaFavoritaStore } from "@/stores/ligaFavoritaStore"
 
@@ -76,7 +77,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
       <View style={{ position: "relative", overflow: "hidden", borderTopLeftRadius: Radius.lg, borderTopRightRadius: Radius.lg }}>
         <Image source={l.cancha ? { uri: l.cancha } : require("@/assets/ejemplos/campo.jpg")} style={{ width: "100%", height: 160 }} resizeMode="cover" />
         <LinearGradient
-          colors={["rgba(0,0,0,0.20)", "rgba(0,0,0,0.72)"]}
+          colors={["rgba(0,0,0,0.20)", "rgba(0,0,0,0.90)"]}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
         />
         <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, padding: Pad.base, justifyContent: "flex-end" }}>
@@ -96,9 +97,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
             <MaterialIcons name={esFav ? "star" : "star-outline"} size={20} color={esFav ? Palette.warning : Palette.text} />
           </TouchableOpacity>
           <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.base }}>
-            <View style={{ width: 44, height: 44, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surface, borderWidth: 2, borderColor: Palette.cyan, elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 }}>
-              <Image source={l.logo ? { uri: l.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 44, height: 44 }} resizeMode="cover" />
-            </View>
+            <LogoImage uri={l.logo} size={44} ring={Palette.cyan} shadow />
             <View style={{ flex: 1 }}>
               <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.displayBold }}>{l.nombre}</Text>
               <View style={{ width: 80, height: 1, backgroundColor: Palette.cyan, borderRadius: 1, marginVertical: Gap.sm }} />
@@ -118,7 +117,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
                 onPress={(e) => { e.stopPropagation(); setPickerOpen((prev) => !prev) }}
                 style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.borderActive, paddingHorizontal: Pad.base, paddingVertical: Pad.md }}
               >
-                <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.medium }}>{current?.nombre ?? "Seleccionar"}</Text>
+                <Text numberOfLines={1} style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.medium, flex: 1 }}>{current ? `${current.nombre} · ${current.categoria.nombre}` : "Seleccionar"}</Text>
                 <MaterialIcons name={pickerOpen ? "expand-less" : "expand-more"} size={22} color={Palette.cyan} />
               </TouchableOpacity>
 
@@ -131,7 +130,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
                       onPress={(e) => { e.stopPropagation(); selectDivision(d.id) }}
                       style={{ paddingHorizontal: Pad.base, paddingVertical: Pad.lg, backgroundColor: current?.id === d.id ? Palette.cyan10 : "transparent" }}
                     >
-                      <Text style={{ color: current?.id === d.id ? Palette.cyan : Palette.text, fontSize: 14, fontFamily: current?.id === d.id ? Fonts.semiBold : Fonts.medium }}>{d.nombre}</Text>
+                      <Text numberOfLines={1} style={{ color: current?.id === d.id ? Palette.cyan : Palette.text, fontSize: 14, fontFamily: current?.id === d.id ? Fonts.semiBold : Fonts.medium }}>{d.nombre} · {d.categoria.nombre}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>

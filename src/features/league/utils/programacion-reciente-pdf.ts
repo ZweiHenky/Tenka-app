@@ -39,18 +39,28 @@ export function hasProgramacionReciente(data: ProgramacionRecienteLigaDto): bool
 
 export function programacionRecienteHtml(data: ProgramacionRecienteLigaDto): string {
   const groups = groupProgramacionByLocalDate(recentMatches(data))
+  const columns = data.multiplesCanchas
+    ? [
+        { label: "Hora", width: "9%" },
+        { label: "Jornada", width: "9%" },
+        { label: "División", width: "14%" },
+        { label: "Categoría", width: "14%" },
+        { label: "Cancha", width: "14%" },
+        { label: "Local", width: "20%" },
+        { label: "Visitante", width: "20%" },
+      ]
+    : [
+        { label: "Hora", width: "10%" },
+        { label: "Jornada", width: "10%" },
+        { label: "División", width: "16%" },
+        { label: "Categoría", width: "16%" },
+        { label: "Local", width: "24%" },
+        { label: "Visitante", width: "24%" },
+      ]
   return renderSchedulePdf({
     kicker: "Programación reciente",
     title: data.nombre,
-    columns: [
-      { label: "Hora", width: "9%" },
-      { label: "Jornada", width: "9%" },
-      { label: "División", width: "14%" },
-      { label: "Categoría", width: "14%" },
-      { label: "Cancha", width: "14%" },
-      { label: "Local", width: "20%" },
-      { label: "Visitante", width: "20%" },
-    ],
+    columns,
     groups: groups.map((group) => ({
       label: group.label,
       rows: group.partidos.map(({ partido, jornadaNumero, divisionNombre, categoriaNombre }) => [
@@ -58,7 +68,7 @@ export function programacionRecienteHtml(data: ProgramacionRecienteLigaDto): str
         { value: jornadaNumero },
         { value: divisionNombre },
         { value: categoriaNombre },
-        { value: partido.cancha?.nombre || "Por definir" },
+        ...(data.multiplesCanchas ? [{ value: partido.cancha?.nombre || "Por definir" }] : []),
         { value: partido.equipoLocal?.nombre || "Por definir", className: "team" },
         { value: partido.equipoVisitante?.nombre || "Por definir", className: "team" },
       ]),

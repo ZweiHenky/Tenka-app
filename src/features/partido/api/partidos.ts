@@ -1,7 +1,9 @@
 import { api } from "@/infrastructure/api/client"
+import type { PartidoAnotacion, ResultAnnotationInput, ScorerCandidate } from "../scoring"
 
 export interface PartidoResponse {
   id: string
+  version: number
   golesLocal: number
   golesVisitante: number
   penalesLocal?: number | null
@@ -23,6 +25,17 @@ export interface PartidoResponse {
   cancha?: { id: string; nombre: string } | null
   arbitros?: { id: string; nombre: string }[]
   jornadasRecalculadas?: number
+  anotaciones: PartidoAnotacion[]
+}
+
+export interface UpdateResultInput {
+  expectedVersion: number
+  estado: string
+  golesLocal: number
+  golesVisitante: number
+  penalesLocal?: number | null
+  penalesVisitante?: number | null
+  allocations: ResultAnnotationInput[]
 }
 
 interface ApiRes<T> {
@@ -38,6 +51,8 @@ export const partidoApi = {
     api.get<ApiRes<PartidoResponse[]>>(`/api/partidos/ronda-playoff/${rondaPlayoffId}`).then((r) => r.data.data!),
   update: (id: string, data: { golesLocal?: number; golesVisitante?: number; penalesLocal?: number | null; penalesVisitante?: number | null; estado?: string; tipoPartido?: string; equipoLocalId?: string; equipoVisitanteId?: string }) =>
     api.patch<ApiRes<PartidoResponse>>(`/api/partidos/${id}`, data).then((r) => r.data.data!),
+  updateResult: (id: string, data: UpdateResultInput) =>
+    api.patch<ApiRes<PartidoResponse>>(`/api/partidos/${id}/resultado`, data).then((r) => r.data.data!),
   createRefereeLink: (partidoId: string) =>
     api.post<ApiRes<{ token: string; url: string; expiresAt: string }>>(`/api/partidos/${partidoId}/referee-link`).then((r) => r.data.data!),
   revokeRefereeLink: (partidoId: string) =>
@@ -48,11 +63,15 @@ export const partidoApi = {
 
 export interface RefereePartidoResponse {
   id: string
+  version: number
   fecha: string | null
+  fechaFin: string | null
   horaInicio: string | null
   equipoLocal: { id: string; nombre: string; logo: string | null } | null
   equipoVisitante: { id: string; nombre: string; logo: string | null } | null
   cancha: { id: string; nombre: string } | null
+  canchaId: string | null
+  multiplesCanchas: boolean
   estado: string | null
   golesLocal: number
   golesVisitante: number
@@ -62,6 +81,9 @@ export interface RefereePartidoResponse {
   jornadaNumero: number | null
   divisionNombre: string
   ligaNombre: string
+  anotaciones: PartidoAnotacion[]
+  jugadoresLocal: ScorerCandidate[]
+  jugadoresVisitante: ScorerCandidate[]
 }
 
 function refereeApiClient(token: string) {
@@ -69,7 +91,7 @@ function refereeApiClient(token: string) {
   return {
     getPartido: () =>
       api.get<ApiRes<RefereePartidoResponse>>(`/api/referee/partido`, { headers }).then((r) => r.data.data!),
-    updateResult: (data: { golesLocal: number; golesVisitante: number; penalesLocal?: number | null; penalesVisitante?: number | null; estado: string }) =>
+    updateResult: (data: UpdateResultInput) =>
       api.patch<ApiRes<{ id: string; golesLocal: number; golesVisitante: number; penalesLocal: number | null; penalesVisitante: number | null; estado: string }>>(`/api/referee/partido/result`, data, { headers }).then((r) => r.data.data!),
   }
 }

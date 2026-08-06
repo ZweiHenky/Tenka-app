@@ -1,6 +1,7 @@
-import { View, Text, Image, TouchableOpacity } from "react-native"
+import { View, Text, TouchableOpacity } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
+import LogoImage from "@/shared/components/LogoImage"
 
 interface Props {
   id: string
@@ -18,9 +19,7 @@ export default function LeagueCard({ id, nombre, logo, onPress, onEdit, onDelete
     <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
       <View style={{ flexDirection: "row", padding: Pad.base, alignItems: "center", gap: Gap.base }}>
         <TouchableOpacity ref={detailButtonRef} onPress={() => onPress(id)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.base, flex: 1 }}>
-          <View style={{ width: 52, height: 52, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight, borderWidth: 2, borderColor: Palette.cyan }}>
-            <Image source={logo ? { uri: logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 52, height: 52 }} resizeMode="cover" />
-          </View>
+          <LogoImage uri={logo} size={52} ring={Palette.cyan} backgroundColor={Palette.surfaceLight} />
           <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.bold, flex: 1 }}>{nombre}</Text>
         </TouchableOpacity>
         <View style={{ flexDirection: "row", gap: Gap.sm, alignItems: "center" }}>

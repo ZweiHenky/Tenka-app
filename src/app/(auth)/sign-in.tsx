@@ -46,6 +46,22 @@ export default function SignInScreen() {
     }
   }
 
+  const handleApple = async () => {
+    if (isSigningIn) return
+    setIsSigningIn(true)
+    try {
+      const { error } = await authClient.signIn.social({
+        provider: "apple",
+        callbackURL: "/(drawer)",
+      })
+      if (error) toast.error(getAuthErrorMessage(error, "No se pudo iniciar sesión con Apple."))
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error, "No se pudo iniciar sesión con Apple."))
+    } finally {
+      setIsSigningIn(false)
+    }
+  }
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -73,6 +89,15 @@ export default function SignInScreen() {
             <Text style={{ fontSize: 16, color: Palette.black, fontWeight: "700" }}>G</Text>
           )}
           <Text style={styles.primaryButtonText}>Continuar con Google</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={handleApple} style={styles.secondaryButton} activeOpacity={0.85} disabled={isSigningIn}>
+          {isSigningIn ? (
+            <ActivityIndicator color={Palette.text} size="small" />
+          ) : (
+            <Text style={{ fontSize: 16, color: Palette.text, fontWeight: "700" }}>A</Text>
+          )}
+          <Text style={styles.secondaryButtonText}>Continuar con Apple</Text>
         </TouchableOpacity>
       </View>
 

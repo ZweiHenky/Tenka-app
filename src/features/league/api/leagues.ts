@@ -48,6 +48,7 @@ export interface ProgramacionRecienteDivisionDto {
 export interface ProgramacionRecienteLigaDto {
   id: string
   nombre: string
+  multiplesCanchas: boolean
   divisiones: ProgramacionRecienteDivisionDto[]
 }
 

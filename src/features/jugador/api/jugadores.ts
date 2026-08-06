@@ -1,5 +1,6 @@
 import { api } from "@/infrastructure/api/client"
-import type { CreateJugadorInput, DivisionJugador, DivisionJugadorConRel, EquipoJugador, Jugador, PosicionJugador, UpdateJugadorInput, UpdateMyProfileInput } from "@/domain/interfaces/player"
+import { withNetworkRetry } from "@/infrastructure/api/withNetworkRetry"
+import type { BuscarJugadorEquipoResult, CreateJugadorInput, DivisionJugador, DivisionJugadorConRel, EquipoJugador, Jugador, PosicionJugador, UpdateJugadorInput, UpdateMyProfileInput } from "@/domain/interfaces/player"
 
 interface ApiRes<T> {
   success: boolean
@@ -11,7 +12,7 @@ export const jugadorApi = {
   getMe: () =>
     api.get<ApiRes<Jugador | null>>("/api/jugadores/me").then((r) => r.data.data ?? null),
 
-  createMe: (data: { nombre: string; posicion: PosicionJugador; foto?: string; fotoPublicId?: string; edad?: number }) =>
+  createMe: (data: { nombre: string; posicion: PosicionJugador; photoAssetId?: string | null; edad?: number }) =>
     api.post<ApiRes<Jugador>>("/api/jugadores/me", data).then((r) => r.data.data!),
 
 
@@ -44,6 +45,11 @@ export const jugadorApi = {
 
   assignToTeam: (data: { equipoId: string; jugadorId: string; dorsal: number }) =>
     api.post<ApiRes<EquipoJugador>>("/api/jugadores/equipo", data).then((r) => r.data.data!),
+
+  findForTeam: (equipoId: string, telefono: string) =>
+    withNetworkRetry(() =>
+      api.post<ApiRes<BuscarJugadorEquipoResult>>(`/api/jugadores/equipo/${equipoId}/buscar`, { telefono }).then((r) => r.data.data!),
+    ),
 
 
   removeFromTeam: (equipoId: string, jugadorId: string) =>

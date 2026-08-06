@@ -29,7 +29,8 @@ export default function PosicionesTab({ divisionNombre, standings, standingsLoad
                 g: r.ganados,
                 e: r.empatados,
                 p: r.perdidos,
-                dg: r.diferenciaGoles,
+                gf: r.golesFavor,
+                gc: r.golesContra,
                 pts: r.puntos,
               }))
               const html = standingsHtml(divisionNombre, rows)

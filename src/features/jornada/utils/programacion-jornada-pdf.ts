@@ -11,6 +11,7 @@ interface JornadaPdfMetadata {
   divisionName: string
   categoryName: string
   jornadaNumero: number
+  includeCourt: boolean
 }
 
 export function programacionJornadaHtml(metadata: JornadaPdfMetadata, partidos: PartidoResponse[]): string {
@@ -20,17 +21,23 @@ export function programacionJornadaHtml(metadata: JornadaPdfMetadata, partidos: 
     kicker: metadata.leagueName,
     title: `Jornada ${metadata.jornadaNumero}`,
     metadata: [metadata.divisionName, metadata.categoryName],
-    columns: [
-      { label: "Hora", width: "14%" },
-      { label: "Cancha", width: "22%" },
-      { label: "Local", width: "32%" },
-      { label: "Visitante", width: "32%" },
-    ],
+    columns: metadata.includeCourt
+      ? [
+          { label: "Hora", width: "14%" },
+          { label: "Cancha", width: "22%" },
+          { label: "Local", width: "32%" },
+          { label: "Visitante", width: "32%" },
+        ]
+      : [
+          { label: "Hora", width: "16%" },
+          { label: "Local", width: "42%" },
+          { label: "Visitante", width: "42%" },
+        ],
     groups: groups.map((group) => ({
       label: group.label,
       rows: group.items.map((partido) => [
         { value: scheduleMatchHour(partido.fecha) },
-        { value: partido.cancha?.nombre || "Por definir" },
+        ...(metadata.includeCourt ? [{ value: partido.cancha?.nombre || "Por definir" }] : []),
         { value: partido.equipoLocal?.nombre || "Por definir", className: "team" },
         { value: partido.equipoVisitante?.nombre || "Por definir", className: "team" },
       ]),

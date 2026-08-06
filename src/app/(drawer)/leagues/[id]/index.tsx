@@ -11,7 +11,6 @@ import { useLookups } from "@/features/league/hooks/useLookups"
 import { useDeleteDivision } from "@/features/division/hooks/useDivisions"
 import { useToast } from "@/shared/components/Toast"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
-import LeagueHeroCard from "@/features/league/components/LeagueHeroCard"
 import DivisionListCard from "@/features/division/components/DivisionListCard"
 import QrCard from "@/shared/components/QrCard"
 import LoadingScreen from "@/shared/components/LoadingScreen"
@@ -38,7 +37,6 @@ export default function LeagueDetailScreen() {
   const [tab, setTab] = useState("divisiones")
   const [downloadingSchedule, setDownloadingSchedule] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null)
-  const heroRef = useRef<any>(null)
   const addDivisionRef = useRef<any>(null)
   const firstDivisionRef = useRef<any>(null)
   const tabBarRef = useRef<any>(null)
@@ -49,7 +47,6 @@ export default function LeagueDetailScreen() {
   const tourTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tourStartedRef = useRef(false)
   const tourCheckingRef = useRef(false)
-  const [heroReady, setHeroReady] = useState(false)
   const [addDivisionReady, setAddDivisionReady] = useState(false)
   const [firstDivisionReady, setFirstDivisionReady] = useState(false)
   const [tabBarReady, setTabBarReady] = useState(false)
@@ -75,7 +72,7 @@ export default function LeagueDetailScreen() {
   useEffect(() => {
     if (!isFocused || isLoading || leagueError || !league || !session?.user || tab !== "divisiones" || tourBlocked) return
     if (tourStartedRef.current || tourCheckingRef.current) return
-    if (!heroRef.current || !addDivisionRef.current || !tabBarRef.current || !heroReady || !addDivisionReady || !tabBarReady) return
+    if (!addDivisionRef.current || !tabBarRef.current || !addDivisionReady || !tabBarReady) return
     if (divisions.length > 0 && (!firstDivisionRef.current || !firstDivisionReady)) return
 
     let cancelled = false
@@ -90,14 +87,6 @@ export default function LeagueDetailScreen() {
       }
 
       const steps: TourStep[] = [
-        {
-          id: "league-detail-overview",
-          targetRef: heroRef,
-          title: "Tu liga",
-          description: "Aquí identificas la liga que estás administrando.",
-          spotlightPadding: 8,
-          tooltipPosition: "bottom",
-        },
         {
           id: "league-detail-add-division",
           targetRef: addDivisionRef,
@@ -189,7 +178,7 @@ export default function LeagueDetailScreen() {
       }
       if (!tourStartedRef.current) tourCheckingRef.current = false
     }
-  }, [isFocused, isLoading, leagueError, league, session?.user, tab, tourBlocked, divisions.length, heroReady, addDivisionReady, firstDivisionReady, tabBarReady, startTour, insets.top, insets.bottom])
+  }, [isFocused, isLoading, leagueError, league, session?.user, tab, tourBlocked, divisions.length, addDivisionReady, firstDivisionReady, tabBarReady, startTour, insets.top, insets.bottom])
 
   const handleDeleteDivision = (divisionId: string, nombre: string) => {
     setDeleteTarget({ id: divisionId, nombre })
@@ -261,34 +250,36 @@ export default function LeagueDetailScreen() {
   return (
     <AuthGate>
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Detalle de Liga" />
+        <CustomHeader title={league.nombre} />
         <PullToRefresh scrollRef={scrollRef} onScroll={(event) => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
-            <View ref={heroRef} onLayout={() => setHeroReady(true)}>
-              <LeagueHeroCard nombre={league.nombre} cancha={league.cancha} />
-            </View>
-
             <View ref={tabBarRef} onLayout={() => setTabBarReady(true)}>
               <TabBar tabs={[{ key: "divisiones", label: "Divisiones" }, { key: "info", label: "Info" }, ...(refereeLeague.usaArbitros ? [{ key: "arbitros", label: "Árbitros" }] : [])]} activeTab={tab} onTabChange={setTab} />
             </View>
 
             {tab === "divisiones" ? (
-              <View style={{ gap: Gap.md }}>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel="Descargar rol PDF"
-                  disabled={downloadingSchedule}
-                  onPress={handleDownloadSchedule}
-                  style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm, opacity: downloadingSchedule ? 0.65 : 1 }}
-                >
-                  {downloadingSchedule
-                    ? <ActivityIndicator size="small" color={Palette.dark} />
-                    : <MaterialIcons name="picture-as-pdf" size={20} color={Palette.dark} />}
-                  <Text style={{ color: Palette.dark, fontSize: 15, fontFamily: Fonts.semiBold }}>
-                    {downloadingSchedule ? "Preparando PDF..." : "Descargar rol PDF"}
-                  </Text>
-                </TouchableOpacity>
+              <View style={{ gap: Gap.lg }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: Gap.md }}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Rol general</Text>
+                    <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans }}>Todas las divisiones</Text>
+                  </View>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Descargar rol de todas las divisiones"
+                    disabled={downloadingSchedule}
+                    onPress={handleDownloadSchedule}
+                    style={{ height: 36, paddingHorizontal: Pad.md, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.cyan, backgroundColor: Palette.cyan10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, opacity: downloadingSchedule ? 0.65 : 1 }}
+                  >
+                    {downloadingSchedule
+                      ? <ActivityIndicator size="small" color={Palette.cyan} />
+                      : <MaterialIcons name="picture-as-pdf" size={17} color={Palette.cyan} />}
+                    <Text style={{ color: Palette.cyan, fontSize: 12, fontFamily: Fonts.semiBold }}>
+                      {downloadingSchedule ? "Preparando" : "Descargar"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
                 <DivisionListCard
                   divisions={divisions}
                   categorias={lookups.categorias}
@@ -328,16 +319,17 @@ export default function LeagueDetailScreen() {
                     </View>
                   </View>
                 </View>
-                {(league as any).multiplesCanchas && (league as any).canchas?.length > 0 ? (
+                {league.canchas?.length ? (
                   <View style={{ gap: Gap.sm }}>
                     <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.textSecondary, textTransform: "uppercase", letterSpacing: 0.5 }}>Canchas</Text>
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Gap.sm }}>
-                      {(league as any).canchas.map((c: any) => (
-                        <View key={c.id} style={{
-                          backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border,
+                      {league.canchas.map((court) => (
+                        <View key={court.id} style={{
+                          backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: court.activa ? Palette.success : Palette.border,
                           paddingHorizontal: Pad.md, paddingVertical: Pad.sm,
                         }}>
-                          <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.sans }}>{c.nombre}</Text>
+                          <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.sans }}>{court.nombre}</Text>
+                          <Text style={{ color: court.activa ? Palette.success : Palette.textMuted, fontSize: 11, fontFamily: Fonts.semiBold }}>{court.activa ? "Activa" : "Inactiva"}</Text>
                         </View>
                       ))}
                     </View>
@@ -366,7 +358,7 @@ export default function LeagueDetailScreen() {
             ) : null}
 
             {tab === "arbitros" && refereeLeague.usaArbitros ? (
-              <LeagueRefereeTab leagueId={league.id} referees={refereeLeague.arbitros ?? []} />
+              <LeagueRefereeTab leagueId={league.id} referees={refereeLeague.arbitros ?? []} multiplesCanchas={league.multiplesCanchas} />
             ) : null}
           </View>
         </PullToRefresh>

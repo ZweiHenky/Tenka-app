@@ -34,6 +34,12 @@ export function setTimeHour(value: string, hour: string): string {
   return `${hour}:${minute}`
 }
 
+export function shiftTimeHour(value: string, amount: number): string {
+  const currentHour = Number(value.split(":")[0])
+  const hour = Number.isInteger(currentHour) ? (currentHour + amount + 24) % 24 : 0
+  return setTimeHour(value, String(hour).padStart(2, "0"))
+}
+
 export function setTimeMinute(value: string, minute: string): string {
   const hour = value.split(":")[0] ?? "00"
   return `${hour}:${minute}`

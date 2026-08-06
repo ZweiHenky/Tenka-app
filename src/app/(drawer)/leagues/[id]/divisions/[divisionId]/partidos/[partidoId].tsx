@@ -1,11 +1,12 @@
 import React, { useCallback } from "react"
-import { View, Text, TouchableOpacity, RefreshControl, Share, ActivityIndicator, Image } from "react-native"
+import { View, Text, TouchableOpacity, RefreshControl, Share, ActivityIndicator } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { useLocalSearchParams, router } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
+import LogoImage from "@/shared/components/LogoImage"
 import { useToast } from "@/shared/components/Toast"
-import { usePartido, useUpdatePartido, useCreateRefereeLink, useRevokeRefereeLink, useRefereeLinkStatus } from "@/features/partido/hooks/usePartidos"
+import { usePartido, useUpdatePartido, useUpdatePartidoResult, useCreateRefereeLink, useRevokeRefereeLink, useRefereeLinkStatus } from "@/features/partido/hooks/usePartidos"
 import PartidoResultEditor from "@/features/jornada/components/PartidoResultEditor"
 import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
@@ -18,23 +19,30 @@ import { useTeams } from "@/features/team/hooks/useTeams"
 import type { EquipoResponse } from "@/features/team/api/teams"
 import { useQuery } from "@tanstack/react-query"
 import { jornadaApi } from "@/features/jornada/api/jornadas"
+import { useLeague } from "@/features/league/hooks/useLeagues"
+import { useDivisionJugadores } from "@/features/jugador/hooks/useJugadores"
+import { buildResultPayload, type ScorerAllocation, type ScorerCandidate } from "@/features/partido/scoring"
 
 export default function PartidoDetailScreen() {
   const toast = useToast()
-  const { divisionId, partidoId } = useLocalSearchParams<{ divisionId: string; partidoId: string }>()
+  const { id, divisionId, partidoId } = useLocalSearchParams<{ id: string; divisionId: string; partidoId: string }>()
   const [refreshing, setRefreshing] = React.useState(false)
   const [refereeExpanded, setRefereeExpanded] = React.useState(false)
   const [replacementSide, setReplacementSide] = React.useState<"local" | "visitor" | null>(null)
   const [replacementTarget, setReplacementTarget] = React.useState<EquipoResponse | null>(null)
 
   const { data: partido, isLoading, error, refetch } = usePartido(partidoId!)
+  const { data: league, isLoading: isLeagueLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!)
   const { mutate: updatePartido, isPending: isUpdating } = useUpdatePartido()
+  const updateResult = useUpdatePartidoResult()
   const createLink = useCreateRefereeLink()
   const revokeLink = useRevokeRefereeLink()
   const { data: linkStatus, isLoading: linkStatusLoading } = useRefereeLinkStatus(partidoId!)
   const { data: divisionLinks = [] } = useDivisionEquipos(divisionId!)
   const { data: teams = [] } = useTeams()
   const { data: jornada } = useQuery({ queryKey: ["jornada", partido?.jornadaId], queryFn: () => partido?.jornadaId ? jornadaApi.getById(partido.jornadaId) : Promise.reject(new Error("El partido no pertenece a una jornada")), enabled: !!partido?.jornadaId })
+  const { data: localRoster = [] } = useDivisionJugadores(divisionId, partido?.equipoLocalId ?? undefined)
+  const { data: visitorRoster = [] } = useDivisionJugadores(divisionId, partido?.equipoVisitanteId ?? undefined)
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -45,11 +53,11 @@ export default function PartidoDetailScreen() {
     }
   }, [refetch])
 
-  const handleSave = (golesLocal: number, golesVisitante: number, estado: string, penalesLocal?: number, penalesVisitante?: number, tipoPartido?: string) => {
+  const handleSave = (golesLocal: number, golesVisitante: number, estado: string, allocations: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number) => {
     if (!partido) return
-    updatePartido(
-      { id: partido.id, golesLocal, golesVisitante, penalesLocal, penalesVisitante, estado, divisionId, tipoPartido },
-      { onSuccess: () => { toast.success("Resultado guardado") }, onError: (e) => { toast.error(e.message) } },
+    updateResult.mutate(
+      { id: partido.id, divisionId, ...buildResultPayload({ expectedVersion: partido.version, golesLocal, golesVisitante, penalesLocal, penalesVisitante, estado, allocations }) },
+      { onSuccess: () => { toast.success("Resultado guardado") }, onError: (e: any) => { if (e?.response?.status === 409) { refetch(); toast.error("El partido cambió en otro dispositivo. Actualizamos los datos; revisa el resultado e inténtalo de nuevo."); return } toast.error(e.message) } },
     )
   }
 
@@ -88,7 +96,7 @@ export default function PartidoDetailScreen() {
     })
   }
 
-  if (isLoading) {
+  if (isLoading || isLeagueLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="" />
@@ -97,11 +105,11 @@ export default function PartidoDetailScreen() {
     )
   }
 
-  if (error) {
+  if (error || leagueError) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="Error" onBack={() => router.back()} />
-        <ErrorState message={(error as Error).message} onRetry={() => refetch()} fullScreen />
+        <ErrorState message={((error ?? leagueError) as Error).message} onRetry={() => { refetch(); refetchLeague() }} fullScreen />
       </View>
     )
   }
@@ -126,6 +134,15 @@ export default function PartidoDetailScreen() {
   const swappableTeamCounts = (jornada?.partidos ?? []).filter((item) => item.id !== partido.id && item.estado === "PROGRAMADO" && item.tipoPartido === "REGULAR").reduce<Record<string, number>>((counts, item) => { if (item.equipoLocalId) counts[item.equipoLocalId] = (counts[item.equipoLocalId] ?? 0) + 1; if (item.equipoVisitanteId) counts[item.equipoVisitanteId] = (counts[item.equipoVisitanteId] ?? 0) + 1; return counts }, {})
   const replacementOptions = divisionTeams.filter((team) => team.id !== rivalId && team.id !== currentTeam?.id && swappableTeamCounts[team.id] === 1)
   const canReplaceTeams = partido.estado === "PROGRAMADO" && !!partido.jornadaId && !partido.rondaPlayoffId && partido.tipoPartido === "REGULAR"
+  const rosterCandidates = (roster: typeof localRoster, side: "LOCAL" | "VISITANTE"): ScorerCandidate[] => {
+    const candidates = roster.map((link) => ({ id: link.jugador.id, nombre: link.jugador.nombre, foto: link.jugador.foto, dorsal: link.jugador.equipos?.find((team) => team.equipoId === link.equipoId)?.dorsal ?? null }))
+    for (const annotation of partido.anotaciones ?? []) {
+      if (annotation.ladoMarcador === side && annotation.jugadorId && !candidates.some((item) => item.id === annotation.jugadorId)) candidates.push({ id: annotation.jugadorId, nombre: annotation.jugadorNombre ?? "Jugador", foto: null, dorsal: annotation.dorsal ?? null })
+    }
+    return candidates.sort((a, b) => a.nombre.localeCompare(b.nombre))
+  }
+  const localPlayers = rosterCandidates(localRoster, "LOCAL")
+  const visitorPlayers = rosterCandidates(visitorRoster, "VISITANTE")
 
   return (
     <AuthGate>
@@ -137,7 +154,7 @@ export default function PartidoDetailScreen() {
           contentContainerStyle={{ gap: Gap.lg, padding: Pad.base, paddingBottom: 48 }}
         >
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.lg }}>
-            <PartidoResultEditor partido={partido} isUpdating={isUpdating} onSave={handleSave} canReplaceTeams={canReplaceTeams} onReplaceTeam={setReplacementSide} />
+            <PartidoResultEditor partido={partido} isUpdating={updateResult.isPending} onSave={handleSave} canReplaceTeams={canReplaceTeams} onReplaceTeam={setReplacementSide} multiplesCanchas={league?.multiplesCanchas === true} localPlayers={localPlayers} visitorPlayers={visitorPlayers} />
           </View>
 
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: refereeExpanded ? Palette.cyan : Palette.border, overflow: "hidden" }}>
@@ -214,7 +231,7 @@ export default function PartidoDetailScreen() {
         </KeyboardAwareScrollView>
         <AppBottomSheetModal visible={replacementSide !== null && replacementTarget === null} onClose={closeReplacement} title={replacementSide === "local" ? "Cambiar equipo local" : "Cambiar equipo visitante"} snapPoints={["65%"]}>
           <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.sans }}>Selecciona otro equipo con partido programado en esta jornada. Ambos intercambiarán su lugar.</Text>
-          {replacementOptions.map((team) => <TouchableOpacity key={team.id} onPress={() => setReplacementTarget(team)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.md }}><View style={{ width: 38, height: 38, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surface }}>{team.logo ? <Image source={{ uri: team.logo }} style={{ width: 38, height: 38 }} /> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><MaterialIcons name="shield" size={20} color={Palette.textMuted} /></View>}</View><Text style={{ color: Palette.text, fontFamily: Fonts.medium, flex: 1 }}>{team.nombre}</Text><MaterialIcons name="swap-horiz" size={22} color={Palette.cyan} /></TouchableOpacity>)}
+          {replacementOptions.map((team) => <TouchableOpacity key={team.id} onPress={() => setReplacementTarget(team)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.md }}><LogoImage uri={team.logo} size={38} backgroundColor={Palette.surface} iconFallback="shield" /><Text style={{ color: Palette.text, fontFamily: Fonts.medium, flex: 1 }}>{team.nombre}</Text><MaterialIcons name="swap-horiz" size={22} color={Palette.cyan} /></TouchableOpacity>)}
           {!replacementOptions.length ? <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, textAlign: "center" }}>No hay otro equipo con un partido programado disponible para intercambiar.</Text> : null}
         </AppBottomSheetModal>
         <ConfirmationModal visible={replacementTarget !== null} title="Intercambiar equipos" message={`${currentTeam?.nombre ?? "El equipo actual"} y ${replacementTarget?.nombre ?? "el equipo seleccionado"} intercambiarán sus lugares. También se recalcularán los enfrentamientos regulares de las jornadas futuras para conservar el round-robin.`} highlightText={replacementTarget?.nombre} confirmLabel="Intercambiar" variant="warning" loading={isUpdating} onConfirm={confirmReplacement} onClose={closeReplacement} />

@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   info: vi.fn(),
   error: vi.fn(),
   success: vi.fn(),
+  getDivision: vi.fn(),
+  getAvailability: vi.fn(),
+  plan: vi.fn(),
   store: {
     schedules: {} as Record<string, any>,
     habilitados: {} as Record<string, string[]>,
@@ -16,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     advanceSchedule: vi.fn(),
     clearExtraSlots: vi.fn(),
     clearEliminatoriaSlots: vi.fn(),
+    replaceSlots: vi.fn(),
     setHabilitados: vi.fn(),
   },
 }))
@@ -25,10 +29,14 @@ vi.mock("@/features/jornada/hooks/useJornadas", () => ({
 }))
 vi.mock("@/stores/divisionSchedule", () => ({
   useDivisionScheduleStore: (selector: (state: typeof mocks.store) => unknown) => selector(mocks.store),
+  getActiveSlots: (slots: unknown[]) => slots,
 }))
 vi.mock("@/features/division/utils/prepareJornadaSlots", () => ({
   prepareJornadaSlots: mocks.prepareJornadaSlots,
 }))
+vi.mock("@/features/division/api/divisions", () => ({ divisionApi: { getById: mocks.getDivision } }))
+vi.mock("@/features/court-availability/api/courtAvailability", () => ({ courtAvailabilityApi: { get: mocks.getAvailability } }))
+vi.mock("@/features/court-availability/planner", () => ({ planFromAvailability: mocks.plan }))
 vi.mock("@/shared/components/Toast", () => ({
   useToast: () => ({ info: mocks.info, error: mocks.error, success: mocks.success }),
 }))
@@ -58,6 +66,9 @@ describe("useJornadaGeneration", () => {
     }
     mocks.store.habilitados = { [divisionId]: ["a", "b"] }
     mocks.prepareJornadaSlots.mockReturnValue(preparedSlots)
+    mocks.getDivision.mockResolvedValue({ ligaId: "league" })
+    mocks.getAvailability.mockResolvedValue({ mode: "SINGLE", canchas: [], ocupaciones: [] })
+    mocks.plan.mockImplementation((slots) => ({ slots, conflicts: [], unassignedSlotIds: [] }))
   })
 
   it("blocks generation when the season is completed", () => {
@@ -98,24 +109,53 @@ describe("useJornadaGeneration", () => {
     expect(mocks.mutate).not.toHaveBeenCalled()
   })
 
-  it("allows an odd schedule with a complemento slot", () => {
+  it("allows an odd schedule with a complemento slot", async () => {
     mocks.store.habilitados = { [divisionId]: ["a", "b", "c"] }
     mocks.store.schedules[divisionId] = {
       slots: [{ id: "extra-1", fecha: "2026-07-27", horaInicio: "08:00", horaFin: "09:00", tipo: "complemento" }],
     }
     const { result } = renderGeneration()
 
-    act(() => { result.current.handleGenerateJornada() })
+    await act(async () => { await result.current.handleGenerateJornada() })
 
     expect(mocks.mutate).toHaveBeenCalledWith(
-      { divisionId, slots: preparedSlots, equipoIds: ["a", "b", "c"], descansoEquipoId: undefined },
+      { divisionId, slots: preparedSlots, equipoIds: ["a", "b", "c"], descansoEquipoId: undefined, idempotencyKey: expect.stringMatching(/^jornada-/) },
       expect.any(Object),
     )
   })
 
-  it("updates the schedule after a successful generation and reports errors", () => {
+  it("normalizes every slot to the latest fixed court before planning", async () => {
+    mocks.getDivision.mockResolvedValue({ ligaId: "league", canchaUnicaId: "court-1" })
+    mocks.getAvailability.mockResolvedValue({
+      mode: "MULTIPLE",
+      canchas: [{ id: "court-1" }, { id: "court-2" }],
+      ocupaciones: [],
+    })
+    const { result } = renderGeneration()
+
+    await act(async () => { await result.current.handleGenerateJornada() })
+
+    expect(mocks.plan).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "slot-1", canchaId: "court-1" }),
+    ], expect.any(Object))
+    expect(mocks.store.replaceSlots).toHaveBeenCalledWith(divisionId, [
+      expect.objectContaining({ id: "slot-1", canchaId: "court-1" }),
+    ])
+  })
+
+  it("reuses the idempotency key while the generation payload is unchanged", async () => {
+    const { result } = renderGeneration()
+
+    await act(async () => { await result.current.handleGenerateJornada() })
+    await act(async () => { await result.current.handleGenerateJornada() })
+
+    expect(mocks.mutate).toHaveBeenCalledTimes(2)
+    expect(mocks.mutate.mock.calls[1][0].idempotencyKey).toBe(mocks.mutate.mock.calls[0][0].idempotencyKey)
+  })
+
+  it("updates the schedule after a successful generation and reports errors", async () => {
     const { result, onGenerated } = renderGeneration()
-    act(() => { result.current.handleGenerateJornada() })
+    await act(async () => { await result.current.handleGenerateJornada() })
     const callbacks = mocks.mutate.mock.calls[0][1]
 
     act(() => { callbacks.onSuccess({ fechaInicio: "2026-07-27" }) })

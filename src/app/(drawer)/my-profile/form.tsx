@@ -7,6 +7,7 @@ import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { useMyProfile, useCreateMyProfile, useUpdateMyProfile } from "@/features/jugador/hooks/useJugadores"
 import { POSICIONES_JUGADOR, type PosicionJugador } from "@/domain/interfaces/player"
 import { uploadToCloudinary } from "@/infrastructure/cloudinary/upload"
+import { api } from "@/infrastructure/api/client"
 import { useToast } from "@/shared/components/Toast"
 import { SelectField } from "@/shared/components/SelectField"
 import CustomHeader from "@/shared/components/CustomHeader"
@@ -24,9 +25,8 @@ export default function MyProfileFormScreen() {
   const [nombre, setNombre] = useState(jugador?.nombre ?? "")
   const [posicion, setPosicion] = useState<string>(jugador?.posicion ?? "")
   const [edad, setEdad] = useState(jugador?.edad != null ? String(jugador.edad) : "")
-  const [foto, setFoto] = useState(jugador?.foto ?? "")
-  const [fotoPublicId, setFotoPublicId] = useState((jugador as any)?.fotoPublicId ?? "")
-  const [uploading, setUploading] = useState(false)
+  const [foto] = useState(jugador?.foto ?? "")
+  const [pickedPhoto, setPickedPhoto] = useState<{ uri: string; fileSize: number | null; mimeType: string | null } | null>(null)
   const [saving, setSaving] = useState(false)
 
   const pickPhoto = async () => {
@@ -34,31 +34,25 @@ export default function MyProfileFormScreen() {
     if (!perm.granted) { toast.error("Se necesita acceso a la galería"); return }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.8 })
     if (!result.canceled && result.assets[0]) {
-      setUploading(true)
-      try {
-        const { url, publicId } = await uploadToCloudinary(result.assets[0].uri)
-        setFoto(url)
-        setFotoPublicId(publicId)
-      } catch {
-        toast.error("No se pudo subir la foto")
-      } finally {
-        setUploading(false)
-      }
+      setPickedPhoto({ uri: result.assets[0].uri, fileSize: result.assets[0].fileSize ?? null, mimeType: result.assets[0].mimeType ?? null })
     }
   }
 
   const handleSave = async () => {
     if (!nombre.trim()) { toast.error("El nombre es obligatorio"); return }
     if (!posicion) { toast.error("Selecciona una posición"); return }
-    if (uploading) { toast.error("Espera a que termine la subida"); return }
 
+    let photoAssetId = ""
     setSaving(true)
     try {
+      if (pickedPhoto) {
+        const { mediaAssetId } = await uploadToCloudinary(pickedPhoto.uri, "PLAYER_PHOTO", { fileSize: pickedPhoto.fileSize, mimeType: pickedPhoto.mimeType })
+        photoAssetId = mediaAssetId
+      }
       const payload: Record<string, unknown> = {
         nombre: nombre.trim(),
         posicion: posicion as PosicionJugador,
-        foto: foto || undefined,
-        fotoPublicId: fotoPublicId || undefined,
+        photoAssetId: photoAssetId || undefined,
         edad: edad.trim() ? Number(edad) : undefined,
       }
 
@@ -71,6 +65,7 @@ export default function MyProfileFormScreen() {
       }
       router.back()
     } catch (e: any) {
+      if (photoAssetId) { await api.post(`/api/media/${photoAssetId}/abandon`).catch(() => undefined) }
       toast.error(e.message || "Error al guardar")
     } finally {
       setSaving(false)
@@ -81,7 +76,8 @@ export default function MyProfileFormScreen() {
     const dirty = nombre !== (jugador?.nombre ?? "") ||
       posicion !== (jugador?.posicion ?? "") ||
       edad !== (jugador?.edad != null ? String(jugador.edad) : "") ||
-      foto !== (jugador?.foto ?? "")
+      foto !== (jugador?.foto ?? "") ||
+      !!pickedPhoto
     if (dirty) {
       Alert.alert("Descartar cambios", "¿Seguro que quieres salir? Los cambios no guardados se perderán.", [
         { text: "Seguir editando", style: "cancel" },
@@ -90,7 +86,7 @@ export default function MyProfileFormScreen() {
     } else {
       router.back()
     }
-  }, [nombre, posicion, edad, foto, jugador])
+  }, [nombre, posicion, edad, foto, jugador, pickedPhoto])
 
   if (isLoading) {
     return (
@@ -141,17 +137,13 @@ export default function MyProfileFormScreen() {
             <View>
               <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Foto</Text>
               <TouchableOpacity
-                onPress={uploading ? undefined : pickPhoto}
+                onPress={pickPhoto}
                 style={{ flexDirection: "row", alignItems: "center", gap: Gap.base, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
               >
                 <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                  <Image source={foto ? { uri: foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
+                  <Image source={pickedPhoto?.uri ? { uri: pickedPhoto.uri } : foto ? { uri: foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
                 </View>
-                {uploading ? (
-                  <ActivityIndicator color={Palette.cyan} size="small" />
-                ) : (
-                  <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar foto</Text>
-                )}
+                <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar foto</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -159,8 +151,8 @@ export default function MyProfileFormScreen() {
 
         <TouchableOpacity
           onPress={handleSave}
-          disabled={saving || uploading}
-          style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, alignItems: "center", opacity: (saving || uploading) ? 0.6 : 1 }}
+          disabled={saving}
+          style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, alignItems: "center", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? (
             <ActivityIndicator size="small" color={Palette.black} />

@@ -1,4 +1,5 @@
 import { api } from "@/infrastructure/api/client"
+import type { PartidoAnotacion } from "@/features/partido/scoring"
 
 export interface JornadaResponse {
   id: string
@@ -11,6 +12,7 @@ export interface JornadaResponse {
 
 export interface PartidoResponse {
   id: string
+  version?: number
   golesLocal: number
   golesVisitante: number
   penalesLocal?: number | null
@@ -31,6 +33,7 @@ export interface PartidoResponse {
   equipoVisitante?: { id: string; nombre: string; logo: string | null }
   cancha?: { id: string; nombre: string } | null
   arbitros?: { id: string; nombre: string }[]
+  anotaciones?: PartidoAnotacion[]
 }
 
 interface ApiRes<T> {
@@ -62,8 +65,12 @@ export const jornadaApi = {
     api.get<ApiRes<PaginatedResponse<JornadaResponse>>>(`/api/jornadas/division/${divisionId}?page=${page}&limit=${limit}`).then((r) => ({ ...r.data.data!, page, limit })),
   getById: (id: string) =>
     api.get<ApiRes<JornadaResponse>>(`/api/jornadas/${id}`).then((r) => r.data.data!),
-  generateNext: (divisionId: string, slots?: SlotInput[], equipoIds?: string[], descansoEquipoId?: string) =>
-    api.post<ApiRes<JornadaResponse>>(`/api/jornadas/generate-next/${divisionId}`, { slots, equipoIds, descansoEquipoId }).then((r) => r.data.data!),
+  generateNext: (divisionId: string, slots: SlotInput[] | undefined, equipoIds: string[] | undefined, descansoEquipoId: string | undefined, idempotencyKey: string) =>
+    api.post<ApiRes<JornadaResponse>>(
+      `/api/jornadas/generate-next/${divisionId}`,
+      { slots, equipoIds, descansoEquipoId },
+      { headers: { "Idempotency-Key": idempotencyKey } },
+    ).then((r) => r.data.data!),
   delete: (id: string) =>
     api.delete<ApiRes<undefined>>(`/api/jornadas/${id}`).then((r) => r.data),
 }

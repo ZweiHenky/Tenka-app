@@ -10,14 +10,15 @@ interface TabBarProps {
   tabs: Tab[]
   activeTab: string
   onTabChange: (key: string) => void
+  stretch?: boolean
 }
 
-export function TabBar({ tabs, activeTab, onTabChange }: TabBarProps) {
+export function TabBar({ tabs, activeTab, onTabChange, stretch = false }: TabBarProps) {
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ gap: Gap.sm, paddingVertical: Pad.sm }}
+      contentContainerStyle={{ gap: Gap.sm, paddingVertical: Pad.sm, ...(stretch ? { flexGrow: 1 } : {}) }}
     >
       {tabs.map((tab) => {
         const isActive = tab.key === activeTab
@@ -33,6 +34,7 @@ export function TabBar({ tabs, activeTab, onTabChange }: TabBarProps) {
               backgroundColor: isActive ? Palette.cyan : Palette.surface,
               borderWidth: 1,
               borderColor: isActive ? Palette.cyan : Palette.border,
+              ...(stretch ? { flex: 1, alignItems: "center", justifyContent: "center" } : {}),
             }}
           >
             <Text

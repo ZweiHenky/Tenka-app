@@ -7,6 +7,7 @@ const metadata = {
   divisionName: "Primera & Única",
   categoryName: "Libre <Mayor>",
   jornadaNumero: 7,
+  includeCourt: true,
 }
 
 function partido(id: string, fecha: string | null): PartidoResponse {
@@ -39,6 +40,18 @@ describe("single jornada schedule PDF", () => {
     expect(html).toContain("<h1>Jornada 7</h1>")
     expect(html).toContain("<th>Hora</th><th>Cancha</th><th>Local</th><th>Visitante</th>")
     expect(html.match(/<th>/g)).toHaveLength(4)
+  })
+
+  it("renders exactly three columns without a court placeholder in single-court mode", () => {
+    const match = partido("one", "2026-08-02T08:00:00")
+    match.cancha = null
+    const html = programacionJornadaHtml({ ...metadata, includeCourt: false }, [match])
+
+    expect(html).toContain("<th>Hora</th><th>Local</th><th>Visitante</th>")
+    expect(html.match(/<th>/g)).toHaveLength(3)
+    expect(html).not.toContain("<th>Cancha</th>")
+    expect(html).not.toContain("Por definir")
+    expect(html).toContain('<col style="width:16%" /><col style="width:42%" /><col style="width:42%" />')
   })
 
   it("groups raw dates globally in ascending order and leaves undated matches last", () => {

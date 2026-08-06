@@ -15,7 +15,7 @@ import { refereeBatchHtml } from "./pdf"
 import type { LeagueReferee, RefereeBatchDetail, RefereeCandidateDivision, RefereeMatch } from "./types"
 import { assignmentProgress, groupMatchesByDay, groupMatchesByDivision, scheduledMatches } from "./utils"
 
-interface Props { leagueId: string; referees: LeagueReferee[] }
+interface Props { leagueId: string; referees: LeagueReferee[]; multiplesCanchas: boolean }
 
 const card = { backgroundColor: Palette.surface, borderWidth: 1, borderColor: Palette.border, borderRadius: Radius.lg, padding: Pad.base, gap: Gap.md } as const
 
@@ -31,7 +31,7 @@ function ProgressBar({ assigned, total, percent }: { assigned: number; total: nu
   return <View style={{ gap: Gap.micro }}><View style={{ flexDirection: "row", justifyContent: "space-between" }}><Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 12 }}>{assigned} de {total} programados</Text><Text style={{ color: percent === 100 ? Palette.success : Palette.cyan, fontFamily: Fonts.semiBold, fontSize: 12 }}>{percent}%</Text></View><View style={{ height: 7, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight }}><View style={{ width: `${percent}%` as `${number}%`, height: "100%", borderRadius: Radius.full, backgroundColor: percent === 100 ? Palette.success : Palette.cyan }} /></View></View>
 }
 
-function RefereeDivisionDetail({ name, matches, assignments, referees, onBack, onMatchPress }: { name: string; matches: RefereeMatch[]; assignments: Record<string, string[]>; referees: LeagueReferee[]; onBack: () => void; onMatchPress: (match: RefereeMatch) => void }) {
+function RefereeDivisionDetail({ name, matches, assignments, referees, multiplesCanchas, onBack, onMatchPress }: { name: string; matches: RefereeMatch[]; assignments: Record<string, string[]>; referees: LeagueReferee[]; multiplesCanchas: boolean; onBack: () => void; onMatchPress: (match: RefereeMatch) => void }) {
   const days = groupMatchesByDay(matches)
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(days[0]?.key ?? null)
   return <View style={{ gap: Gap.lg }}>
@@ -42,14 +42,14 @@ function RefereeDivisionDetail({ name, matches, assignments, referees, onBack, o
       const dayLabel = day.key === "sin-fecha" ? "Sin fecha" : new Date(`${day.key}T12:00:00`).toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" })
       return <View key={day.key} style={{ gap: Gap.sm }}>
         <TouchableOpacity accessibilityRole="button" accessibilityState={{ expanded }} accessibilityLabel={`${dayLabel}, ${day.matches.length} partidos`} onPress={() => setExpandedDayKey(expanded ? null : day.key)} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, paddingHorizontal: Pad.md, paddingVertical: Pad.sm }}><View><Text style={{ color: Palette.cyan, fontFamily: Fonts.semiBold, textTransform: "uppercase" }}>{dayLabel}</Text><Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, fontSize: 11 }}>{day.matches.length} partido(s)</Text></View><MaterialIcons name={expanded ? "expand-less" : "expand-more"} size={22} color={Palette.textMuted} /></TouchableOpacity>
-        {expanded ? day.matches.map((match) => { const names = referees.filter((referee) => (assignments[match.id] ?? []).includes(referee.id)).map((referee) => referee.nombre); return <TouchableOpacity key={match.id} onPress={() => onMatchPress(match)} style={card}><View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: Gap.sm }}><View><Text style={{ color: Palette.text, fontFamily: Fonts.semiBold }}>{match.fecha ? formatLocalTime(match.fecha) : "Sin hora"}{match.fechaFin ? ` - ${formatLocalTime(match.fechaFin)}` : ""}</Text><Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans }}>{match.cancha?.nombre ?? "Sin cancha"}</Text></View><MaterialIcons name="chevron-right" size={24} color={Palette.textMuted} /></View><Text style={{ color: names.length ? Palette.success : Palette.warning, fontFamily: Fonts.medium }}>{names.join(", ") || "Seleccionar árbitros"}</Text></TouchableOpacity> }) : null}
+        {expanded ? day.matches.map((match) => { const names = referees.filter((referee) => (assignments[match.id] ?? []).includes(referee.id)).map((referee) => referee.nombre); return <TouchableOpacity key={match.id} onPress={() => onMatchPress(match)} style={card}><View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: Gap.sm }}><View><Text style={{ color: Palette.text, fontFamily: Fonts.semiBold }}>{match.fecha ? formatLocalTime(match.fecha) : "Sin hora"}{match.fechaFin ? ` - ${formatLocalTime(match.fechaFin)}` : ""}</Text>{multiplesCanchas ? <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans }}>{match.cancha?.nombre ?? "Sin cancha"}</Text> : null}</View><MaterialIcons name="chevron-right" size={24} color={Palette.textMuted} /></View><Text style={{ color: names.length ? Palette.success : Palette.warning, fontFamily: Fonts.medium }}>{names.join(", ") || "Seleccionar árbitros"}</Text></TouchableOpacity> }) : null}
       </View>
     })}
     {!matches.length ? <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.sans, textAlign: "center" }}>Esta división todavía no tiene partidos.</Text> : null}
   </View>
 }
 
-export default function LeagueRefereeTab({ leagueId, referees }: Props) {
+export default function LeagueRefereeTab({ leagueId, referees, multiplesCanchas }: Props) {
   const toast = useToast()
   const candidates = useRefereeCandidates(leagueId)
   const batches = useRefereeBatches(leagueId)
@@ -173,7 +173,7 @@ export default function LeagueRefereeTab({ leagueId, referees }: Props) {
     const savedDivisions = groupMatchesByDivision(savedAssignment.partidos)
     const savedActiveDivision = savedDivisions.find((division) => division.id === savedActiveDivisionId)
     if (savedActiveDivision) return <View style={{ gap: Gap.lg }}>
-      <RefereeDivisionDetail name={savedActiveDivision.nombre} matches={savedActiveDivision.matches} assignments={savedAssignments} referees={activeReferees} onBack={() => setSavedActiveDivisionId(null)} onMatchPress={openMatch} />
+      <RefereeDivisionDetail name={savedActiveDivision.nombre} matches={savedActiveDivision.matches} assignments={savedAssignments} referees={activeReferees} multiplesCanchas={multiplesCanchas} onBack={() => setSavedActiveDivisionId(null)} onMatchPress={openMatch} />
       <AppBottomSheetModal visible={editingMatch !== null} onClose={closeMatch} title="Seleccionar árbitros" snapPoints={["65%"]}>{editingMatch ? <>{activeReferees.map((referee) => { const selected = editingRefereeIds.includes(referee.id); return <TouchableOpacity key={referee.id} onPress={() => setEditingRefereeIds((ids) => selected ? ids.filter((id) => id !== referee.id) : [...ids, referee.id])} style={{ ...card, padding: Pad.md, flexDirection: "row", alignItems: "center" }}><MaterialIcons name={selected ? "check-box" : "check-box-outline-blank"} size={23} color={Palette.cyan} /><Text style={{ color: Palette.text, fontFamily: Fonts.medium }}>{referee.nombre}</Text></TouchableOpacity> })}<Button label="Aplicar al partido" onPress={applyMatch} /></> : null}</AppBottomSheetModal>
     </View>
     return <View style={{ gap: Gap.lg }}>
@@ -192,7 +192,7 @@ export default function LeagueRefereeTab({ leagueId, referees }: Props) {
   if (activeDivision) {
     const matches = divisionMatches(activeDivision)
     return <View style={{ gap: Gap.lg }}>
-      <RefereeDivisionDetail name={activeDivision.nombre} matches={matches} assignments={assignments} referees={activeReferees} onBack={() => setActiveDivisionId(null)} onMatchPress={openMatch} />
+      <RefereeDivisionDetail name={activeDivision.nombre} matches={matches} assignments={assignments} referees={activeReferees} multiplesCanchas={multiplesCanchas} onBack={() => setActiveDivisionId(null)} onMatchPress={openMatch} />
       <AppBottomSheetModal visible={editingMatch !== null} onClose={closeMatch} title="Seleccionar árbitros" snapPoints={["65%"]}>
         {editingMatch ? <>{activeReferees.map((referee) => { const selected = editingRefereeIds.includes(referee.id); return <TouchableOpacity key={referee.id} onPress={() => setEditingRefereeIds((ids) => selected ? ids.filter((id) => id !== referee.id) : [...ids, referee.id])} style={{ ...card, padding: Pad.md, flexDirection: "row", alignItems: "center" }}><MaterialIcons name={selected ? "check-box" : "check-box-outline-blank"} size={23} color={Palette.cyan} /><Text style={{ color: Palette.text, fontFamily: Fonts.medium }}>{referee.nombre}</Text></TouchableOpacity> })}<Button label="Aplicar al partido" onPress={applyMatch} /></> : null}
       </AppBottomSheetModal>

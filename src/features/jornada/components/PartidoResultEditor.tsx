@@ -1,10 +1,14 @@
 import { useState } from "react"
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Image } from "react-native"
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
+import LogoImage from "@/shared/components/LogoImage"
 import type { PartidoResponse } from "@/features/jornada/api/jornadas"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { useToast } from "@/shared/components/Toast"
+import { getPlayoffFinalizationError } from "@/shared/utils/playoff-finalization"
+import ScorerAllocationEditor from "@/features/partido/components/ScorerAllocationEditor"
+import { allocationsFromAnnotations, hasValidAllocations, isResultEditable, type ScorerAllocation, type ScorerCandidate } from "@/features/partido/scoring"
 
 const ESTADO_LABELS: Record<string, string> = {
   PROGRAMADO: "Programado",
@@ -42,12 +46,15 @@ function secondaryActions(estado: string | null): { label: string; targetEstado:
 interface Props {
   partido: PartidoResponse
   isUpdating: boolean
-  onSave: (golesLocal: number, golesVisitante: number, estado: string, penalesLocal?: number, penalesVisitante?: number, tipoPartido?: string) => void
+  onSave: (golesLocal: number, golesVisitante: number, estado: string, anotaciones: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number, tipoPartido?: string) => void
   onReplaceTeam?: (side: "local" | "visitor") => void
   canReplaceTeams?: boolean
+  multiplesCanchas?: boolean
+  localPlayers?: ScorerCandidate[]
+  visitorPlayers?: ScorerCandidate[]
 }
 
-export default function PartidoResultEditor({ partido, isUpdating, onSave, onReplaceTeam, canReplaceTeams = false }: Props) {
+function PartidoResultEditorForm({ partido, isUpdating, onSave, onReplaceTeam, canReplaceTeams = false, multiplesCanchas = false, localPlayers = [], visitorPlayers = [] }: Props) {
   const toast = useToast()
   const arbitros = partido.arbitros?.map((arbitro) => arbitro.nombre).filter(Boolean).join(", ") ?? ""
   const [golesLocal, setGolesLocal] = useState(() => partido.estado === "PROGRAMADO" || !partido.estado ? "" : String(partido.golesLocal))
@@ -55,6 +62,8 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
   const [penalesLocal, setPenalesLocal] = useState(() => partido.penalesLocal != null ? String(partido.penalesLocal) : "")
   const [penalesVisitante, setPenalesVisitante] = useState(() => partido.penalesVisitante != null ? String(partido.penalesVisitante) : "")
   const [actionHelpOpen, setActionHelpOpen] = useState(false)
+  const [correcting, setCorrecting] = useState(false)
+  const [allocations, setAllocations] = useState<ScorerAllocation[]>(() => allocationsFromAnnotations(partido.anotaciones))
 
   const parseGoles = () => {
     const gl = parseInt(golesLocal, 10)
@@ -75,8 +84,18 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
   }
 
   const handleSave = () => {
+    const schedulingError = getPlayoffFinalizationError(partido, multiplesCanchas)
+    if (schedulingError) {
+      toast.error(schedulingError)
+      return
+    }
+
     const parsed = parseGoles()
     if (!parsed) return
+    if (parsed.gl < 0 || parsed.gv < 0 || !hasValidAllocations(allocations, parsed.gl, parsed.gv)) {
+      toast.error("Los goles asignados no pueden superar el marcador")
+      return
+    }
     const penales = parsePenales()
 
     if (parsed.gl === parsed.gv && partido.tipoPartido !== "AMISTOSO") {
@@ -90,18 +109,18 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
       }
     }
 
-    onSave(parsed.gl, parsed.gv, "FINALIZADO", penales?.pl ?? undefined, penales?.pv ?? undefined, partido.tipoPartido)
+    onSave(parsed.gl, parsed.gv, "FINALIZADO", allocations, penales?.pl ?? undefined, penales?.pv ?? undefined, partido.tipoPartido)
   }
 
   const handleSecondary = (targetEstado: string) => {
     if (targetEstado === "PROGRAMADO") {
-      onSave(0, 0, "PROGRAMADO", undefined, undefined, partido.tipoPartido)
+      onSave(0, 0, "PROGRAMADO", [], undefined, undefined, partido.tipoPartido)
       return
     }
     const parsed = parseGoles()
     if (!parsed) return
     const penales = parsePenales()
-    onSave(parsed.gl, parsed.gv, targetEstado, penales?.pl ?? undefined, penales?.pv ?? undefined, partido.tipoPartido)
+    onSave(parsed.gl, parsed.gv, targetEstado, allocations, penales?.pl ?? undefined, penales?.pv ?? undefined, partido.tipoPartido)
   }
 
   const golesIguales = (() => {
@@ -117,6 +136,7 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
   const equipoVisitanteNombre = partido.equipoVisitante?.nombre ?? "Visitante"
   const actions = secondaryActions(estado)
   const isFinalizado = estado === "FINALIZADO"
+  const inputsDisabled = !isResultEditable(estado, correcting)
 
   const scoreInputStyle = {
     width: 76,
@@ -124,13 +144,13 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
     borderRadius: Radius.lg,
     backgroundColor: Palette.black,
     borderWidth: 1,
-    borderColor: isFinalizado ? Palette.border : Palette.borderActive,
+    borderColor: inputsDisabled ? Palette.border : Palette.borderActive,
     fontSize: 30,
     fontFamily: Fonts.displayBold,
     color: Palette.text,
     textAlign: "center" as const,
     padding: 0,
-    opacity: isFinalizado ? 0.65 : 1,
+    opacity: inputsDisabled ? 0.65 : 1,
   }
 
   return (
@@ -178,19 +198,13 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
 
         <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
           <View style={{ flex: 1, alignItems: "center", gap: Gap.sm }}>
-            <View style={{ width: 60, height: 60, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Palette.border }}>
-              {partido.equipoLocal?.logo ? (
-                <Image source={{ uri: partido.equipoLocal.logo }} style={{ width: 60, height: 60 }} resizeMode="cover" />
-              ) : (
-                <MaterialIcons name="shield" size={28} color={Palette.textMuted} />
-              )}
-            </View>
+            <LogoImage uri={partido.equipoLocal?.logo} size={60} backgroundColor={Palette.surfaceLight} ring={Palette.border} ringWidth={1} radius={Radius.lg} iconFallback="shield" />
             <View style={{ minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.micro }}><Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold, textAlign: "center", flexShrink: 1 }} numberOfLines={2}>{equipoLocalNombre}</Text>{canReplaceTeams ? <TouchableOpacity accessibilityLabel="Cambiar equipo local" onPress={() => onReplaceTeam?.("local")} style={{ padding: Pad.micro }}><MaterialIcons name="edit" size={17} color={Palette.cyan} /></TouchableOpacity> : null}</View>
             <TextInput
               accessibilityLabel={`Goles de ${equipoLocalNombre}`}
               style={scoreInputStyle}
               keyboardType="number-pad"
-              editable={!isFinalizado}
+              editable={!inputsDisabled}
               value={golesLocal}
               onChangeText={setGolesLocal}
               maxLength={2}
@@ -206,19 +220,13 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
           </View>
 
           <View style={{ flex: 1, alignItems: "center", gap: Gap.sm }}>
-            <View style={{ width: 60, height: 60, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Palette.border }}>
-              {partido.equipoVisitante?.logo ? (
-                <Image source={{ uri: partido.equipoVisitante.logo }} style={{ width: 60, height: 60 }} resizeMode="cover" />
-              ) : (
-                <MaterialIcons name="shield" size={28} color={Palette.textMuted} />
-              )}
-            </View>
+            <LogoImage uri={partido.equipoVisitante?.logo} size={60} backgroundColor={Palette.surfaceLight} ring={Palette.border} ringWidth={1} radius={Radius.lg} iconFallback="shield" />
             <View style={{ minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.micro }}><Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold, textAlign: "center", flexShrink: 1 }} numberOfLines={2}>{equipoVisitanteNombre}</Text>{canReplaceTeams ? <TouchableOpacity accessibilityLabel="Cambiar equipo visitante" onPress={() => onReplaceTeam?.("visitor")} style={{ padding: Pad.micro }}><MaterialIcons name="edit" size={17} color={Palette.cyan} /></TouchableOpacity> : null}</View>
             <TextInput
               accessibilityLabel={`Goles de ${equipoVisitanteNombre}`}
               style={scoreInputStyle}
               keyboardType="number-pad"
-              editable={!isFinalizado}
+              editable={!inputsDisabled}
               value={golesVisitante}
               onChangeText={setGolesVisitante}
               maxLength={2}
@@ -228,6 +236,8 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
             <Text style={{ color: Palette.textMuted, fontSize: 10, fontFamily: Fonts.semiBold }}>VISITANTE</Text>
           </View>
         </View>
+
+        <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, parseInt(golesLocal, 10) || 0)} visitorScore={Math.max(0, parseInt(golesVisitante, 10) || 0)} localPlayers={localPlayers} visitorPlayers={visitorPlayers} allocations={allocations} onChange={setAllocations} disabled={inputsDisabled || isUpdating} />
 
         {golesIguales && partido.tipoPartido !== "AMISTOSO" ? (
           <View style={{ backgroundColor: Palette.warning10, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.warning, padding: Pad.md, gap: Gap.md }}>
@@ -243,7 +253,7 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
                 accessibilityLabel={`Penales de ${equipoLocalNombre}`}
                 style={{ ...scoreInputStyle, width: 72, height: 54, fontSize: 24, borderColor: Palette.warning }}
                 keyboardType="number-pad"
-                editable={!isFinalizado}
+                editable={!inputsDisabled}
                 value={penalesLocal}
                 onChangeText={setPenalesLocal}
                 maxLength={2}
@@ -255,7 +265,7 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
                 accessibilityLabel={`Penales de ${equipoVisitanteNombre}`}
                 style={{ ...scoreInputStyle, width: 72, height: 54, fontSize: 24, borderColor: Palette.warning }}
                 keyboardType="number-pad"
-                editable={!isFinalizado}
+                editable={!inputsDisabled}
                 value={penalesVisitante}
                 onChangeText={setPenalesVisitante}
                 maxLength={2}
@@ -267,7 +277,7 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
         ) : null}
 
         <View style={{ gap: Gap.sm }}>
-          {!isFinalizado ? (
+          {!isFinalizado || correcting ? (
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={handleSave}
@@ -279,9 +289,11 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
               ) : (
                 <MaterialIcons name="check-circle" size={20} color={Palette.black} />
               )}
-              <Text style={{ fontSize: 15, fontFamily: Fonts.semiBold, color: Palette.black }}>Finalizar partido</Text>
+              <Text style={{ fontSize: 15, fontFamily: Fonts.semiBold, color: Palette.black }}>{correcting ? "Guardar corrección" : "Finalizar partido"}</Text>
             </TouchableOpacity>
           ) : null}
+
+          {isFinalizado && !correcting ? <TouchableOpacity activeOpacity={0.7} onPress={() => setCorrecting(true)} disabled={isUpdating} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, borderRadius: Radius.md, paddingVertical: Pad.md, backgroundColor: Palette.warning10, borderWidth: 1, borderColor: Palette.warning }}><MaterialIcons name="edit" size={18} color={Palette.warning} /><Text style={{ color: Palette.warning, fontFamily: Fonts.semiBold }}>Corregir resultado</Text></TouchableOpacity> : null}
 
           {actions.length > 0 ? (
             <View style={{ flexDirection: "row", gap: Gap.sm }}>
@@ -329,4 +341,10 @@ export default function PartidoResultEditor({ partido, isUpdating, onSave, onRep
       </AppBottomSheetModal>
     </>
   )
+}
+
+export default function PartidoResultEditor(props: Props) {
+  const { partido } = props
+  const resultKey = `${partido.id}:${partido.version ?? ""}:${partido.estado ?? ""}:${partido.golesLocal}:${partido.golesVisitante}:${partido.penalesLocal ?? ""}:${partido.penalesVisitante ?? ""}:${JSON.stringify(partido.anotaciones ?? [])}`
+  return <PartidoResultEditorForm key={resultKey} {...props} />
 }

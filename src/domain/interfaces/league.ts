@@ -36,6 +36,7 @@ export interface DivisionConRelaciones {
   categoriaId: string
   tipoId: string
   tipoCompetenciaId: string
+  canchaUnicaId: string | null
   categoria: CategoriaRef
   tipo: TipoRef
   estadoLiga: EstadoLigaRef
@@ -48,14 +49,18 @@ export interface LigaCanchaRef {
   activa: boolean
 }
 
+export interface LeagueCourtInput {
+  id?: string
+  nombre?: string
+  activa?: boolean
+}
+
 export interface League {
   id: string
   nombre: string
   descripcion: string
   logo: string | null
-  logoPublicId: string | null
   cancha: string | null
-  canchaPublicId: string | null
   multiplesCanchas: boolean
   createdAt: string
   updatedAt: string
@@ -76,17 +81,19 @@ export interface League {
   }
   divisiones?: DivisionConRelaciones[]
   canchas?: LigaCanchaRef[]
+  usaArbitros?: boolean
+  arbitros?: { id: string; nombre: string }[]
 }
 
 export interface CreateLeagueInput {
   nombre: string
   descripcion: string
-  logo?: string
-  logoPublicId?: string
-  cancha?: string
-  canchaPublicId?: string
+  logoAssetId?: string | null
+  coverAssetId?: string | null
   multiplesCanchas?: boolean
-  canchas?: { nombre: string }[]
+  canchas?: LeagueCourtInput[]
+  usaArbitros?: boolean
+  arbitros?: { id?: string; nombre: string; activo?: boolean }[]
   ubicacionId: string
 }
 
@@ -107,7 +114,9 @@ export interface Division {
   categoriaId: string
   tipoId: string
   tipoCompetenciaId: string
+  canchaUnicaId: string | null
   liga?: { id: string; nombre: string; logo: string | null }
+  categoria?: CategoriaRef
   estadoLiga?: { id: string; nombre: string }
 }
 
@@ -126,4 +135,5 @@ export interface CreateDivisionInput {
   categoriaId: string
   tipoId: string
   tipoCompetenciaId: string
+  canchaUnicaId?: string | null
 }

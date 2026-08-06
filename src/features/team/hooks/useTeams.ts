@@ -27,7 +27,7 @@ export function useUserTeams(userId: string) {
 export function useCreateTeam() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { nombre: string; logo?: string; logoPublicId?: string }) => teamApi.create(data),
+    mutationFn: (data: { nombre: string; logoAssetId?: string | null }) => teamApi.create(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["teams"] }),
   })
 }
@@ -35,7 +35,7 @@ export function useCreateTeam() {
 export function useUpdateTeam() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { nombre?: string; logo?: string; logoPublicId?: string } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { nombre?: string; logoAssetId?: string | null } }) =>
       teamApi.update(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["teams"] }),
   })

@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react"
-import { View, Text, Image, TouchableOpacity, TextInput } from "react-native"
+import { View, Text, TouchableOpacity, TextInput } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { formatSaldoPendiente } from "@/features/division/utils/teamSaldo"
 import TeamSaldoEditor from "@/features/division/components/TeamSaldoEditor"
+import { getDuplicateTeamNames, normalizeTeamDisplayName } from "@/features/team/utils/teamDisplay"
 
 function normalize(s: string) {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
@@ -13,6 +14,8 @@ interface TeamItem {
   id: string
   nombre: string
   logo: string | null
+  codigo: string
+  esPropio: boolean
   saldoPendiente?: string
 }
 
@@ -22,10 +25,11 @@ interface Props {
   arbitrajePagado: string[]
   onRemove: (nombre: string, id: string) => void
   onToggleArbitraje: (id: string) => void
+  onManagePlayers: (id: string) => void
   flat?: boolean
 }
 
-export default function TeamListCard({ divisionId, assigned, arbitrajePagado, onRemove, onToggleArbitraje, flat }: Props) {
+export default function TeamListCard({ divisionId, assigned, arbitrajePagado, onRemove, onToggleArbitraje, onManagePlayers, flat }: Props) {
   const [minimized, setMinimized] = useState(false)
   const [search, setSearch] = useState("")
   const [editingSaldoId, setEditingSaldoId] = useState<string | null>(null)
@@ -51,6 +55,7 @@ export default function TeamListCard({ divisionId, assigned, arbitrajePagado, on
     checked.sort(cmp)
     return [...unchecked, ...checked]
   }, [filtered, arbitrajePagado])
+  const duplicateNames = useMemo(() => getDuplicateTeamNames(assigned), [assigned])
 
   const header = (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", ...(flat ? { paddingBottom: Pad.sm, borderBottomWidth: 1, borderBottomColor: Palette.border } : { backgroundColor: Palette.cyan, paddingHorizontal: Pad.base, paddingVertical: Pad.sm }) }}>
@@ -94,13 +99,27 @@ export default function TeamListCard({ divisionId, assigned, arbitrajePagado, on
             <TouchableOpacity onPress={() => onToggleArbitraje(t.id)} style={{ padding: 4 }}>
               <MaterialIcons name={arbitrajePagado.includes(t.id) ? "check-box" : "check-box-outline-blank"} size={26} color={arbitrajePagado.includes(t.id) ? Palette.cyan : Palette.textMuted} />
             </TouchableOpacity>
-            <Image source={t.logo ? { uri: t.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 44, height: 44, borderRadius: Radius.lg }} />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 15, fontFamily: Fonts.bold, color: Palette.text }}>{t.nombre}</Text>
+              <Text style={{ fontSize: 15, fontFamily: Fonts.bold, color: Palette.text }} numberOfLines={1}>
+                {t.nombre}
+                {duplicateNames.has(normalizeTeamDisplayName(t.nombre)) ? (
+                  <Text style={{ color: t.esPropio ? Palette.cyan : Palette.textMuted, fontSize: 11, fontFamily: Fonts.medium }}>
+                    {t.esPropio ? " · Tu equipo" : ` · #${t.codigo}`}
+                  </Text>
+                ) : null}
+              </Text>
               <Text style={{ fontSize: 12, fontFamily: Fonts.sans, color: Number(t.saldoPendiente) > 0 ? Palette.warning : Palette.success }}>
                 {formatSaldoPendiente(t.saldoPendiente)}
               </Text>
             </View>
+            <TouchableOpacity
+              onPress={() => onManagePlayers(t.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Administrar jugadores de ${t.nombre}`}
+              style={{ width: 38, height: 38, borderRadius: Radius.md, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}
+            >
+              <MaterialIcons name="groups" size={20} color={Palette.cyan} />
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setEditingSaldoId((current) => current === t.id ? null : t.id)}
               accessibilityLabel={`Editar saldo de ${t.nombre}`}

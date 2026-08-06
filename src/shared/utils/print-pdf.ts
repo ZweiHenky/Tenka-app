@@ -20,7 +20,7 @@ export async function downloadPdf(html: string, filename: string) {
 
 export function standingsHtml(
   divisionNombre: string,
-  rows: { pos: number; equipo: string; pj: number; g: number; e: number; p: number; dg: number; pts: number }[],
+  rows: { pos: number; equipo: string; pj: number; g: number; e: number; p: number; gf: number; gc: number; pts: number }[],
 ): string {
   const title = `Tabla de Posiciones - ${divisionNombre}`
   const date = new Date().toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" })
@@ -34,7 +34,7 @@ export function standingsHtml(
       <td>${r.g}</td>
       <td>${r.e}</td>
       <td>${r.p}</td>
-      <td class="${r.dg < 0 ? "neg" : ""}">${r.dg > 0 ? `+${r.dg}` : r.dg}</td>
+      <td class="${r.gf > r.gc ? "gf-positive" : r.gf < r.gc ? "gf-negative" : "gf-even"}">${r.gf}:${r.gc}</td>
       <td class="pts">${r.pts}</td>
     </tr>`,
     )
@@ -57,7 +57,9 @@ export function standingsHtml(
   td.eq { text-align: left; }
   td.pos { font-weight: 700; color: #2C4673; }
   td.pts { font-weight: 700; color: #2C4673; }
-  .neg { color: #C62828; }
+  .gf-positive { color: #2C4673; }
+  .gf-negative { color: #C62828; }
+  .gf-even { color: #222; }
   tr:nth-child(even) { background: #f5f5f5; }
 </style>
 </head>
@@ -67,7 +69,7 @@ export function standingsHtml(
   <table>
     <thead>
       <tr>
-        <th>#</th><th class="eq">Equipo</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>DG</th><th>PTS</th>
+        <th>#</th><th class="eq">Equipo</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF:GC</th><th>PTS</th>
       </tr>
     </thead>
     <tbody>${tableRows}</tbody>

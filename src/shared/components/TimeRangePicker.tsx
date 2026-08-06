@@ -1,13 +1,12 @@
 import { useState } from "react"
-import { View, Text, TouchableOpacity, ScrollView, Keyboard } from "react-native"
+import { View, Text, TouchableOpacity, Keyboard } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import {
   calculateTimeRangeCapacity,
   parseTimeRanges,
-  setTimeHour,
   setTimeMinute,
-  TIME_HOURS,
+  shiftTimeHour,
   TIME_MINUTES,
   validateTimeRange,
 } from "@/shared/utils/time-range"
@@ -31,17 +30,31 @@ function TimeSelector({ label, value, onChange }: TimeSelectorProps) {
   const [selectedHour = "00", selectedMinute = "00"] = value.split(":")
 
   return (
-    <View style={{ flex: 1, gap: Gap.sm }}>
-      <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, textAlign: "center" }}>{label}</Text>
-      <Text style={{ fontSize: 20, fontFamily: Fonts.displayBold, color: Palette.cyan, textAlign: "center" }}>{value}</Text>
+    <View style={{ flex: 1, gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}>
+      <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.textSecondary, textAlign: "center" }}>{label}</Text>
+      <Text style={{ fontSize: 24, fontFamily: Fonts.displayBold, color: Palette.cyan, textAlign: "center" }}>{value}</Text>
       <Text style={{ fontSize: 11, fontFamily: Fonts.medium, color: Palette.textMuted, textAlign: "center", textTransform: "uppercase" }}>Hora</Text>
-      <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
-        {TIME_HOURS.map((hour) => (
-          <TouchableOpacity key={hour} onPress={() => onChange(setTimeHour(value, hour))} style={{ paddingVertical: Pad.sm, paddingHorizontal: Pad.md, borderRadius: Radius.md, backgroundColor: selectedHour === hour ? Palette.cyan : "transparent" }}>
-            <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: selectedHour === hour ? Palette.black : Palette.text, textAlign: "center" }}>{hour}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`Restar una hora a ${label.toLowerCase()}`}
+          onPress={() => onChange(shiftTimeHour(value, -1))}
+          style={{ width: 44, height: 44, borderRadius: Radius.full, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface, alignItems: "center", justifyContent: "center" }}
+        >
+          <MaterialIcons name="remove" size={24} color={Palette.cyan} />
+        </TouchableOpacity>
+        <View style={{ minWidth: 36, height: 44, borderRadius: Radius.md, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ fontSize: 20, fontFamily: Fonts.displayBold, color: Palette.text }}>{selectedHour}</Text>
+        </View>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`Sumar una hora a ${label.toLowerCase()}`}
+          onPress={() => onChange(shiftTimeHour(value, 1))}
+          style={{ width: 44, height: 44, borderRadius: Radius.full, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface, alignItems: "center", justifyContent: "center" }}
+        >
+          <MaterialIcons name="add" size={24} color={Palette.cyan} />
+        </TouchableOpacity>
+      </View>
       <Text style={{ fontSize: 11, fontFamily: Fonts.medium, color: Palette.textMuted, textAlign: "center", textTransform: "uppercase" }}>Minutos</Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: Gap.micro }}>
         {TIME_MINUTES.map((minute) => (
@@ -133,7 +146,7 @@ export function TimeRangePicker({ value, onChange, matchDuration, breakDuration 
         <Text style={{ fontSize: 14, fontFamily: Fonts.sans, color: Palette.cyan }}>Agregar rango</Text>
       </TouchableOpacity>
 
-      <AppBottomSheetModal visible={open} onClose={() => { setOpen(false); setEditingIndex(-1) }} title="Horario de partido" snapPoints={["65%"]} scrollable={false} enableContentPanningGesture={false}>
+      <AppBottomSheetModal visible={open} onClose={() => { setOpen(false); setEditingIndex(-1) }} title="Horario de partido" snapPoints={["75%"]} scrollable={false} enableContentPanningGesture={false}>
 
             <View style={{ flexDirection: "row", gap: Gap.md }}>
               <TimeSelector label="Inicio" value={tempStart} onChange={setTempStart} />
