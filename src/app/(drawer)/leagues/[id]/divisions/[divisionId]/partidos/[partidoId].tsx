@@ -21,7 +21,8 @@ import { useQuery } from "@tanstack/react-query"
 import { jornadaApi } from "@/features/jornada/api/jornadas"
 import { useLeague } from "@/features/league/hooks/useLeagues"
 import { useDivisionJugadores } from "@/features/jugador/hooks/useJugadores"
-import { buildResultPayload, type ScorerAllocation, type ScorerCandidate } from "@/features/partido/scoring"
+import { useDivision } from "@/features/division/hooks/useDivisions"
+import { buildResultPayload, buildScorerCandidates, type ParticipacionInput, type ScorerAllocation, type ScorerCandidate } from "@/features/partido/scoring"
 
 export default function PartidoDetailScreen() {
   const toast = useToast()
@@ -43,20 +44,22 @@ export default function PartidoDetailScreen() {
   const { data: jornada } = useQuery({ queryKey: ["jornada", partido?.jornadaId], queryFn: () => partido?.jornadaId ? jornadaApi.getById(partido.jornadaId) : Promise.reject(new Error("El partido no pertenece a una jornada")), enabled: !!partido?.jornadaId })
   const { data: localRoster = [] } = useDivisionJugadores(divisionId, partido?.equipoLocalId ?? undefined)
   const { data: visitorRoster = [] } = useDivisionJugadores(divisionId, partido?.equipoVisitanteId ?? undefined)
+  const { data: division, isLoading: isDivisionLoading, error: divisionError, refetch: refetchDivision } = useDivision(divisionId!)
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
       await refetch()
+      await refetchDivision()
     } finally {
       setRefreshing(false)
     }
-  }, [refetch])
+  }, [refetch, refetchDivision])
 
-  const handleSave = (golesLocal: number, golesVisitante: number, estado: string, allocations: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number) => {
+  const handleSave = (golesLocal: number, golesVisitante: number, estado: string, allocations: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number, _tipoPartido?: string, participaciones?: ParticipacionInput[], notas?: string | null) => {
     if (!partido) return
     updateResult.mutate(
-      { id: partido.id, divisionId, ...buildResultPayload({ expectedVersion: partido.version, golesLocal, golesVisitante, penalesLocal, penalesVisitante, estado, allocations }) },
+      { id: partido.id, divisionId, ...buildResultPayload({ expectedVersion: partido.version, golesLocal, golesVisitante, penalesLocal, penalesVisitante, estado, allocations, participaciones, notas }) },
       { onSuccess: () => { toast.success("Resultado guardado") }, onError: (e: any) => { if (e?.response?.status === 409) { refetch(); toast.error("El partido cambió en otro dispositivo. Actualizamos los datos; revisa el resultado e inténtalo de nuevo."); return } toast.error(e.message) } },
     )
   }
@@ -96,7 +99,7 @@ export default function PartidoDetailScreen() {
     })
   }
 
-  if (isLoading || isLeagueLoading) {
+  if (isLoading || isLeagueLoading || isDivisionLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="" />
@@ -105,11 +108,11 @@ export default function PartidoDetailScreen() {
     )
   }
 
-  if (error || leagueError) {
+  if (error || leagueError || divisionError) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="Error" onBack={() => router.back()} />
-        <ErrorState message={((error ?? leagueError) as Error).message} onRetry={() => { refetch(); refetchLeague() }} fullScreen />
+        <ErrorState message={((error ?? leagueError ?? divisionError) as Error).message} onRetry={() => { refetch(); refetchLeague(); refetchDivision() }} fullScreen />
       </View>
     )
   }
@@ -134,15 +137,17 @@ export default function PartidoDetailScreen() {
   const swappableTeamCounts = (jornada?.partidos ?? []).filter((item) => item.id !== partido.id && item.estado === "PROGRAMADO" && item.tipoPartido === "REGULAR").reduce<Record<string, number>>((counts, item) => { if (item.equipoLocalId) counts[item.equipoLocalId] = (counts[item.equipoLocalId] ?? 0) + 1; if (item.equipoVisitanteId) counts[item.equipoVisitanteId] = (counts[item.equipoVisitanteId] ?? 0) + 1; return counts }, {})
   const replacementOptions = divisionTeams.filter((team) => team.id !== rivalId && team.id !== currentTeam?.id && swappableTeamCounts[team.id] === 1)
   const canReplaceTeams = partido.estado === "PROGRAMADO" && !!partido.jornadaId && !partido.rondaPlayoffId && partido.tipoPartido === "REGULAR"
-  const rosterCandidates = (roster: typeof localRoster, side: "LOCAL" | "VISITANTE"): ScorerCandidate[] => {
-    const candidates = roster.map((link) => ({ id: link.jugador.id, nombre: link.jugador.nombre, foto: link.jugador.foto, dorsal: link.jugador.equipos?.find((team) => team.equipoId === link.equipoId)?.dorsal ?? null }))
-    for (const annotation of partido.anotaciones ?? []) {
-      if (annotation.ladoMarcador === side && annotation.jugadorId && !candidates.some((item) => item.id === annotation.jugadorId)) candidates.push({ id: annotation.jugadorId, nombre: annotation.jugadorNombre ?? "Jugador", foto: null, dorsal: annotation.dorsal ?? null })
-    }
-    return candidates.sort((a, b) => a.nombre.localeCompare(b.nombre))
-  }
-  const localPlayers = rosterCandidates(localRoster, "LOCAL")
-  const visitorPlayers = rosterCandidates(visitorRoster, "VISITANTE")
+  const rosterCandidates = (roster: typeof localRoster, side: "LOCAL" | "VISITANTE") => (records: { ladoMarcador: "LOCAL" | "VISITANTE"; jugadorId: string | null; jugadorNombre?: string | null; dorsal?: number | null }[]): ScorerCandidate[] =>
+    buildScorerCandidates(
+      roster.map((link) => ({ id: link.jugador.id, nombre: link.jugador.nombre, foto: link.jugador.foto, dorsal: link.jugador.equipos?.find((team) => team.equipoId === link.equipoId)?.dorsal ?? null })),
+      records,
+      side,
+    )
+  const localScorers = rosterCandidates(localRoster, "LOCAL")(partido.anotaciones ?? [])
+  const visitorScorers = rosterCandidates(visitorRoster, "VISITANTE")(partido.anotaciones ?? [])
+  const participantRecords = [...(partido.participaciones ?? []), ...(partido.anotaciones ?? [])]
+  const localParticipants = rosterCandidates(localRoster, "LOCAL")(participantRecords)
+  const visitorParticipants = rosterCandidates(visitorRoster, "VISITANTE")(participantRecords)
 
   return (
     <AuthGate>
@@ -154,7 +159,7 @@ export default function PartidoDetailScreen() {
           contentContainerStyle={{ gap: Gap.lg, padding: Pad.base, paddingBottom: 48 }}
         >
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.lg }}>
-            <PartidoResultEditor partido={partido} isUpdating={updateResult.isPending} onSave={handleSave} canReplaceTeams={canReplaceTeams} onReplaceTeam={setReplacementSide} multiplesCanchas={league?.multiplesCanchas === true} localPlayers={localPlayers} visitorPlayers={visitorPlayers} />
+            <PartidoResultEditor partido={partido} isUpdating={updateResult.isPending} registrarParticipaciones={division?.registrarParticipaciones === true} usarPenalesEnEmpates={division?.usarPenalesEnEmpates !== false} onSave={handleSave} canReplaceTeams={canReplaceTeams} onReplaceTeam={setReplacementSide} multiplesCanchas={league?.multiplesCanchas === true} localPlayers={localScorers} visitorPlayers={visitorScorers} localParticipantPlayers={localParticipants} visitorParticipantPlayers={visitorParticipants} />
           </View>
 
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: refereeExpanded ? Palette.cyan : Palette.border, overflow: "hidden" }}>

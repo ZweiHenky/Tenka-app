@@ -18,8 +18,10 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import PullToRefresh from "@/shared/components/PullToRefresh"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 export default function TeamDivisionPlayersScreen() {
+  const guard = useNavGuard()
   const { id: equipoId, divisionId } = useLocalSearchParams<{ id: string; divisionId: string }>()
   const { data: team, isLoading: loadingTeam, error: teamError, refetch: refetchTeam } = useTeam(equipoId)
   const { data: division, isLoading: loadingDivision, error: divisionError, refetch: refetchDivision } = useQuery({
@@ -141,7 +143,7 @@ export default function TeamDivisionPlayersScreen() {
           </View>
 
           {division.liga?.id ? (
-            <TouchableOpacity onPress={() => router.push({ pathname: "/(drawer)/(public)/liga/[id]", params: { id: division.liga!.id, divisionId } })} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, minHeight: 42, backgroundColor: Palette.cyan10, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.cyan20 }}>
+            <TouchableOpacity onPress={() => guard(() => router.push({ pathname: "/(drawer)/(public)/liga/[id]", params: { id: division.liga!.id, divisionId } }))} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, minHeight: 42, backgroundColor: Palette.cyan10, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.cyan20 }}>
               <MaterialIcons name="visibility" size={18} color={Palette.cyan} />
               <Text style={{ color: Palette.cyan, fontFamily: Fonts.medium, fontSize: 13 }}>Ver liga pública</Text>
             </TouchableOpacity>
@@ -155,7 +157,7 @@ export default function TeamDivisionPlayersScreen() {
             <ActivityIndicator color={Palette.cyan} />
           ) : (
             <View ref={habSectionRef} onLayout={() => setHabSectionReady(true)}>
-              <DivisionRosterGroups players={habilitados} onPlayerPress={(playerId) => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: playerId } })} />
+              <DivisionRosterGroups players={habilitados} onPlayerPress={(playerId) => guard(() => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: playerId } }))} />
             </View>
           )}
         </View>

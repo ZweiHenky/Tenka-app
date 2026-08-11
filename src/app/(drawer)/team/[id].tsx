@@ -26,6 +26,7 @@ import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { TabBar } from "@/shared/components/TabBar"
 import { useToast } from "@/shared/components/Toast"
 import TeamDetailHeaderCard from "@/features/team/components/TeamDetailHeaderCard"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 const PAISES_COMUNES: CountryCode[] = [
   "MX", "US", "CA", "AR", "BO", "BR", "CL", "CO", "CR", "CU", "DO", "EC",
@@ -38,6 +39,7 @@ function formatPosicion(posicion: string) {
 
 export default function TeamDetailScreen() {
   const toast = useToast()
+  const guard = useNavGuard()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { data: team, isLoading, error, refetch } = useTeam(id)
   const { data: jugadores = [], isLoading: loadingPlayers, refetch: refetchPlayers } = useJugadores(id)
@@ -285,7 +287,7 @@ export default function TeamDetailScreen() {
               jugadores.map((j, i) => {
                  const dorsal = j.equipos?.find((equipo) => equipo.equipoId === id)?.dorsal
                 const card = (
-                  <TouchableOpacity key={j.id} activeOpacity={0.8} onPress={() => router.push(`/(drawer)/player/${j.id}`)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}>
+                  <TouchableOpacity key={j.id} activeOpacity={0.8} onPress={() => guard(() => router.push(`/(drawer)/player/${j.id}`))} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}>
                     <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight }}>
                       <Image source={j.foto ? { uri: j.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
                     </View>
@@ -319,7 +321,7 @@ export default function TeamDetailScreen() {
                 divisionLinks.map((link) => {
                   const division = link.division
                   return (
-                    <TouchableOpacity key={link.divisionId} activeOpacity={0.8} onPress={() => router.push(`/(drawer)/team/${id}/divisions/${link.divisionId}`)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}>
+                    <TouchableOpacity key={link.divisionId} activeOpacity={0.8} onPress={() => guard(() => router.push(`/(drawer)/team/${id}/divisions/${link.divisionId}`))} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}>
                       <LogoImage uri={division?.liga?.logo} size={46} backgroundColor={Palette.surfaceLight} ring={Palette.cyan20} ringWidth={1} radius={Radius.lg} />
                       <View style={{ flex: 1 }}>
                          <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>{division?.nombre ?? link.divisionId}</Text>

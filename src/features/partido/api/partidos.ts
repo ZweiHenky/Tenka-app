@@ -1,5 +1,5 @@
 import { api } from "@/infrastructure/api/client"
-import type { PartidoAnotacion, ResultAnnotationInput, ScorerCandidate } from "../scoring"
+import type { PartidoAnotacion, PartidoParticipacion, ParticipacionInput, ResultAnnotationInput, ScorerCandidate } from "../scoring"
 
 export interface PartidoResponse {
   id: string
@@ -16,6 +16,7 @@ export interface PartidoResponse {
   tipoPartido?: 'REGULAR' | 'AMISTOSO' | 'COMPLEMENTO' | 'ELIMINATORIA'
   exhibicionLocal?: boolean
   exhibicionVisitante?: boolean
+  notas?: string | null
   jornadaId: string | null
   equipoLocalId: string | null
   equipoVisitanteId: string | null
@@ -26,6 +27,7 @@ export interface PartidoResponse {
   arbitros?: { id: string; nombre: string }[]
   jornadasRecalculadas?: number
   anotaciones: PartidoAnotacion[]
+  participaciones?: PartidoParticipacion[]
 }
 
 export interface UpdateResultInput {
@@ -36,6 +38,8 @@ export interface UpdateResultInput {
   penalesLocal?: number | null
   penalesVisitante?: number | null
   allocations: ResultAnnotationInput[]
+  participaciones?: ParticipacionInput[]
+  notas?: string | null
 }
 
 interface ApiRes<T> {
@@ -78,10 +82,14 @@ export interface RefereePartidoResponse {
   penalesLocal: number | null
   penalesVisitante: number | null
   tipoPartido: 'REGULAR' | 'AMISTOSO' | 'COMPLEMENTO' | 'ELIMINATORIA'
+  notas?: string | null
   jornadaNumero: number | null
   divisionNombre: string
   ligaNombre: string
   anotaciones: PartidoAnotacion[]
+  participaciones: PartidoParticipacion[]
+  registrarParticipaciones: boolean
+  usarPenalesEnEmpates: boolean
   jugadoresLocal: ScorerCandidate[]
   jugadoresVisitante: ScorerCandidate[]
 }
@@ -92,7 +100,7 @@ function refereeApiClient(token: string) {
     getPartido: () =>
       api.get<ApiRes<RefereePartidoResponse>>(`/api/referee/partido`, { headers }).then((r) => r.data.data!),
     updateResult: (data: UpdateResultInput) =>
-      api.patch<ApiRes<{ id: string; golesLocal: number; golesVisitante: number; penalesLocal: number | null; penalesVisitante: number | null; estado: string }>>(`/api/referee/partido/result`, data, { headers }).then((r) => r.data.data!),
+      api.patch<ApiRes<{ id: string; golesLocal: number; golesVisitante: number; penalesLocal: number | null; penalesVisitante: number | null; estado: string; notas?: string | null }>>(`/api/referee/partido/result`, data, { headers }).then((r) => r.data.data!),
   }
 }
 

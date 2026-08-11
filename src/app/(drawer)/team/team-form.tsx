@@ -1,7 +1,8 @@
-import { useState, useCallback } from "react"
-import { View, Text, TextInput, TouchableOpacity, Image, ActivityIndicator, Alert } from "react-native"
+import { useState, useCallback, useMemo, useRef, useEffect } from "react"
+import { View, Text, TextInput, TouchableOpacity, Image, ActivityIndicator, BackHandler } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
-import { useLocalSearchParams, router } from "expo-router"
+import { useLocalSearchParams, router, useNavigation } from "expo-router"
+import type { NavigationAction } from "expo-router/build/react-navigation"
 import * as ImagePicker from "expo-image-picker"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { useTeam, useCreateTeam, useUpdateTeam } from "@/features/team/hooks/useTeams"
@@ -12,6 +13,7 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import { AuthGate } from "@/shared/components/AuthGate"
+import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import { authClient } from "@/infrastructure/auth/client"
 import { canCreateTeam, type UserRole } from "@/domain/interfaces/user"
 
@@ -37,6 +39,14 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
   }))
   const [pickedLogo, setPickedLogo] = useState<{ uri: string; fileSize: number | null; mimeType: string | null } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [showDiscard, setShowDiscard] = useState(false)
+  const navigation = useNavigation()
+  const pendingActionRef = useRef<NavigationAction | null>(null)
+  const allowLeaveRef = useRef(false)
+
+  const dirty = useMemo(() => {
+    return form.nombre !== (isEdit ? team.nombre : "") || form.logo !== (isEdit ? (team.logo || "") : "") || !!pickedLogo
+  }, [form, isEdit, team, pickedLogo])
 
   const pickLogo = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -69,6 +79,7 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
         await createTeam.mutateAsync({ nombre: form.nombre.trim(), logoAssetId: logoAssetId || undefined })
         toast.success("Equipo creado")
       }
+      allowLeaveRef.current = true
       router.back()
     } catch (e: any) {
       if (logoAssetId) { await api.post(`/api/media/${logoAssetId}/abandon`).catch(() => undefined) }
@@ -79,16 +90,31 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
   }
 
   const handleBack = useCallback(() => {
-    const dirty = form.nombre !== (isEdit ? team.nombre : "") || form.logo !== (isEdit ? (team.logo || "") : "") || !!pickedLogo
     if (dirty) {
-      Alert.alert("Descartar cambios", "¿Seguro que quieres salir? Los cambios no guardados se perderán.", [
-        { text: "Seguir editando", style: "cancel" },
-        { text: "Salir", style: "destructive", onPress: () => router.back() },
-      ])
+      setShowDiscard(true)
     } else {
       router.back()
     }
-  }, [form, isEdit, team, pickedLogo])
+  }, [dirty])
+
+  useEffect(() => {
+    const sub = navigation.addListener("beforeRemove", (e) => {
+      if (allowLeaveRef.current || !dirty) return
+      e.preventDefault()
+      pendingActionRef.current = e.data.action
+      setShowDiscard(true)
+    })
+    return sub
+  }, [navigation, dirty])
+
+  useEffect(() => {
+    if (!dirty) return
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setShowDiscard(true)
+      return true
+    })
+    return () => sub.remove()
+  }, [dirty])
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
@@ -144,6 +170,28 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
           )}
         </TouchableOpacity>
       </KeyboardAwareScrollView>
+      <ConfirmationModal
+        visible={showDiscard}
+        title="Descartar cambios"
+        message="¿Seguro que quieres salir? Los cambios no guardados se perderán."
+        confirmLabel="Salir"
+        cancelLabel="Seguir editando"
+        variant="danger"
+        onConfirm={() => {
+          const action = pendingActionRef.current
+          pendingActionRef.current = null
+          allowLeaveRef.current = true
+          setShowDiscard(false)
+          requestAnimationFrame(() => {
+            if (action) navigation.dispatch(action)
+            else router.back()
+          })
+        }}
+        onClose={() => {
+          pendingActionRef.current = null
+          setShowDiscard(false)
+        }}
+      />
     </View>
   )
 }

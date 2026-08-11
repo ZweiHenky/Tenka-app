@@ -41,9 +41,11 @@ import { preparePlayoffSlots } from "@/features/division/utils/preparePlayoffSlo
 import { getPlayoffTeamOptions } from "@/features/division/utils/playoff"
 import { useGoleadores } from "@/features/goleador/hooks/useGoleadores"
 import GoleadoresTable from "@/features/goleador/components/GoleadoresTable"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 export default function DivisionDetailScreen() {
   const toast = useToast()
+  const guard = useNavGuard()
   const { id: ligaId, divisionId } = useLocalSearchParams<{ id: string; divisionId: string }>()
 
   const { data: division, isLoading: loadDiv, error: divError, refetch: refetchDiv } = useQuery({
@@ -262,6 +264,16 @@ export default function DivisionDetailScreen() {
     )
   }, [divisionId, toast, updateDivision])
 
+  const handleToggleRegistrarParticipaciones = useCallback((value: boolean) => {
+    updateDivision.mutate(
+      { id: divisionId!, data: { registrarParticipaciones: value } },
+      {
+        onSuccess: () => toast.success(value ? "Registro de participantes activado" : "Registro de participantes desactivado"),
+        onError: (error: Error) => toast.error(error.message),
+      },
+    )
+  }, [divisionId, toast, updateDivision])
+
   const handleSelectPlayoffTeams = useCallback((n: number) => {
     if (generatingLlaves.current || !division) return
     generatingLlaves.current = true
@@ -415,10 +427,10 @@ export default function DivisionDetailScreen() {
                   habilitados={habilitados ?? []}
                   onToggleArbitraje={handleToggleArbitraje}
                   onRemove={handleRemove}
-                  onManagePlayers={(teamId) => router.push({
+                  onManagePlayers={(teamId) => guard(() => router.push({
                     pathname: "/(drawer)/leagues/[id]/divisions/[divisionId]/teams/[teamId]",
                     params: { id: ligaId!, divisionId: divisionId!, teamId },
-                  })}
+                  }))}
                   onScannerOpen={handleScannerOpen}
                   onToggleSelectAll={() => { const all = assignedTeams.map((t) => t.id); const current = habilitados ?? []; setHabilitados(divisionId!, current.length === all.length ? [] : all) }}
                   linksError={linksError}
@@ -457,7 +469,7 @@ export default function DivisionDetailScreen() {
               <View ref={playoffsSectionRef} collapsable={false}>
                 <EliminatoriasTab
                   rondas={rondas}
-                  onPartidoPress={(partido) => router.push(`/(drawer)/leagues/${ligaId}/divisions/${divisionId}/partidos/${partido.id}`)}
+                  onPartidoPress={(partido) => guard(() => router.push(`/(drawer)/leagues/${ligaId}/divisions/${divisionId}/partidos/${partido.id}`))}
                 />
               </View>
             ) : null}
@@ -538,6 +550,9 @@ export default function DivisionDetailScreen() {
         canchaUnicaPending={updateDivision.isPending}
         onSelectCanchaUnica={(canchaId) => handleCanchaUnica(canchaId)}
         onClearCanchaUnica={() => handleCanchaUnica(null)}
+        registrarParticipaciones={division.registrarParticipaciones ?? false}
+        registrarParticipacionesPending={updateDivision.isPending}
+        onToggleRegistrarParticipaciones={handleToggleRegistrarParticipaciones}
         onPublish={handlePublish}
         onRevertToBorrador={handleRevertToBorrador}
         onGeneratePlayoffs={handleGeneratePlayoffs}

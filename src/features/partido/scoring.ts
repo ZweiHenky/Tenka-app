@@ -30,6 +30,21 @@ export interface ResultAnnotationInput {
   cantidad: number
 }
 
+export interface ParticipacionInput {
+  ladoMarcador: ScoreSide
+  jugadorId: string
+}
+
+export interface PartidoParticipacion {
+  id?: string
+  ladoMarcador: ScoreSide
+  jugadorId: string | null
+  equipoId?: string | null
+  jugadorNombre?: string | null
+  equipoNombre?: string | null
+  dorsal?: number | null
+}
+
 export interface ResultPayload {
   expectedVersion: number
   estado: string
@@ -38,6 +53,8 @@ export interface ResultPayload {
   penalesLocal?: number | null
   penalesVisitante?: number | null
   allocations: ResultAnnotationInput[]
+  participaciones?: ParticipacionInput[]
+  notas?: string | null
 }
 
 export function assignedGoals(allocations: ScorerAllocation[], side: ScoreSide): number {
@@ -66,6 +83,47 @@ export function allocationsFromAnnotations(annotations: PartidoAnotacion[] = [])
     .map(({ ladoMarcador, jugadorId, cantidad }) => ({ ladoMarcador, jugadorId, cantidad }))
 }
 
+export function participacionesFromResponse(participaciones: PartidoParticipacion[] = []): ParticipacionInput[] {
+  return participaciones
+    .filter((item): item is PartidoParticipacion & { jugadorId: string } => !!item.jugadorId)
+    .map(({ ladoMarcador, jugadorId }) => ({ ladoMarcador, jugadorId }))
+}
+
+export function toggleParticipacion(
+  participaciones: ParticipacionInput[],
+  ladoMarcador: ScoreSide,
+  jugadorId: string,
+): ParticipacionInput[] {
+  const exists = participaciones.some((item) => item.ladoMarcador === ladoMarcador && item.jugadorId === jugadorId)
+  if (exists) {
+    return participaciones.filter((item) => !(item.ladoMarcador === ladoMarcador && item.jugadorId === jugadorId))
+  }
+  return [...participaciones.filter((item) => item.jugadorId !== jugadorId), { ladoMarcador, jugadorId }]
+}
+
+export function isParticipant(participaciones: ParticipacionInput[], ladoMarcador: ScoreSide, jugadorId: string): boolean {
+  return participaciones.some((item) => item.ladoMarcador === ladoMarcador && item.jugadorId === jugadorId)
+}
+
+export function filterScorerCandidatesByParticipants(players: ScorerCandidate[], participaciones: ParticipacionInput[], side: ScoreSide): ScorerCandidate[] {
+  const participantIds = new Set(participaciones.filter((item) => item.ladoMarcador === side).map((item) => item.jugadorId))
+  return players.filter((player) => participantIds.has(player.id))
+}
+
+export function buildScorerCandidates(
+  roster: ScorerCandidate[],
+  records: { ladoMarcador: ScoreSide; jugadorId: string | null; jugadorNombre?: string | null; dorsal?: number | null }[],
+  side: ScoreSide,
+): ScorerCandidate[] {
+  const candidates = [...roster]
+  for (const record of records) {
+    if (record.ladoMarcador === side && record.jugadorId && !candidates.some((item) => item.id === record.jugadorId)) {
+      candidates.push({ id: record.jugadorId, nombre: record.jugadorNombre ?? "Jugador", foto: null, dorsal: record.dorsal ?? null })
+    }
+  }
+  return candidates.sort((a, b) => a.nombre.localeCompare(b.nombre))
+}
+
 export function buildResultAnnotations(
   allocations: ScorerAllocation[],
   golesLocal: number,
@@ -91,7 +149,6 @@ export function buildResultPayload(input: Omit<ResultPayload, "allocations"> & {
   const { allocations, ...result } = input
   return { ...result, allocations: buildResultAnnotations(allocations, result.golesLocal, result.golesVisitante) }
 }
-
 export function isResultEditable(estado: string | null, correcting: boolean): boolean {
   return estado !== "FINALIZADO" || correcting
 }

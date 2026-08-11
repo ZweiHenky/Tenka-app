@@ -20,9 +20,11 @@ import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { divisionEquipoApi } from "@/features/division-equipo/api/division-equipo"
 import { useToast } from "@/shared/components/Toast"
 import { canCreateTeam, type UserRole } from "@/domain/interfaces/user"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 export default function TeamScreen() {
   const toast = useToast()
+  const guard = useNavGuard()
   const { data: session } = authClient.useSession()
   const userId = session?.user?.id ?? ""
   const canCreate = canCreateTeam((session?.user as { rol?: UserRole } | undefined)?.rol)
@@ -193,7 +195,7 @@ export default function TeamScreen() {
   if (isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/team/team-form" }), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
+        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: () => guard(() => router.push({ pathname: "/(drawer)/team/team-form" })), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
         <LoadingScreen />
       </View>
     )
@@ -202,7 +204,7 @@ export default function TeamScreen() {
   return (
     <AuthGate>
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/team/team-form" }), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
+        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: () => guard(() => router.push({ pathname: "/(drawer)/team/team-form" })), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
         <PullToRefresh scrollRef={scrollViewRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ paddingHorizontal: Pad.xl, paddingTop: Gap.base, paddingBottom: 48, gap: Gap.md }}>
           {error ? (
@@ -219,9 +221,9 @@ export default function TeamScreen() {
                   logo={t.logo}
                   codigo={t.codigo}
                   onQr={setQrTeamId}
-                  onEdit={(id) => router.push({ pathname: "/(drawer)/team/team-form", params: { teamId: id } })}
+                  onEdit={(id) => guard(() => router.push({ pathname: "/(drawer)/team/team-form", params: { teamId: id } }))}
                   onDelete={confirmDelete}
-                  onPress={(teamId) => router.push(`/(drawer)/team/${teamId}`)}
+                  onPress={(teamId) => guard(() => router.push(`/(drawer)/team/${teamId}`))}
                   qrButtonRef={index === 0 ? qrButtonRef : undefined}
                   editButtonRef={index === 0 ? editButtonRef : undefined}
                 />

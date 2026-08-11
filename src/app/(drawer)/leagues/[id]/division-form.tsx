@@ -1,7 +1,8 @@
-import { useState, useCallback } from "react"
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert } from "react-native"
+import { useState, useCallback, useMemo, useRef, useEffect } from "react"
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, BackHandler, Switch } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
-import { useLocalSearchParams, router } from "expo-router"
+import { useLocalSearchParams, router, useNavigation } from "expo-router"
+import type { NavigationAction } from "expo-router/build/react-navigation"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { useToast } from "@/shared/components/Toast"
 import { useLeague } from "@/features/league/hooks/useLeagues"
@@ -16,6 +17,7 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import { AuthGate } from "@/shared/components/AuthGate"
+import ConfirmationModal from "@/shared/components/ConfirmationModal"
 
 interface FormState {
   nombre: string
@@ -28,6 +30,23 @@ interface FormState {
   tipoCompetenciaId: string
   diasPartido: string
   horarioPartido: string
+  usarPenalesEnEmpates: boolean
+}
+
+function normalizeForm(form: FormState) {
+  return {
+    nombre: form.nombre,
+    maxEquipos: form.maxEquipos,
+    arbitraje: form.arbitraje,
+    duracionPartido: form.duracionPartido,
+    descanso: form.descanso,
+    categoriaId: form.categoriaId,
+    tipoId: form.tipoId,
+    tipoCompetenciaId: form.tipoCompetenciaId,
+    diasPartido: form.diasPartido,
+    horarioPartido: form.horarioPartido,
+    usarPenalesEnEmpates: form.usarPenalesEnEmpates,
+  }
 }
 
 const EMPTY_FORM: FormState = {
@@ -41,6 +60,7 @@ const EMPTY_FORM: FormState = {
   tipoCompetenciaId: "",
   diasPartido: "",
   horarioPartido: "",
+  usarPenalesEnEmpates: true,
 }
 
 function hasValidRanges(value: string): boolean {
@@ -61,7 +81,7 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
   const createDivision = useCreateDivision(id)
   const updateDivision = useUpdateDivision(id)
 
-  const [form, setForm] = useState<FormState>(() => {
+  const [initialForm] = useState<FormState>(() => {
     if (isEdit && division) {
       return {
         nombre: division.nombre,
@@ -74,11 +94,21 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
         tipoCompetenciaId: division.tipoCompetenciaId,
         diasPartido: division.diasPartido || "",
         horarioPartido: division.horarioPartido || "",
+        usarPenalesEnEmpates: division.usarPenalesEnEmpates !== false,
       }
     }
     return EMPTY_FORM
   })
+  const [form, setForm] = useState<FormState>(initialForm)
   const [saving, setSaving] = useState(false)
+  const [showDiscard, setShowDiscard] = useState(false)
+  const navigation = useNavigation()
+  const pendingActionRef = useRef<NavigationAction | null>(null)
+  const allowLeaveRef = useRef(false)
+
+  const dirty = useMemo(() => {
+    return JSON.stringify(normalizeForm(form)) !== JSON.stringify(normalizeForm(initialForm))
+  }, [form, initialForm])
 
   const validate = (): string | null => {
     if (!form.nombre.trim()) return "El nombre es obligatorio"
@@ -124,6 +154,7 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
         categoriaId: form.categoriaId,
         tipoId: form.tipoId,
         tipoCompetenciaId: form.tipoCompetenciaId,
+        usarPenalesEnEmpates: form.usarPenalesEnEmpates,
       }
 
       if (isEdit) {
@@ -133,6 +164,7 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
         await createDivision.mutateAsync(payload)
         toast.success("División creada")
       }
+      allowLeaveRef.current = true
       router.back()
     } catch (e: any) {
       toast.error(e.message || "Error al guardar")
@@ -142,21 +174,31 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
   }
 
   const handleBack = useCallback(() => {
-    const dirty = Object.entries(form).some(([k, v]) => {
-      if (k === "arbitraje") return v !== (isEdit ? String(division?.arbitraje ?? 0) : "")
-      if (k === "maxEquipos") return v !== (isEdit ? String(division?.maxEquipos ?? "") : "")
-      if (k === "nombre") return v !== (isEdit ? division?.nombre ?? "" : "")
-      return v !== ""
-    })
     if (dirty) {
-      Alert.alert("Descartar cambios", "¿Seguro que quieres salir? Los cambios no guardados se perderán.", [
-        { text: "Seguir editando", style: "cancel" },
-        { text: "Salir", style: "destructive", onPress: () => router.back() },
-      ])
+      setShowDiscard(true)
     } else {
       router.back()
     }
-  }, [form, isEdit, division])
+  }, [dirty])
+
+  useEffect(() => {
+    const sub = navigation.addListener("beforeRemove", (e) => {
+      if (allowLeaveRef.current || !dirty) return
+      e.preventDefault()
+      pendingActionRef.current = e.data.action
+      setShowDiscard(true)
+    })
+    return sub
+  }, [navigation, dirty])
+
+  useEffect(() => {
+    if (!dirty) return
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setShowDiscard(true)
+      return true
+    })
+    return () => sub.remove()
+  }, [dirty])
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
@@ -245,6 +287,21 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
             <SelectField label="Categoría *" current={form.categoriaId} options={lookups.categorias} onSelect={(v) => setForm((p) => ({ ...p, categoriaId: v }))} />
             <SelectField label="Tipo *" current={form.tipoId} options={lookups.tipos} onSelect={(v) => setForm((p) => ({ ...p, tipoId: v }))} />
             <SelectField label="Tipo de competencia *" current={form.tipoCompetenciaId} options={lookups.tiposCompetencia} onSelect={(v) => setForm((p) => ({ ...p, tipoCompetenciaId: v }))} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.md }}>
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Desempate por penales</Text>
+                <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.sans, lineHeight: 17 }}>
+                  {form.usarPenalesEnEmpates ? "El ganador recibe 2 puntos y el perdedor 1." : "El empate entrega 1 punto a cada equipo."}
+                </Text>
+              </View>
+              <Switch
+                accessibilityLabel="Usar penales en empates"
+                value={form.usarPenalesEnEmpates}
+                onValueChange={(value) => setForm((p) => ({ ...p, usarPenalesEnEmpates: value }))}
+                trackColor={{ false: Palette.dark60, true: Palette.cyan }}
+                thumbColor={Palette.white}
+              />
+            </View>
           </View>
         </View>
 
@@ -277,6 +334,28 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
           )}
         </TouchableOpacity>
       </KeyboardAwareScrollView>
+      <ConfirmationModal
+        visible={showDiscard}
+        title="Descartar cambios"
+        message="¿Seguro que quieres salir? Los cambios no guardados se perderán."
+        confirmLabel="Salir"
+        cancelLabel="Seguir editando"
+        variant="danger"
+        onConfirm={() => {
+          const action = pendingActionRef.current
+          pendingActionRef.current = null
+          allowLeaveRef.current = true
+          setShowDiscard(false)
+          requestAnimationFrame(() => {
+            if (action) navigation.dispatch(action)
+            else router.back()
+          })
+        }}
+        onClose={() => {
+          pendingActionRef.current = null
+          setShowDiscard(false)
+        }}
+      />
     </View>
   )
 }

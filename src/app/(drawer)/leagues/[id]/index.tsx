@@ -25,9 +25,11 @@ import type { LeagueReferee } from "@/features/arbitraje/types"
 import { leagueApi } from "@/features/league/api/leagues"
 import { hasProgramacionReciente, programacionRecienteFilename, programacionRecienteHtml } from "@/features/league/utils/programacion-reciente-pdf"
 import { downloadPdf } from "@/shared/utils/print-pdf"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 export default function LeagueDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
+  const guard = useNavGuard()
   const { data: league, isLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!)
   const lookups = useLookups()
   const divisions = league?.divisiones ?? []
@@ -254,7 +256,7 @@ export default function LeagueDetailScreen() {
         <PullToRefresh scrollRef={scrollRef} onScroll={(event) => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
             <View ref={tabBarRef} onLayout={() => setTabBarReady(true)}>
-              <TabBar tabs={[{ key: "divisiones", label: "Divisiones" }, { key: "info", label: "Info" }, ...(refereeLeague.usaArbitros ? [{ key: "arbitros", label: "Árbitros" }] : [])]} activeTab={tab} onTabChange={setTab} />
+              <TabBar tabs={[{ key: "divisiones", label: "Divisiones" }, { key: "info", label: "Info" }, ...(league.reglas?.length ? [{ key: "reglas", label: "Reglas" }] : []), ...(refereeLeague.usaArbitros ? [{ key: "arbitros", label: "Árbitros" }] : [])]} activeTab={tab} onTabChange={setTab} />
             </View>
 
             {tab === "divisiones" ? (
@@ -283,10 +285,10 @@ export default function LeagueDetailScreen() {
                 <DivisionListCard
                   divisions={divisions}
                   categorias={lookups.categorias}
-                  onNavigate={(divisionId) => router.push(`/(drawer)/leagues/${id}/divisions/${divisionId}`)}
-                  onEdit={(division) => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id!, divisionId: division.id } })}
+                  onNavigate={(divisionId) => guard(() => router.push(`/(drawer)/leagues/${id}/divisions/${divisionId}`))}
+                  onEdit={(division) => guard(() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id!, divisionId: division.id } }))}
                   onDelete={handleDeleteDivision}
-                  onAdd={() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id! } })}
+                  onAdd={() => guard(() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id! } }))}
                   addButtonRef={addDivisionRef}
                   firstDivisionRef={firstDivisionRef}
                   onAddButtonLayout={() => setAddDivisionReady(true)}
@@ -359,6 +361,41 @@ export default function LeagueDetailScreen() {
 
             {tab === "arbitros" && refereeLeague.usaArbitros ? (
               <LeagueRefereeTab leagueId={league.id} referees={refereeLeague.arbitros ?? []} multiplesCanchas={league.multiplesCanchas} />
+            ) : null}
+
+            {tab === "reglas" && league.reglas?.length ? (
+              <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", padding: Pad.base, gap: Gap.md }}>
+                  <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                    <MaterialIcons name="rule" size={14} color={Palette.cyan} />
+                  </View>
+                  <Text style={{ flex: 1, fontSize: 14, color: Palette.text, fontFamily: Fonts.medium }}>Reglas y directivas</Text>
+                  <View style={{ backgroundColor: Palette.cyan10, borderRadius: Radius.full, paddingHorizontal: Pad.sm, paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 12, color: Palette.cyan, fontFamily: Fonts.semiBold }}>{league.reglas.length}</Text>
+                  </View>
+                </View>
+                <View style={{ paddingHorizontal: Pad.base, paddingBottom: Pad.base }}>
+                  <View style={{ height: 1, backgroundColor: Palette.border, marginBottom: Pad.base }} />
+                  {league.reglas.map((regla, index) => (
+                    <View key={index}>
+                      {index > 0 ? (
+                        <>
+                          <View style={{ height: Pad.base }} />
+                          <View style={{ height: 1, backgroundColor: Palette.borderActive }} />
+                          <View style={{ height: Pad.base }} />
+                        </>
+                      ) : null}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+                        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                          <Text style={{ fontSize: 12, color: Palette.cyan, fontFamily: Fonts.semiBold }}>{index + 1}</Text>
+                        </View>
+                        <Text style={{ flex: 1, fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{regla.titulo}</Text>
+                      </View>
+                      <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.sans, lineHeight: 20, marginTop: 2, paddingLeft: 30 }}>{regla.detalle}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
             ) : null}
           </View>
         </PullToRefresh>

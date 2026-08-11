@@ -15,9 +15,11 @@ import LoadingScreen from "@/shared/components/LoadingScreen"
 import { AuthGate } from "@/shared/components/AuthGate"
 import CustomHeader from "@/shared/components/CustomHeader"
 import PullToRefresh from "@/shared/components/PullToRefresh"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 export default function ManageLeagueScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
+  const guard = useNavGuard()
   const { data: league, isLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!)
   const lookups = useLookups()
   const { data: divisions = [], error: divsError, refetch: refetchDivs } = useDivisions(id!)
@@ -89,7 +91,7 @@ export default function ManageLeagueScreen() {
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: Palette.cyan10, borderBottomWidth: 1, borderBottomColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.sm }}>
               <Text style={{ color: Palette.text, fontSize: 15, fontWeight: "700" }}>Divisiones ({divisions.length})</Text>
-              <TouchableOpacity onPress={() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id! } })}>
+              <TouchableOpacity onPress={() => guard(() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id! } }))}>
                 <MaterialIcons name="add" size={22} color={Palette.cyan} />
               </TouchableOpacity>
             </View>
@@ -104,7 +106,7 @@ export default function ManageLeagueScreen() {
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                       <Text style={{ fontSize: 15, fontWeight: "700", color: Palette.text }}>{d.nombre}</Text>
                       <View style={{ flexDirection: "row", gap: Gap.sm }}>
-                        <TouchableOpacity onPress={() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id!, divisionId: d.id } })}>
+                        <TouchableOpacity onPress={() => guard(() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id!, divisionId: d.id } }))}>
                           <MaterialIcons name="edit" size={20} color={Palette.cyan} />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => handleDeleteDivision(d.id, d.nombre)}>

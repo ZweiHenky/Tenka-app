@@ -12,8 +12,10 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import ErrorState from "@/shared/components/ErrorState"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import PullToRefresh from "@/shared/components/PullToRefresh"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 export default function PublicDivisionTeamScreen() {
+  const guard = useNavGuard()
   const { id, divisionId } = useLocalSearchParams<{ id: string; divisionId: string }>()
   const { data: team, isLoading: loadingTeam, error: teamError, refetch: refetchTeam } = useTeam(id)
   const { data: divisionLinks = [], isLoading: loadingDivisions, error: divisionsError, refetch: refetchDivisions } = useQuery({
@@ -77,7 +79,7 @@ export default function PublicDivisionTeamScreen() {
             ) : playersError ? (
               <ErrorState message={(playersError as Error).message} onRetry={() => refetchPlayers()} />
             ) : (
-              <DivisionRosterGroups players={players} onPlayerPress={(playerId) => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: playerId } })} />
+              <DivisionRosterGroups players={players} onPlayerPress={(playerId) => guard(() => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: playerId } }))} />
             )}
           </View>
         </View>

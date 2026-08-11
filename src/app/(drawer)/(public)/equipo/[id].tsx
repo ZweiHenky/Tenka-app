@@ -15,12 +15,14 @@ import ErrorState from "@/shared/components/ErrorState"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import { TabBar } from "@/shared/components/TabBar"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 function formatPosicion(posicion: string) {
   return POSICIONES_JUGADOR.find((item) => item.id === posicion)?.nombre ?? posicion
 }
 
 export default function PublicTeamDivisionSelectorScreen() {
+  const guard = useNavGuard()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { data: team, isLoading, error, refetch } = useTeam(id)
   const { data: jugadores = [], isLoading: loadingPlayers, refetch: refetchPlayers } = useJugadores(id)
@@ -85,7 +87,7 @@ export default function PublicTeamDivisionSelectorScreen() {
                     <TouchableOpacity
                       key={jugador.id}
                       activeOpacity={0.8}
-                      onPress={() => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: jugador.id } })}
+                      onPress={() => guard(() => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: jugador.id } }))}
                       style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}
                     >
                       <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48, borderRadius: Radius.full }} resizeMode="cover" />
@@ -117,10 +119,10 @@ export default function PublicTeamDivisionSelectorScreen() {
                   <TouchableOpacity
                     key={link.divisionId}
                     activeOpacity={0.78}
-                    onPress={() => router.push({
+                    onPress={() => guard(() => router.push({
                       pathname: "/(drawer)/(public)/equipo/[id]/division/[divisionId]",
                       params: { id, divisionId: link.divisionId },
-                    })}
+                    }))}
                     style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
                   >
                     <LogoImage uri={division?.liga?.logo} size={46} backgroundColor={Palette.surfaceLight} />

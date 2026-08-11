@@ -20,6 +20,9 @@ interface Props {
   canchaUnicaPending: boolean
   onSelectCanchaUnica: (canchaId: string) => void
   onClearCanchaUnica: () => void
+  registrarParticipaciones: boolean
+  registrarParticipacionesPending: boolean
+  onToggleRegistrarParticipaciones: (value: boolean) => void
   onPublish: () => void
   onRevertToBorrador: () => void
   onGeneratePlayoffs: () => void
@@ -42,6 +45,9 @@ export default function DivisionActionSheet({
   canchaUnicaPending,
   onSelectCanchaUnica,
   onClearCanchaUnica,
+  registrarParticipaciones,
+  registrarParticipacionesPending,
+  onToggleRegistrarParticipaciones,
   onPublish,
   onRevertToBorrador,
   onGeneratePlayoffs,
@@ -110,6 +116,27 @@ export default function DivisionActionSheet({
             ) : null}
           </View>
         ) : null}
+
+        <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.base, borderWidth: 1, borderColor: Palette.border, gap: Gap.md }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+            <View style={{ width: 40, height: 40, borderRadius: Radius.md, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="groups" size={22} color={Palette.cyan} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold }}>Registrar jugadores participantes</Text>
+              <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.sans, marginTop: 2 }}>Pide seleccionar a los jugadores que participaron al finalizar cada partido</Text>
+            </View>
+            {registrarParticipacionesPending ? <ActivityIndicator color={Palette.cyan} /> : (
+              <Switch
+                value={registrarParticipaciones}
+                onValueChange={onToggleRegistrarParticipaciones}
+                disabled={registrarParticipacionesPending}
+                trackColor={{ false: Palette.dark60, true: Palette.cyan }}
+                thumbColor={Palette.white}
+              />
+            )}
+          </View>
+        </View>
 
         {isBorrador ? (
           <TouchableOpacity

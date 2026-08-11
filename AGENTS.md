@@ -17,6 +17,8 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v56.0.0/ before 
 | iOS | `npm run ios` |
 | Web | `npm start --web` |
 | Lint | `npm run lint` |
+| Typecheck | `npm run typecheck` (`tsc --noEmit`) |
+| Tests | `npm test` (Vitest) |
 
 ## Dependencies principales
 
@@ -26,15 +28,20 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v56.0.0/ before 
 | `expo-router` | File-based routing (drawer + stack) |
 | `better-auth` + `@better-auth/expo` | Auth (Google, Apple, phone OTP) |
 | `@tanstack/react-query@5` | Server state (queries + mutations) |
-| `zustand@5` | Client state (4 stores) |
-| `react-native-country-picker-modal` | Country selector en perfil |
+| `zustand@5` | Client state (6 stores) |
+| `@wrack/react-native-tour-guide` | Tours de onboarding (primera vez por pantalla) |
+| `react-native-country-picker-modal` | Selector de país para teléfono |
 | `react-native-google-places-textinput` | Location picker |
-| `react-native-qrcode-svg` | QR generation |
-| `expo-camera` | QR scanning |
-| `expo-image-picker` | Image selection |
+| `react-native-qrcode-svg` + `expo-camera` | QR (generación y escaneo) |
+| `expo-image-picker` | Selección de imágenes |
+| `expo-print` / `expo-sharing` | Generación y compartición de PDF |
+| `expo-apple-authentication` | Sign in with Apple |
+| `@gorhom/bottom-sheet` + `AppBottomSheetModal` | Bottom sheets |
+| `react-native-keyboard-controller` | Manejo de teclado (KeyboardAwareScrollView) |
 | `@react-native-async-storage/async-storage` | Zustand persist |
 | `expo-secure-store` | Token storage (Better Auth) |
-| `@expo-google-fonts/inter` / `sora` | Tipografía |
+| `@expo-google-fonts/inter` / `sora` / `space-grotesk` | Tipografía |
+| `nativewind` + `tailwindcss` | Utilidades de estilo |
 | `axios` | HTTP client con interceptors |
 | `react-native-onesignal` + `onesignal-expo-plugin` | Push notifications con OneSignal en Expo development/native build |
 
@@ -43,7 +50,7 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v56.0.0/ before 
 - No instalar dependencias sin permiso explícito
 - Skills instaladas: React Native (Expo), Better Auth, Zustand
 - Arquitectura: `app/`, `infrastructure/`, `domain/`, `features/`, `stores/`, `shared/`, `constants/`
-- Router por archivos (Expo Router) con route groups: `(drawer)/`, `(auth)/`, `(main)/`
+- Router por archivos (Expo Router) con route groups: `(drawer)/`, `(auth)/`, `(public)/`
 - No modificar configuraciones del proyecto (`app.json`, `babel.config.js`, `metro.config.js`, etc.) sin permiso
 
 ## Architecture
@@ -55,62 +62,88 @@ src/
     index.tsx             # Redirect a /(drawer)
     (drawer)/             # Drawer navigation
       _layout.tsx         # Drawer layout + custom content
-      index.tsx           # Home / public league feed
-      team.tsx            # Team CRUD
-      profile.tsx         # Profile screen
-      leagues/            # League route group (stack)
-        _layout.tsx
-        index.tsx         # User's leagues CRUD
-        [id]/
-          _layout.tsx
-          index.tsx       # League detail + divisions
-          manage.tsx      # Manage divisions
-          divisions/
-            [divisionId].tsx              # Division detail (main hub)
-            [divisionId]/
-              manage.tsx                  # Schedule management
-              eliminatorias.tsx           # Playoff brackets
-              jornadas/[jornadaId].tsx    # Match results
-      public-league/
-        [id].tsx          # Public league view
+      index.tsx           # Home / feed de ligas públicas
+      my-profile/         # Perfil de jugador ("Mi perfil")
+        index.tsx         # Datos del jugador + equipos + privacidad del teléfono
+        form.tsx          # Crear/editar perfil de jugador
+      team/               # Mis equipos (folder)
+        index.tsx         # CRUD de equipos
+        team-form.tsx     # Form de equipo
+        [id].tsx          # Detalle del equipo + divisiones + jugadores
+        [id]/divisions/[divisionId].tsx  # División del equipo (detalle)
+      player/             # Detalle de jugador (oculto del drawer)
+        [id].tsx
+      (public)/           # Vistas públicas sin login (oculto del drawer)
+        liga/[id].tsx              # Detalle público de liga (posiciones/horario/goleo)
+        equipo/[id].tsx            # Detalle público de equipo (jugadores/divisiones)
+        equipo/[id]/division/[divisionId].tsx
+        jugador/[id].tsx           # Detalle público de jugador
+      leagues/            # Mis ligas (folder + stack)
+        index.tsx         # CRUD de ligas
+        league-form.tsx   # Form de liga (crear/editar)
+        [id]/index.tsx    # Detalle de liga + CRUD de divisiones
+        [id]/division-form.tsx     # Form de división (crear/editar)
+        [id]/manage.tsx   # Gestión de divisiones
+        [id]/divisions/[divisionId].tsx          # Hub de división
+        [id]/divisions/[divisionId]/partidos/[partidoId].tsx  # Detalle/resultado de partido
+        [id]/divisions/[divisionId]/jornadas/[jornadaId].tsx  # Resultados de jornada
+        [id]/divisions/[divisionId]/teams/[teamId].tsx        # Equipo dentro de división
+      account/            # Cuenta (auth/sesión)
+        index.tsx         # Datos de sesión, rol, teléfono, cerrar sesión
+        edit.tsx          # Editar teléfono con OTP (+ reenvío)
+      support.tsx         # Ayuda/FAQ
+    (public)/
+      _layout.tsx
+      arbitro/index.tsx   # Captura arbitral por token (deep link #token)
     (auth)/
       _layout.tsx
       sign-in.tsx         # Google/Apple sign-in
   infrastructure/         # External services
     config/env.ts         # Env vars (API_URL, GOOGLE_PLACES_API_KEY, ONESIGNAL_APP_ID)
-    auth/client.ts        # Better Auth client with expo plugin
-    api/client.ts         # Axios instance with auth interceptor
-    cloudinary/upload.ts  # Image upload to Cloudinary
+    auth/client.ts        # Better Auth client con expo plugin
+    auth/errors.ts        # Mapeo de códigos de error de auth → mensajes
+    api/client.ts         # Axios instance con auth interceptor
+    api/withNetworkRetry.ts  # Reintento con backoff ante fallos de red
+    cloudinary/upload.ts  # Image upload a Cloudinary
     notifications/NotificationBootstrap.tsx # Inicializa OneSignal, login por user.id, click handlers
+    notifications/notificationIdentity.ts   # Identidad push por sesión
   domain/                 # Domain interfaces
     interfaces/
       user.ts             # User interface
       league.ts           # League, Division, CreateDivisionInput, etc.
       team.ts             # Team interface
+      player.ts           # Jugador, PosicionJugador, CreateJugadorInput, etc.
   features/               # Feature modules
     auth/                 # Auth components/hooks
-    league/               # League api, hooks, components
-    division/             # Division api, hooks, components
+    league/               # Liga api, hooks, components (incl. court-config utils)
+    division/             # División api, hooks, components
     division-equipo/      # Pivot api, hooks
-    team/                 # Team api, hooks, components
-    jornada/              # Jornada api, hooks, components
-    partido/              # Partido api, hooks
+    team/                 # Equipo api, hooks, components
+    jornada/              # Jornada api, hooks, components (PDF)
+    partido/              # Partido api, hooks, scoring, referee client
     tabla-posicion/       # Standings api, hooks, components
     ronda-playoff/        # Playoff api, hooks, components
-    profile/              # Profile store + ProfileEditModal
-    users/                # User store
+    jugador/              # Jugador api, hooks, components (incl. "mi perfil")
+    goleador/             # Goleadores api, hooks, components
+    arbitraje/            # Árbitros api, hooks, tab, PDF
+    court-availability/   # Disponibilidad de canchas (planner)
+    player/               # PlayerDetailScreen (detalle de jugador)
+    profile/              # ProfileStore (zustand)
+    notification/         # Suscripciones a notificaciones (subscriptionFlow)
+    users/                # userApi (rol liga, visibilidad teléfono)
   stores/                 # Zustand stores
     themeStore.ts         # Theme toggle (light/dark/system)
     team-store.ts         # Local team seed data
     ligaFavoritaStore.ts  # Favorites (persisted)
     divisionSchedule.ts   # Schedule slots (persisted, most complex)
+    divisionNotificationStore.ts # Suscripción a notificaciones por división
+    refereeAssignments.ts # Asignaciones de árbitros
   shared/                 # Reusable components & utils
-    components/           # CrudModal, SelectField, AuthGate, etc.
+    components/           # PullToRefresh, CrudModal, Toast, CustomHeader, etc.
     hooks/                # useDebounce
-    utils/                # resolve-lookup, parse-dias-partido
+    utils/                # resolve-lookup, parse-dias-partido, playoff-finalization, time-range, print-pdf
   constants/
     theme.ts              # Palette, Fonts, Pad, Gap, Radius, spacing
-  components/             # Generic app components (themed-text, etc.)
 ```
 
 ## Navigation
@@ -119,20 +152,24 @@ src/
 Root Stack
   index → redirect /(drawer)
   (drawer) → Drawer Navigator
-    index               Home / League Feed
-    team                Team CRUD
-    leagues → Stack
-      index             My Leagues CRUD
-      [id]/index        League Detail + Divisions
-      [id]/manage       Manage Divisions
-      [id]/divisions/[divisionId]       Division Hub
-      [id]/divisions/[divisionId]/manage          Schedule
-      [id]/divisions/[divisionId]/eliminatorias   Playoffs
-      [id]/divisions/[divisionId]/jornadas/[jornadaId]  Match Scores
-    profile             User Profile
-    public-league/[id]  Public League View (hidden from drawer)
+    index            Home / Feed de ligas públicas
+    my-profile       Mi perfil de jugador (+ form)
+    team             Mis equipos (CRUD + detalle + divisiones)
+    player           Detalle de jugador (oculto del drawer)
+    (public)         Vistas públicas liga/equipo/jugador (oculto del drawer)
+    leagues → Stack  Mis ligas
+      index                    CRUD de ligas
+      [id]/index               Detalle de liga + divisiones
+      [id]/manage              Gestión de divisiones
+      [id]/divisions/[divisionId]          Hub de división
+      [id]/divisions/[divisionId]/jornadas/[jornadaId]  Resultados de jornada
+      [id]/divisions/[divisionId]/partidos/[partidoId]  Detalle/resultado de partido
+    account          Cuenta (sesión, teléfono con OTP, cerrar sesión)
+    support          Ayuda/FAQ
+  (public) → Stack
+    arbitro/index    Captura arbitral por token (#token en deep link)
   (auth) → Stack
-    sign-in             Google / Apple sign-in
+    sign-in          Google / Apple
 ```
 
 ## App Screens
@@ -140,16 +177,22 @@ Root Stack
 | Ruta | Propósito |
 |------|-----------|
 | `(drawer)/index.tsx` | Home: buscador + filtros + favoritos + feed de ligas públicas |
-| `(drawer)/team.tsx` | CRUD de equipos del usuario, QR por equipo |
-| `(drawer)/profile.tsx` | Perfil del usuario (nombre, email, rol, teléfono), cierre sesión |
-| `(drawer)/leagues/index.tsx` | CRUD de ligas del usuario con logo, cancha, ubicación |
+| `(drawer)/my-profile/index.tsx` | Perfil de jugador: foto, posición, dorsal, equipos, privacidad del teléfono. Pull-to-refresh. |
+| `(drawer)/my-profile/form.tsx` | Crear/editar perfil de jugador (nombre, posición, foto, edad) |
+| `(drawer)/team/index.tsx` | CRUD de equipos del usuario, QR por equipo |
+| `(drawer)/team/[id].tsx` | Detalle de equipo: jugadores + divisiones |
+| `(drawer)/player/[id].tsx` | Detalle de jugador (privado, oculto del drawer) |
+| `(drawer)/(public)/liga/[id].tsx` | Detalle público de liga: posiciones / horario / goleo + favorito + notificarme |
+| `(drawer)/(public)/equipo/[id].tsx` | Detalle público de equipo: jugadores / divisiones |
+| `(drawer)/(public)/jugador/[id].tsx` | Detalle público de jugador |
+| `(drawer)/leagues/index.tsx` | CRUD de ligas con logo, cancha, ubicación |
 | `(drawer)/leagues/[id]/index.tsx` | Detalle de liga + CRUD de divisiones |
-| `(drawer)/leagues/[id]/manage.tsx` | Gestión de divisiones (con estado, categoría, tipo) |
 | `(drawer)/leagues/[id]/divisions/[divisionId].tsx` | Hub de división: info, Publicar/Regresar/Reiniciar, equipos, jornadas, playoffs |
-| `(drawer)/leagues/[id]/divisions/[divisionId]/manage.tsx` | Gestión de horarios: slots, asignación equipos, tipos de partido |
-| `(drawer)/leagues/[id]/divisions/[divisionId]/eliminatorias.tsx` | Árbol de playoff con resultados |
 | `(drawer)/leagues/[id]/divisions/[divisionId]/jornadas/[jornadaId].tsx` | Resultados de jornada: scores, estados de partido |
-| `(drawer)/public-league/[id].tsx` | Vista pública: standings + horarios + playoff |
+| `(drawer)/leagues/[id]/divisions/[divisionId]/partidos/[partidoId].tsx` | Detalle/resultado de partido |
+| `(drawer)/account/index.tsx` | Cuenta: nombre, email, rol, teléfono, activar rol liga, cerrar sesión |
+| `(drawer)/account/edit.tsx` | Vincular/editar teléfono con OTP + reenvío |
+| `(public)/arbitro/index.tsx` | Captura arbitral por token (deep link `#token=...`), finaliza partido con goles/penales/goleadores |
 | `(auth)/sign-in.tsx` | Login con Google o Apple |
 
 ## Features
@@ -158,11 +201,13 @@ Root Stack
 - **API**: list, listPaginated (filtros: search, categoriaId, tipoId, estadoLigaId), getById, create, update, delete
 - **Hooks**: `useLeagues`, `useUserLeagues`, `useLeague`, `useCreateLeague`, `useUpdateLeague`, `useDeleteLeague`, `useLigasInfinitas` (paginación infinita)
 - **Lookups**: `useLookups()` — 5 queries paralelas (categorias, tipos, ubicaciones, estadosLiga, tiposCompetencia) con 5min staleTime
+- **Utils**: `court-config.ts` (config de canchas/planner)
 
 ### division
 - **API**: listByLiga, getById, create, update, delete, reset
-- **Hooks**: `useDivisions`, `useCreateDivision`, `useUpdateDivision`, `useDeleteDivision`, `useResetDivision`
-- **Components**: `DivisionListCard`, `DivisionInfoCard` (con `children` entre Resumen y Programación), `DivisionFormModal`, `TeamListCard`, `TimeSlotCard`, `TeamPickerModal`, `TimePickerModal`
+- **Hooks**: `useDivisions`, `useCreateDivision`, `useUpdateDivision`, `useDeleteDivision`, `useResetDivision`, `useJornadaGeneration`
+- **Components**: `DivisionListCard`, `DivisionInfoCard`, `DivisionActionSheet`, `DivisionScheduleManager` (horarios), `EquiposTab`, `PosicionesTab`, `TeamListCard`, `TimeSlotCard`, `TeamPickerModal`
+- **Utils**: `prepareJornadaSlots.ts` (genera slots de jornada desde horarios)
 
 ### division-equipo
 - **API**: findByDivision, findByEquipo, create, remove
@@ -171,15 +216,19 @@ Root Stack
 ### team
 - **API**: list, getById, create, update, delete
 - **Hooks**: `useTeams`, `useUserTeams`, `useCreateTeam`, `useUpdateTeam`, `useDeleteTeam`
+- **Components**: `TeamCard`, `TeamDetailHeaderCard`, `DivisionTeamInfoCard`
 
 ### jornada
 - **API**: listByDivision, listByDivisionPaginated, getById, generateNext, delete
 - **Hooks**: `useJornadas`, `useJornadasInfinitas`, `useGenerateNextJornada`, `useDeleteJornada`
-- **Components**: `JornadaListCard`, `PartidoCard`, `ScoreModal`, `DayGroup`
+- **Components**: `JornadaListCard`, `PartidoCard`, `PartidoResultEditor`, `ScoreModal`, `DayGroup`
+- **Utils**: `programacion-jornada-pdf.ts` (PDF imprimible de programación)
 
 ### partido
-- **API**: findByRondaPlayoff, update
-- **Hooks**: `useUpdatePartido`
+- **API**: findByRondaPlayoff, update (+ `refereeApiClient(token)` para acceso árbitro)
+- **Hooks**: `usePartidos`, `useUpdatePartido`
+- **Components**: `ScorerAllocationEditor` (asignación de goles a jugadores)
+- **Utils**: `scoring.ts` (buildResultPayload, allocations, validaciones)
 
 ### tabla-posicion
 - **API**: listByDivision
@@ -189,24 +238,57 @@ Root Stack
 ### ronda-playoff
 - **API**: listByDivision, create, generate, deleteByDivision
 - **Hooks**: `useRondasPlayoff`, `useGenerateRondas`, `useDeleteRondasByDivision`
-- **Components**: `BracketView` (árbol SVG)
+- **Components**: `PlayoffRoundsAccordion`, `BracketView` (árbol SVG)
+
+### jugador
+- **API** (`api/jugadores.ts`): `getMe`, `createMe`, `updateMe` (perfil "mi perfil"), `list`/`search`/`getById`/`create`/`update`/`delete`, `assignToTeam`/`removeFromTeam`, `findForTeam` (buscar por teléfono con `withNetworkRetry`), `listByDivisionTeam`, `assignToDivision`/`removeFromDivision`, `listDivisionsByPlayer`
+- **Hooks** (`hooks/useJugadores.ts`): `useJugadores`, `useMyProfile`, `useCreateMyProfile`, `useUpdateMyProfile`, etc.
+- **Components**: `DivisionRosterGroups`, `DivisionTeamPlayersCard`
+- **Utils**: `rosterGroups.ts`, `phone.ts`
+- **Datos**: el perfil "Mi perfil" se vincula al User por `phoneNumber` (requiere teléfono verificado)
+
+### goleador
+- **API** (`api/goleadores.ts`): findByDivision
+- **Hooks**: `useGoleadores`
+- **Components**: `GoleadoresTable` (pestaña "Goleo" en detalle público de liga)
+
+### arbitraje
+- **API** (`api.ts`), **hooks** (`hooks.ts`), `LeagueRefereeTab`, `pdf.ts`, `types.ts`, `utils.ts`
+- Asignación de árbitros por liga/división
+
+### court-availability
+- `planner.ts` (lógica de planeación de canchas), `api/courtAvailability.ts`, `hooks/useCourtAvailability.ts`
+
+### player
+- `screens/PlayerDetailScreen.tsx` — detalle de jugador (privado y reutilizado en vistas públicas)
 
 ### profile
-- **Store**: `ProfileStore` (zustand)
-- **Components**: `ProfileEditModal` (nombre, avatar, teléfono con OTP)
+- **Store**: `ProfileStore` (zustand) — estado de perfil local
+
+### notification
+- `notificationSubscription.ts` (API subscribe/unsubscribe), `subscriptionFlow.ts` (flujo cambio de suscripción con commit local), `notificationIdentity.ts`
+- Los tags OneSignal se sincronizan con el backend (`/api/notification-subscriptions`)
+
+### users
+- `userApi`: `activateLeagueRole()`, `updatePhoneVisibility()`, `updateMe`
 
 ## Shared Components
 
 | Componente | Descripción |
 |------------|-------------|
 | **`AuthGate`** | Bloquea contenido si no hay sesión, muestra botón "Iniciar sesión" |
+| **`PullToRefresh`** | ScrollView (o KeyboardAware) con RefreshControl + infinite scroll; soporta `scrollRef`/`onScroll` |
+| **`AppBottomSheetModal`** | Bottom sheet reutilizable (título, snapPoints, children) |
+| **`ConfirmationModal`** | Confirmación genérica (mensaje + acciones) |
 | **`CrudModal`** | Bottom-sheet genérico con campos, `children`, botones Cancelar/Guardar, manejo de teclado |
 | **`SelectField`** | Dropdown que abre bottom-sheet con lista de opciones (id/nombre), check en seleccionado |
 | **`CustomHeader`** | Barra superior con menú/back, título centrado, acciones derecha |
+| **`TabBar`** | Pestañas horizontales (activa resaltada) |
+| **`Toast`** | Feedback `useToast()` → `toast.success/error/info` |
 | **`ErrorState`** | Icono + mensaje + botón Reintentar opcional |
 | **`EmptyState`** | Icono centrado + mensaje + acción opcional |
 | **`LoadingScreen`** | ActivityIndicator full-screen |
-| **`PullToRefresh`** | ScrollView con RefreshControl + infinite scroll |
+| **`LogoImage`** | Imagen circular con fallback de icono/inicial |
 | **`QrCard`** | Tarjeta blanca con QR, label y hint |
 | **`QRScannerModal`** | Cámara full-screen para escanear QR |
 | **`LocationPickerModal`** | Google Places input en bottom-sheet |
@@ -222,6 +304,7 @@ Root Stack
 | **`useLigaFavoritaStore`** | AsyncStorage (`ligas-favoritas`) | `favoritos: LigaFavoritaItem[]` | `toggle(item)`, `esFavorito(id)` |
 | **`useDivisionScheduleStore`** | AsyncStorage (`division-schedule-store`) | `schedules`, `habilitados`, `hasUnsaved` | `initSchedule`, `setSlotTeams`, `setSlotTipo`, `addSlot`, `removeSlot`, `replaceSlots`, etc. |
 | **`useDivisionNotificationStore`** | AsyncStorage (`division-notifications`) | `subscriptions` | `toggle(item)`, `remove(divisionId)`, `isSubscribed(divisionId)` |
+| **`useRefereeAssignments`** | AsyncStorage | asignaciones de árbitros | — |
 
 ### ligaFavoritaStore
 ```ts
@@ -240,8 +323,8 @@ interface DivisionNotificationItem { divisionId: string; ligaId: string; ligaNom
 - `remove(divisionId)`: elimina por id
 - `isSubscribed(divisionId)`: boolean
 - Botón en detalle público `(public)/liga/[id]` dentro de la tarjeta de división
-- Al activar: agrega tag OneSignal `division_{divisionId}=true`
-- Al desactivar: remueve tag `division_{divisionId}`
+- El flujo real pasa por `features/notification/subscriptionFlow.ts` (`changeDivisionSubscription`): primero llama al backend (`/api/notification-subscriptions/subscribe|unsubscribe`) con el OneSignal ID y luego hace `commitLocalState()` (persistencia local)
+- Al activar: agrega tag OneSignal `division_{divisionId}=true`; al desactivar: lo remueve
 
 ### divisionScheduleStore
 La store más compleja (~574 lines). Genera slots de horario desde la config de la división (diasPartido, horarioPartido, duracion, descanso). Maneja:
@@ -259,9 +342,9 @@ La store más compleja (~574 lines). Genera slots de horario desde la config de 
 - Bootstrap en `src/app/_layout.tsx` mediante `<NotificationBootstrap />`
 - Inicializa OneSignal, solicita permiso en Android, hace login/logout según sesión de Better Auth
 - Click en notificación navega a `data.url` usando Expo Router
-- Favoritos públicos agregan tag OneSignal `liga_{ligaId}=true`; al quitar favorito se remueve
 - Deep link de jornada generada: `/(drawer)/(public)/liga/{ligaId}?divisionId={divisionId}&tab=horario`
 - Cobertura: usuarios registrados (dueños/capitanes vía external_id) + seguidores anónimos (vía tag `division_{divisionId}` agregado desde botón "Notificarme de esta división")
+- Las suscripciones se sincronizan con el backend (`/api/notification-subscriptions`)
 - Favoritos de liga ya no gestionan tags de OneSignal
 
 ## Data Fetching
@@ -272,7 +355,7 @@ La store más compleja (~574 lines). Genera slots de horario desde la config de 
 - `useLeague(id)`, `useDivisions(ligaId)`, `useDivisionEquipos(divisionId)`
 - `useTeams()`, `useUserTeams(userId)`
 - `useJornadas(divisionId)`, `useTablaPosiciones(divisionId)`
-- `useRondasPlayoff(divisionId)`
+- `useRondasPlayoff(divisionId)`, `useMyProfile(enabled)`, `useJugadores(equipoId)`, `useGoleadores(divisionId)`
 
 **Infinite queries** (`useInfiniteQuery`):
 - `useLigasInfinitas(filters)` — 5 por página
@@ -280,7 +363,7 @@ La store más compleja (~574 lines). Genera slots de horario desde la config de 
 
 **Mutations** (`useMutation`):
 - Todas siguen: `mutationFn → onSuccess → invalidateQueries` con query keys relacionadas
-- Ej: `useCreateDivision` invalida `["divisions", ligaId]`, `useUpdatePartido` invalida `["jornada"]`, `["jornadas-infinitas"]`, `["partidos-ronda"]`
+- Ej: `useCreateDivision` invalida `["divisions", ligaId]`, `useUpdatePartido` invalida `["jornada"]`, `["jornadas-infinitas"]`, `["partidos-ronda"]`, `["tabla-posiciones", divisionId]`
 
 ## Theme (`constants/theme.ts`)
 
@@ -326,18 +409,25 @@ Envía FormData a Cloudinary, retorna `secure_url`.
 
 ## Phone / OTP Flow
 
-En `ProfileEditModal.tsx`:
-1. Usuario selecciona país (`react-native-country-picker-modal`, filtrado a América + España)
-2. Ingresa número → `sendOTP({ phoneNumber })`
-3. Recibe código → `verify({ phoneNumber, code, updatePhoneNumber: true })`
-4. Better Auth persiste `phoneNumber` y `phoneNumberVerified` en el User
-5. `onUserUpdated()` invalida sesión para refrescar pantalla
+En `(drawer)/account/edit.tsx`:
 
-**Campo en sesión**: `user.phoneNumber` (no `user.phone`)
+1. Usuario selecciona país (`react-native-country-picker-modal`, filtrado a América + España) e ingresa el número en formato E.164
+2. `authClient.phoneNumber.sendOtp({ phoneNumber })` — el backend **valida primero que el teléfono no esté registrado** (plugin `preventOtpForRegisteredPhone`): si ya existe un User con ese número, responde `PHONE_NUMBER_EXIST` **sin enviar SMS**
+3. `authClient.phoneNumber.verify({ phoneNumber, code, updatePhoneNumber: true })` persiste `phoneNumber` + `phoneNumberVerified` en el User
+4. Reenvío con countdown (40s): botón "Reenviar código en {n}s"; al llegar a 0 aparece "Reenviar código"
+5. `userApi.updatePhoneVisibility(next)` controla `showPhoneInPublicLeague` (visible en el detalle público)
+
+**Campo en sesión**: `user.phoneNumber` (no `user.phone`).
+
+**Errores** (mapeados en `src/infrastructure/auth/errors.ts`):
+- `PHONE_NUMBER_EXIST` → "Este número ya está vinculado a otra cuenta." (`errors.ts:12`)
+- `INVALID_OTP`, `OTP_EXPIRED`, `TOO_MANY_ATTEMPTS` → mensajes propios
+
+**Relación con "Mi perfil"**: el perfil de jugador (`(drawer)/my-profile`) se vincula al User por `phoneNumber` (`GET /api/jugadores/me`); se requiere un teléfono verificado para crear/ver el perfil de jugador.
 
 ## Keyboard Handling
 
-Patrón usado en `CrudModal.tsx`, `ProfileEditModal.tsx`, `LocationPickerModal.tsx`:
+Patrón usado en `CrudModal.tsx`, `account/edit.tsx`, `LocationPickerModal.tsx`, y `(public)/arbitro` (vía `KeyboardAwareScrollView` de `react-native-keyboard-controller`):
 
 ```ts
 const [keyboardH, setKeyboardH] = useState(0)
@@ -381,6 +471,9 @@ Orden: Publicar (izquierda), Reiniciar (derecha). Condicional: Publicar solo vis
 
 ### ✅ Working Well
 - CRUD completo: ligas, divisiones, equipos, jugadores, jornadas, partidos, playoffs
+- Perfil de jugador ("Mi perfil") con vínculo por teléfono + tours de onboarding (`@wrack/react-native-tour-guide`)
+- Captura arbitral por token: árbitro escanea/abre deep link (`(public)/arbitro#token=...`), registra goles/penales/goleadores y finaliza el partido
+- Tabla de goleadores (pestaña "Goleo" en detalle público de liga)
 - Búsqueda + filtros (acordeón) en Home
 - Páginas públicas (liga, equipo, jugador) sin login
 - Favoritos con carrusel en Home
@@ -392,10 +485,10 @@ Orden: Publicar (izquierda), Reiniciar (derecha). Condicional: Publicar solo vis
 - Notificaciones push para jornada generada: usuarios registrados vía external_id + seguidores anónimos vía tag OneSignal `division_{id}=true` desde botón "Notificarme de esta división"
 
 ### 🔴 Critical (must fix before launch)
-1. **Backend env vars vacíos** — Google/Apple login no funciona hasta configurar `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APPLE_CLIENT_ID`, `APPLE_CLIENT_SECRET`
+1. ✅ ~~**Backend env vars vacíos**~~ — Google y Apple configurados y funcionando (Apple usa JWT con `APPLE_TEAM_ID` / `APPLE_KEY_ID` / `APPLE_PRIVATE_KEY`; ya no existe `APPLE_CLIENT_SECRET`)
 2. ✅ ~~**Standings no se invalidan** al actualizar resultado de partido~~ — `useUpdatePartido` invalida `["tabla-posiciones", divisionId]`
-3. **No hay botón editar liga** desde el detalle (`[id]/index.tsx`)
-4. **Jugadores no se pueden editar** — solo crear y eliminar
+3. **No hay botón editar liga** desde el detalle (`leagues/[id]/index.tsx`) — existe `league-form.tsx` pero no se invoca desde el detalle
+4. **Jugadores no se pueden editar** — solo crear y eliminar (excepto el propio perfil "Mi perfil")
 
 ### 🟡 Important (improve UX)
 5. ✅ ~~`Alert.alert()` → toast/snackbar~~ — todo el feedback no-confirmación usa toast
@@ -407,7 +500,7 @@ Orden: Publicar (izquierda), Reiniciar (derecha). Condicional: Publicar solo vis
 
 ### 🟢 Future Implementations (post-MVP)
 - **Calificaciones y comentarios de ligas** — sistema de reseñas para ligas públicas (estrellas + texto)
-- **QR de partido para árbitros** — generar QR que abre un partido específico; un árbitro puede actualizar el resultado (goles, estado) sin necesidad de tener cuenta ni ser dueño de la liga. Flujo: escanear QR → pantalla pública del partido → botón "Actualizar resultado" → formulario con goles local/visitante + estado
+- **QR impreso de partido para árbitros** — actualmente la captura arbitral usa un deep link por token (`#token`); pendiente imprimir el QR en la programación/jornada para escaneo directo
 
 ## Pricing Oficial (decidido 13 Jul 2026)
 

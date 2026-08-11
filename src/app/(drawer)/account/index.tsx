@@ -10,8 +10,10 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import { useToast } from "@/shared/components/Toast"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 export default function ProfileScreen() {
+  const guard = useNavGuard()
   const { data: session, isPending, refetch: refetchSession } = authClient.useSession()
   const user = session?.user
   const [savingPhoneVisibility, setSavingPhoneVisibility] = useState(false)
@@ -107,7 +109,7 @@ export default function ProfileScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title="Cuenta" rightActions={[{ icon: "edit", onPress: () => router.push("/(drawer)/account/edit") }]} />
+      <CustomHeader title="Cuenta" rightActions={[{ icon: "edit", onPress: () => guard(() => router.push("/(drawer)/account/edit")) }]} />
       <PullToRefresh refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, gap: Gap.lg }}>
           <View style={{ alignItems: "center", gap: Gap.sm, marginBottom: Gap.base }}>

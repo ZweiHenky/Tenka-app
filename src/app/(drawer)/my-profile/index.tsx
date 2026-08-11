@@ -24,6 +24,7 @@ import { useToast } from "@/shared/components/Toast";
 import CustomHeader from "@/shared/components/CustomHeader";
 import LoadingScreen from "@/shared/components/LoadingScreen";
 import PullToRefresh from "@/shared/components/PullToRefresh";
+import { useNavGuard } from "@/shared/hooks/useNavGuard";
 
 function formatPosicion(posicion: string) {
   return POSICIONES_JUGADOR.find((p) => p.id === posicion)?.nombre ?? posicion;
@@ -124,6 +125,7 @@ function ProfileCard({ jugador }: { jugador: Jugador }) {
 }
 
 function EquiposSection({ jugador }: { jugador: Jugador }) {
+  const guard = useNavGuard();
   const equipos = jugador.equipos ?? [];
   if (equipos.length === 0) return null;
   return (
@@ -147,10 +149,12 @@ function EquiposSection({ jugador }: { jugador: Jugador }) {
           key={eq.equipoId}
           activeOpacity={0.8}
           onPress={() =>
-            router.push({
-              pathname: "/(drawer)/(public)/equipo/[id]",
-              params: { id: eq.equipoId },
-            })
+            guard(() =>
+              router.push({
+                pathname: "/(drawer)/(public)/equipo/[id]",
+                params: { id: eq.equipoId },
+              })
+            )
           }
           style={{
             flexDirection: "row",
@@ -199,6 +203,7 @@ function EquiposSection({ jugador }: { jugador: Jugador }) {
 
 export default function MyProfileScreen() {
   const toast = useToast();
+  const guard = useNavGuard();
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const user = session?.user;
   const phone = (user as any)?.phoneNumber;
@@ -497,7 +502,7 @@ export default function MyProfileScreen() {
             de jugador.
           </Text>
           <TouchableOpacity
-            onPress={() => router.push("/(drawer)/account")}
+            onPress={() => guard(() => router.push("/(drawer)/account"))}
             style={{
               backgroundColor: Palette.cyan,
               borderRadius: Radius.md,
@@ -562,7 +567,7 @@ export default function MyProfileScreen() {
           <TouchableOpacity
             ref={createBtnRef}
             onPress={() =>
-              router.push({ pathname: "/(drawer)/my-profile/form" })
+              guard(() => router.push({ pathname: "/(drawer)/my-profile/form" }))
             }
             style={{
               backgroundColor: Palette.cyan,
@@ -594,7 +599,7 @@ export default function MyProfileScreen() {
           {
             icon: "edit",
             onPress: () =>
-              router.push({ pathname: "/(drawer)/my-profile/form" }),
+              guard(() => router.push({ pathname: "/(drawer)/my-profile/form" })),
             bg: Palette.cyan,
             color: Palette.black,
             ref: editBtnRef,

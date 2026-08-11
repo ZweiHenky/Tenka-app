@@ -16,6 +16,7 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { useLigaFavoritaStore } from "@/stores/ligaFavoritaStore"
 import LogoImage from "@/shared/components/LogoImage"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 interface AccordionFilterSectionProps {
   title: string
@@ -66,6 +67,7 @@ function toggleSet(set: Set<string>, item: string): Set<string> {
 }
 
 export default function Home() {
+  const guard = useNavGuard()
   const [search, setSearch] = useState("")
   const debouncedSearch = useDebounce(search, 400)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -279,7 +281,7 @@ export default function Home() {
             {favoritos.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Gap.md, paddingVertical: Gap.sm }}>
                 {favoritos.map((fav) => (
-                  <TouchableOpacity key={fav.id} onPress={() => router.push({ pathname: "/(drawer)/(public)/liga/[id]", params: { id: fav.id } })} style={{ alignItems: "center", gap: 4 }}>
+                  <TouchableOpacity key={fav.id} onPress={() => guard(() => router.push({ pathname: "/(drawer)/(public)/liga/[id]", params: { id: fav.id } }))} style={{ alignItems: "center", gap: 4 }}>
                     <LogoImage uri={fav.logo ?? fav.cancha} size={56} ring={Palette.warning} fallbackText={fav.nombre} />
                     <Text numberOfLines={1} style={{ fontSize: 11, color: Palette.textSecondary, maxWidth: 64, textAlign: "center" }}>{fav.nombre}</Text>
                   </TouchableOpacity>

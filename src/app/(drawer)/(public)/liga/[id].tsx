@@ -35,6 +35,7 @@ import { formatLocalTime, toLocalDateKey } from "@/shared/utils/date-time"
 import { getPlayoffRoundMatchCounts } from "@/features/division/utils/playoff"
 import { useGoleadores } from "@/features/goleador/hooks/useGoleadores"
 import GoleadoresTable from "@/features/goleador/components/GoleadoresTable"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 function fmtHora(f: string) {
   return formatLocalTime(f)
@@ -92,7 +93,7 @@ export default function PublicLeagueScreen() {
   const { id, divisionId: initialDiv, tab: initialTab } = useLocalSearchParams<{
     id: string
     divisionId?: string
-    tab?: "posiciones" | "horario" | "goleo"
+    tab?: "info" | "posiciones" | "horario" | "goleo"
   }>()
   const router = useRouter()
   const toggleFav = useLigaFavoritaStore((s) => s.toggle)
@@ -103,6 +104,7 @@ export default function PublicLeagueScreen() {
   const subscriptions = useDivisionNotificationStore((s) => s.subscriptions)
   const { data: league, isLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!)
   const toast = useToast()
+  const guard = useNavGuard()
 
   useEffect(() => {
     if (!leagueError || !esFav) return
@@ -116,8 +118,11 @@ export default function PublicLeagueScreen() {
 
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(initialDiv ?? null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [tab, setTab] = useState<"posiciones" | "horario" | "goleo">(
-    initialTab === "horario" || initialTab === "goleo" ? initialTab : "posiciones"
+  const [rulesOpen, setRulesOpen] = useState(false)
+  const [tab, setTab] = useState<"info" | "posiciones" | "horario" | "goleo">(
+    initialTab === "posiciones" || initialTab === "horario" || initialTab === "goleo" || initialTab === "info"
+      ? initialTab
+      : "info"
   )
 
   const rangePickerRef = useRef<BottomSheetModal>(null)
@@ -254,11 +259,13 @@ export default function PublicLeagueScreen() {
 
   const goToTeam = useCallback((teamId?: string | null) => {
     if (!teamId || !currentDivisionId) return
-    router.push({
-      pathname: "/(drawer)/(public)/equipo/[id]/division/[divisionId]",
-      params: { id: teamId, divisionId: currentDivisionId },
+    guard(() => {
+      router.push({
+        pathname: "/(drawer)/(public)/equipo/[id]/division/[divisionId]",
+        params: { id: teamId, divisionId: currentDivisionId },
+      })
     })
-  }, [currentDivisionId, router])
+  }, [currentDivisionId, router, guard])
 
   const rondaMap = useMemo(() => {
     const map: Record<string, string> = {}
@@ -428,6 +435,106 @@ export default function PublicLeagueScreen() {
     )
   }, [goToTeam, rondaMap])
 
+  const direccionContent = ubicacionNombre ? (
+    <View style={{ gap: Gap.md }}>
+      <Text style={{ fontSize: 11, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Dirección</Text>
+      <TouchableOpacity
+        onPress={() => Linking.openURL(`https://maps.google.com/maps?q=${encodeURIComponent(ubicacionNombre)}`)}
+        style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
+      >
+        <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+          <MaterialIcons name="location-on" size={16} color={Palette.cyan} />
+        </View>
+        <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.sans, flex: 1 }}>{ubicacionNombre}</Text>
+        <MaterialIcons name="chevron-right" size={20} color={Palette.textMuted} />
+      </TouchableOpacity>
+    </View>
+  ) : null
+
+  const divisionInfoContent = currentDivision ? (
+    <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.md }}>
+      <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.sans }}>{currentDivision.categoria.nombre} · {currentDivision.tipo.nombre}</Text>
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+        <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+            <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="people" size={14} color={Palette.cyan} />
+            </View>
+            <View>
+              <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Equipos</Text>
+              <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{teamCount} / {currentDivision.maxEquipos}</Text>
+            </View>
+          </View>
+        </View>
+        <View style={{ width: "50%", paddingVertical: Pad.sm, paddingLeft: Pad.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+            <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="attach-money" size={14} color={Palette.cyan} />
+            </View>
+            <View>
+              <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Arbitraje</Text>
+              <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>${currentDivision.arbitraje}</Text>
+            </View>
+          </View>
+        </View>
+        <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+            <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="calendar-today" size={14} color={Palette.cyan} />
+            </View>
+            <View>
+              <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Días</Text>
+              <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{currentDivision.diasPartido ? abreviarDias(currentDivision.diasPartido) : "-"}</Text>
+            </View>
+          </View>
+        </View>
+        <View style={{ width: "50%", paddingVertical: Pad.sm, paddingLeft: Pad.sm }}>
+          {ranges.length > 1 ? (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => rangePickerRef.current?.present()}
+              style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}
+            >
+              <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                <MaterialIcons name="access-time" size={14} color={Palette.cyan} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
+                <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }} numberOfLines={1}>{currentDivision.horarioPartido ?? "-"}</Text>
+              </View>
+              <MaterialIcons name="info-outline" size={18} color={Palette.textMuted} />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+              <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                <MaterialIcons name="access-time" size={14} color={Palette.cyan} />
+              </View>
+              <View>
+                <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
+                <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{currentDivision.horarioPartido ?? "-"}</Text>
+              </View>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {(currentDivision.duracionPartido || currentDivision.fechaInicio) ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Gap.md, paddingTop: Pad.sm, borderTopWidth: 1, borderTopColor: Palette.border }}>
+          {currentDivision.duracionPartido ? (
+            <Text style={{ fontSize: 12, color: Palette.textSecondary, fontFamily: Fonts.sans }}>⏱ {currentDivision.duracionPartido} min · {currentDivision.descanso ?? 0} min desc</Text>
+          ) : null}
+          {currentDivision.fechaInicio ? (
+            <Text style={{ fontSize: 12, color: Palette.textSecondary, fontFamily: Fonts.sans }}>
+              📆 {toLocalDateDisplay(currentDivision.fechaInicio)}
+              {currentDivision.fechaFin ? ` - ${toLocalDateDisplay(currentDivision.fechaFin)}` : ""}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  ) : null
+
   const headerContent = (
     <View>
       <View style={{ position: "relative" }}>
@@ -463,22 +570,6 @@ export default function PublicLeagueScreen() {
           </View>
         </View>
       </View>
-
-      {ubicacionNombre ? (
-        <View style={{ paddingHorizontal: Pad.base, gap: Gap.md, marginTop: Gap.md, marginBottom: Gap.md }}>
-          <Text style={{ fontSize: 11, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Dirección</Text>
-          <TouchableOpacity
-            onPress={() => Linking.openURL(`https://maps.google.com/maps?q=${encodeURIComponent(ubicacionNombre)}`)}
-            style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
-          >
-            <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-              <MaterialIcons name="location-on" size={16} color={Palette.cyan} />
-            </View>
-            <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.sans, flex: 1 }}>{ubicacionNombre}</Text>
-            <MaterialIcons name="chevron-right" size={20} color={Palette.textMuted} />
-          </TouchableOpacity>
-        </View>
-      ) : null}
 
       <View style={{ paddingHorizontal: Pad.base, paddingBottom: Pad.base, gap: Gap.md }}>
         <Text style={{ fontSize: 11, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Divisiones</Text>
@@ -584,146 +675,54 @@ export default function PublicLeagueScreen() {
               ) : null}
             </View>
           </TouchableOpacity>
-
-          <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.md }}>
-            <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.sans }}>{currentDivision.categoria.nombre} · {currentDivision.tipo.nombre}</Text>
-
-            <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-              <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
-                  <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-                    <MaterialIcons name="people" size={14} color={Palette.cyan} />
-                  </View>
-                  <View>
-                    <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Equipos</Text>
-                    <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{teamCount} / {currentDivision.maxEquipos}</Text>
-                  </View>
-                </View>
-              </View>
-              <View style={{ width: "50%", paddingVertical: Pad.sm, paddingLeft: Pad.sm }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
-                  <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-                    <MaterialIcons name="attach-money" size={14} color={Palette.cyan} />
-                  </View>
-                  <View>
-                    <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Arbitraje</Text>
-                    <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>${currentDivision.arbitraje}</Text>
-                  </View>
-                </View>
-              </View>
-              <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
-                  <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-                    <MaterialIcons name="calendar-today" size={14} color={Palette.cyan} />
-                  </View>
-                  <View>
-                    <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Días</Text>
-                    <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{currentDivision.diasPartido ? abreviarDias(currentDivision.diasPartido) : "-"}</Text>
-                  </View>
-                </View>
-              </View>
-              <View style={{ width: "50%", paddingVertical: Pad.sm, paddingLeft: Pad.sm }}>
-                {ranges.length > 1 ? (
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => rangePickerRef.current?.present()}
-                    style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}
-                  >
-                    <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-                      <MaterialIcons name="access-time" size={14} color={Palette.cyan} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
-                      <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }} numberOfLines={1}>{currentDivision.horarioPartido ?? "-"}</Text>
-                    </View>
-                    <MaterialIcons name="info-outline" size={18} color={Palette.textMuted} />
-                  </TouchableOpacity>
-                ) : (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
-                    <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-                      <MaterialIcons name="access-time" size={14} color={Palette.cyan} />
-                    </View>
-                    <View>
-                      <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
-                      <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{currentDivision.horarioPartido ?? "-"}</Text>
-                    </View>
-                  </View>
-                )}
-              </View>
-            </View>
-
-            {(currentDivision.duracionPartido || currentDivision.fechaInicio) ? (
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Gap.md, paddingTop: Pad.sm, borderTopWidth: 1, borderTopColor: Palette.border }}>
-                {currentDivision.duracionPartido ? (
-                  <Text style={{ fontSize: 12, color: Palette.textSecondary, fontFamily: Fonts.sans }}>⏱ {currentDivision.duracionPartido} min · {currentDivision.descanso ?? 0} min desc</Text>
-                ) : null}
-                {currentDivision.fechaInicio ? (
-                  <Text style={{ fontSize: 12, color: Palette.textSecondary, fontFamily: Fonts.sans }}>
-                    📆 {toLocalDateDisplay(currentDivision.fechaInicio)}
-                    {currentDivision.fechaFin ? ` - ${toLocalDateDisplay(currentDivision.fechaFin)}` : ""}
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
           </>
         ) : null}
 
         <View ref={tabBarRef} collapsable={false} onLayout={() => setTabBarReady(true)}>
           <TabBar
             tabs={[
+              { key: "info", label: "Info" },
               { key: "posiciones", label: "Posiciones" },
               { key: "horario", label: "Horario" },
               { key: "goleo", label: "Goleo" },
             ]}
             activeTab={tab}
-            onTabChange={(k) => setTab(k as "posiciones" | "horario" | "goleo")}
+            onTabChange={(k) => setTab(k as "info" | "posiciones" | "horario" | "goleo")}
             stretch
           />
         </View>
-
-        {tab === "posiciones" ? (
-          <View style={{ gap: Gap.md }}>
-            <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
-              <StandingsTable rows={standings} isLoading={standingsLoading} onTeamPress={goToTeam} />
-            </View>
-            {bracketRounds.length > 0 ? <BracketView rounds={bracketRounds} /> : null}
-          </View>
-        ) : null}
       </View>
     </View>
   )
 
   const contactContent = (
-    <View style={{ paddingHorizontal: Pad.base, paddingTop: Gap.lg }}>
-      <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.md }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-          <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-            <MaterialIcons name="support-agent" size={18} color={Palette.cyan} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.display }}>Contacto</Text>
-            <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.sans }}>
-              {league?.user?.name ? `Organizador: ${league.user.name}` : "Contacta al organizador de la liga"}
-            </Text>
-          </View>
+    <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.md }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+        <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+          <MaterialIcons name="support-agent" size={18} color={Palette.cyan} />
         </View>
-
-        {ownerWhatsappUrl ? (
-          <TouchableOpacity
-            activeOpacity={0.75}
-            onPress={() => Linking.openURL(ownerWhatsappUrl)}
-            style={{ backgroundColor: Palette.success, borderRadius: Radius.md, paddingVertical: Pad.md, paddingHorizontal: Pad.base, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm }}
-          >
-            <MaterialIcons name="chat" size={18} color={Palette.black} />
-            <Text style={{ color: Palette.black, fontSize: 15, fontFamily: Fonts.semiBold }}>Enviar WhatsApp</Text>
-          </TouchableOpacity>
-        ) : (
-          <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, lineHeight: 18 }}>
-            El organizador no publicó un número de contacto para esta liga.
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.display }}>Contacto</Text>
+          <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.sans }}>
+            {league?.user?.name ? `Organizador: ${league.user.name}` : "Contacta al organizador de la liga"}
           </Text>
-        )}
+        </View>
       </View>
+
+      {ownerWhatsappUrl ? (
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => Linking.openURL(ownerWhatsappUrl)}
+          style={{ backgroundColor: Palette.success, borderRadius: Radius.md, paddingVertical: Pad.md, paddingHorizontal: Pad.base, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm }}
+        >
+          <MaterialIcons name="chat" size={18} color={Palette.black} />
+          <Text style={{ color: Palette.black, fontSize: 15, fontFamily: Fonts.semiBold }}>Enviar WhatsApp</Text>
+        </TouchableOpacity>
+      ) : (
+        <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, lineHeight: 18 }}>
+          El organizador no publicó un número de contacto para esta liga.
+        </Text>
+      )}
     </View>
   )
 
@@ -837,6 +836,62 @@ export default function PublicLeagueScreen() {
       <PullToRefresh scrollRef={scrollViewRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
         <View style={{ paddingBottom: 48 }}>
           {headerContent}
+          {tab === "info" ? (
+            <View style={{ paddingHorizontal: Pad.base, gap: Gap.md }}>
+              {direccionContent}
+              {divisionInfoContent}
+              {league.reglas?.length ? (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setRulesOpen((open) => !open)}
+                  style={{ backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: rulesOpen ? Palette.borderActive : Palette.border, overflow: "hidden" }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", padding: Pad.base, gap: Gap.md }}>
+                    <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                      <MaterialIcons name="rule" size={14} color={Palette.cyan} />
+                    </View>
+                    <Text style={{ flex: 1, fontSize: 14, color: Palette.text, fontFamily: Fonts.medium }}>Reglas y directivas</Text>
+                    <View style={{ backgroundColor: Palette.cyan10, borderRadius: Radius.full, paddingHorizontal: Pad.sm, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 12, color: Palette.cyan, fontFamily: Fonts.semiBold }}>{league.reglas.length}</Text>
+                    </View>
+                    <MaterialIcons name={rulesOpen ? "expand-less" : "expand-more"} size={22} color={Palette.cyan} />
+                  </View>
+                  {rulesOpen ? (
+                    <View style={{ paddingHorizontal: Pad.base, paddingBottom: Pad.base }}>
+                      <View style={{ height: 1, backgroundColor: Palette.border, marginBottom: Pad.base }} />
+                      {league.reglas.map((regla, index) => (
+                        <View key={index}>
+                          {index > 0 ? (
+                            <>
+                              <View style={{ height: Pad.base }} />
+                              <View style={{ height: 1, backgroundColor: Palette.borderActive }} />
+                              <View style={{ height: Pad.base }} />
+                            </>
+                          ) : null}
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+                            <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                              <Text style={{ fontSize: 12, color: Palette.cyan, fontFamily: Fonts.semiBold }}>{index + 1}</Text>
+                            </View>
+                            <Text style={{ flex: 1, fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{regla.titulo}</Text>
+                          </View>
+                          <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.sans, lineHeight: 20, marginTop: 2, paddingLeft: 30 }}>{regla.detalle}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+              ) : null}
+              {contactContent}
+            </View>
+          ) : null}
+          {tab === "posiciones" ? (
+            <View style={{ gap: Gap.md }}>
+              <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
+                <StandingsTable rows={standings} isLoading={standingsLoading} onTeamPress={goToTeam} />
+              </View>
+              {bracketRounds.length > 0 ? <BracketView rounds={bracketRounds} /> : null}
+            </View>
+          ) : null}
           {tab === "horario" ? (
             <View style={{ gap: Gap.md }}>
               {jornadasError ? (
@@ -892,7 +947,6 @@ export default function PublicLeagueScreen() {
             </View>
           ) : null}
           {tab === "goleo" ? <View style={{ marginHorizontal: Pad.base }}><GoleadoresTable data={goleadores.data} isLoading={goleadores.isLoading} error={goleadores.error} /></View> : null}
-          {contactContent}
         </View>
       </PullToRefresh>
       <BottomSheetModal

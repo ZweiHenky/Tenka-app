@@ -13,7 +13,8 @@ import LogoImage from "@/shared/components/LogoImage"
 import { refereeApiClient, type RefereePartidoResponse } from "@/features/partido/api/partidos"
 import { getPlayoffFinalizationError } from "@/shared/utils/playoff-finalization"
 import ScorerAllocationEditor from "@/features/partido/components/ScorerAllocationEditor"
-import { allocationsFromAnnotations, buildResultPayload, hasValidAllocations, type ScorerAllocation } from "@/features/partido/scoring"
+import { allocationsFromAnnotations, buildResultPayload, buildScorerCandidates, hasValidAllocations, participacionesFromResponse, type ParticipacionInput, type ScorerAllocation } from "@/features/partido/scoring"
+import ParticipacionEditor from "@/features/partido/components/ParticipacionEditor"
 
 const TIPO_INFO = {
   REGULAR: { label: "Regular", color: Palette.cyan, background: Palette.cyan10 },
@@ -49,6 +50,14 @@ export default function ArbitroScreen() {
   const [submitted, setSubmitted] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [allocations, setAllocations] = useState<ScorerAllocation[]>([])
+  const [participaciones, setParticipaciones] = useState<ParticipacionInput[]>([])
+  const [notas, setNotas] = useState("")
+  const [expandedSection, setExpandedSection] = useState<"participantes" | "goleadores" | null>("goleadores")
+  const toggleSection = (section: "participantes" | "goleadores") => setExpandedSection((current) => (current === section ? null : section))
+
+  const handleParticipacionesChange = (next: ParticipacionInput[]) => {
+    setParticipaciones(next)
+  }
 
   useEffect(() => {
     if (!client) return
@@ -65,6 +74,9 @@ export default function ArbitroScreen() {
           setPenalesLocal(data.penalesLocal == null ? "" : String(data.penalesLocal))
           setPenalesVisitante(data.penalesVisitante == null ? "" : String(data.penalesVisitante))
           setAllocations(allocationsFromAnnotations(data.anotaciones))
+          setParticipaciones(participacionesFromResponse(data.participaciones))
+          setNotas(data.notas ?? "")
+          setExpandedSection(data.registrarParticipaciones || (data.participaciones ?? []).length > 0 ? "participantes" : "goleadores")
         }
       } catch (requestError: any) {
         if (!cancelled) setError(requestError.message)
@@ -80,8 +92,9 @@ export default function ArbitroScreen() {
   const localGoals = finalized ? String(partido.golesLocal) : golesLocal
   const visitorGoals = finalized ? String(partido.golesVisitante) : golesVisitante
   const tied = localGoals !== "" && visitorGoals !== "" && Number(localGoals) === Number(visitorGoals)
-  const showPenales = !!partido && partido.tipoPartido !== "AMISTOSO" && tied
   const isPlayoff = partido?.tipoPartido === "ELIMINATORIA"
+  const showPenales = !!partido && tied
+    && (isPlayoff || (partido.tipoPartido !== "AMISTOSO" && partido.usarPenalesEnEmpates !== false))
 
   const handleSave = () => {
     if (!partido || !client) return
@@ -104,6 +117,21 @@ export default function ArbitroScreen() {
       toast.error("Los goles asignados no pueden superar el marcador")
       return
     }
+    if (partido.registrarParticipaciones) {
+      const unnamedScorer = allocations.some((item) => !participaciones.some((p) => p.ladoMarcador === item.ladoMarcador && p.jugadorId === item.jugadorId))
+      if (unnamedScorer) {
+        toast.error("Todos los goleadores deben estar registrados como participantes")
+        return
+      }
+    }
+    if (!partido.registrarParticipaciones && (partido.participaciones ?? []).length > 0) {
+      const historyKeys = new Set((partido.participaciones ?? []).map((p) => `${p.ladoMarcador}:${p.jugadorId}`))
+      const scorerOutsideHistory = allocations.some((item) => !historyKeys.has(`${item.ladoMarcador}:${item.jugadorId}`))
+      if (scorerOutsideHistory) {
+        toast.error("El goleador no está en el historial de participantes. Activa el registro de participantes para corregir la lista")
+        return
+      }
+    }
 
     let pl: number | null = null
     let pv: number | null = null
@@ -117,10 +145,11 @@ export default function ArbitroScreen() {
     }
 
     setSubmitting(true)
-    const payload = buildResultPayload({ expectedVersion: partido.version, golesLocal: gl, golesVisitante: gv, penalesLocal: pl, penalesVisitante: pv, estado: "FINALIZADO", allocations })
+    const payload = buildResultPayload({ expectedVersion: partido.version, golesLocal: gl, golesVisitante: gv, penalesLocal: pl, penalesVisitante: pv, estado: "FINALIZADO", allocations, notas, ...(partido.registrarParticipaciones ? { participaciones } : {}) })
     client.updateResult(payload)
       .then((updated) => {
         setPartido((current) => current ? { ...current, ...updated, anotaciones: payload.allocations } : current)
+        setNotas(updated.notas ?? "")
         setSubmitted(true)
         toast.success("Resultado guardado")
       })
@@ -134,6 +163,8 @@ export default function ArbitroScreen() {
             setPenalesLocal(fresh.penalesLocal == null ? "" : String(fresh.penalesLocal))
             setPenalesVisitante(fresh.penalesVisitante == null ? "" : String(fresh.penalesVisitante))
             setAllocations(allocationsFromAnnotations(fresh.anotaciones))
+            setParticipaciones(participacionesFromResponse(fresh.participaciones))
+            setNotas(fresh.notas ?? "")
           } catch {}
           toast.error("El partido cambió. Recargamos el resultado para que lo revises.")
           return
@@ -195,6 +226,12 @@ export default function ArbitroScreen() {
     padding: 0,
     opacity: finalized ? 0.7 : 1,
   }
+
+  const localScorers = buildScorerCandidates(partido.jugadoresLocal, partido.anotaciones ?? [], "LOCAL")
+  const visitorScorers = buildScorerCandidates(partido.jugadoresVisitante, partido.anotaciones ?? [], "VISITANTE")
+  const participantRecords = [...(partido.participaciones ?? []), ...(partido.anotaciones ?? [])]
+  const localParticipants = buildScorerCandidates(partido.jugadoresLocal, participantRecords, "LOCAL")
+  const visitorParticipants = buildScorerCandidates(partido.jugadoresVisitante, participantRecords, "VISITANTE")
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
@@ -260,7 +297,11 @@ export default function ArbitroScreen() {
             </View>
           </View>
 
-          <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, Number(localGoals) || 0)} visitorScore={Math.max(0, Number(visitorGoals) || 0)} localPlayers={partido.jugadoresLocal} visitorPlayers={partido.jugadoresVisitante} allocations={allocations} onChange={setAllocations} disabled={finalized || submitting} />
+          {partido.registrarParticipaciones || (partido.participaciones ?? []).length > 0 ? (
+            <ParticipacionEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localPlayers={localParticipants} visitorPlayers={visitorParticipants} participaciones={participaciones} onChange={handleParticipacionesChange} disabled={finalized || submitting} readOnly={!partido.registrarParticipaciones} expanded={expandedSection === "participantes"} onToggle={() => toggleSection("participantes")} />
+          ) : null}
+
+          <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, Number(localGoals) || 0)} visitorScore={Math.max(0, Number(visitorGoals) || 0)} localPlayers={localScorers} visitorPlayers={visitorScorers} allocations={allocations} onChange={setAllocations} disabled={finalized || submitting} participantes={participaciones} limitToParticipantes={partido.registrarParticipaciones} expanded={expandedSection === "goleadores"} onToggle={() => toggleSection("goleadores")} />
 
           {showPenales ? (
             <View style={{ backgroundColor: Palette.warning10, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.warning, padding: Pad.md, gap: Gap.md }}>
@@ -275,6 +316,27 @@ export default function ArbitroScreen() {
               </View>
             </View>
           ) : null}
+
+          <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.md, gap: Gap.sm }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+                <MaterialIcons name="notes" size={18} color={Palette.textMuted} />
+                <Text style={{ color: Palette.text, fontSize: 13, fontFamily: Fonts.semiBold }}>Notas del partido</Text>
+              </View>
+              <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans }}>{notas.length}/1000</Text>
+            </View>
+            <TextInput
+              accessibilityLabel="Notas del partido"
+              style={{ minHeight: 72, borderRadius: Radius.md, borderWidth: 1, borderColor: finalized ? Palette.border : Palette.borderActive, backgroundColor: Palette.black, color: Palette.text, fontSize: 13, fontFamily: Fonts.sans, padding: Pad.sm, textAlignVertical: "top" }}
+              multiline
+              editable={!finalized}
+              value={finalized ? (partido.notas ?? "") : notas}
+              onChangeText={setNotas}
+              maxLength={1000}
+              placeholder="Notas internas para el dueño y el árbitro..."
+              placeholderTextColor={Palette.textMuted}
+            />
+          </View>
 
           {finalized ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.success10, borderRadius: Radius.lg, padding: Pad.md }}>

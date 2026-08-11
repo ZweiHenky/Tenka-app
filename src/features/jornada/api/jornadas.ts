@@ -1,5 +1,5 @@
 import { api } from "@/infrastructure/api/client"
-import type { PartidoAnotacion } from "@/features/partido/scoring"
+import type { PartidoAnotacion, PartidoParticipacion } from "@/features/partido/scoring"
 
 export interface JornadaResponse {
   id: string
@@ -25,6 +25,7 @@ export interface PartidoResponse {
   tipoPartido?: 'REGULAR' | 'AMISTOSO' | 'COMPLEMENTO' | 'ELIMINATORIA'
   exhibicionLocal?: boolean
   exhibicionVisitante?: boolean
+  notas?: string | null
   jornadaId: string | null
   equipoLocalId: string | null
   equipoVisitanteId: string | null
@@ -34,6 +35,7 @@ export interface PartidoResponse {
   cancha?: { id: string; nombre: string } | null
   arbitros?: { id: string; nombre: string }[]
   anotaciones?: PartidoAnotacion[]
+  participaciones?: PartidoParticipacion[]
 }
 
 interface ApiRes<T> {

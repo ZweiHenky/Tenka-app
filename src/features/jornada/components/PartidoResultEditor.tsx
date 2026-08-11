@@ -8,7 +8,8 @@ import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { useToast } from "@/shared/components/Toast"
 import { getPlayoffFinalizationError } from "@/shared/utils/playoff-finalization"
 import ScorerAllocationEditor from "@/features/partido/components/ScorerAllocationEditor"
-import { allocationsFromAnnotations, hasValidAllocations, isResultEditable, type ScorerAllocation, type ScorerCandidate } from "@/features/partido/scoring"
+import ParticipacionEditor from "@/features/partido/components/ParticipacionEditor"
+import { allocationsFromAnnotations, hasValidAllocations, isResultEditable, participacionesFromResponse, type ParticipacionInput, type ScorerAllocation, type ScorerCandidate } from "@/features/partido/scoring"
 
 const ESTADO_LABELS: Record<string, string> = {
   PROGRAMADO: "Programado",
@@ -28,7 +29,7 @@ const ACTION_HELP: { icon: keyof typeof MaterialIcons.glyphMap; title: string; d
   { icon: "check-circle", title: "Finalizar partido", description: "Guarda el resultado final y, cuando corresponde, actualiza la tabla de posiciones.", color: Palette.cyan, background: Palette.cyan10 },
   { icon: "pause-circle-outline", title: "Suspender", description: "Marca el partido como suspendido para que no cuente en la tabla.", color: Palette.danger, background: Palette.danger10 },
   { icon: "replay", title: "Reabrir", description: "Regresa el partido a programado y limpia el resultado para poder corregirlo.", color: Palette.cyan, background: Palette.cyan10 },
-  { icon: "flag", title: "Penales", description: "Aparecen en empates no amistosos para definir un ganador.", color: Palette.warning, background: Palette.warning10 },
+  { icon: "flag", title: "Penales", description: "Aparecen en eliminatorias y cuando la división los usa para resolver empates.", color: Palette.warning, background: Palette.warning10 },
 ]
 
 function secondaryActions(estado: string | null): { label: string; targetEstado: string; icon: keyof typeof MaterialIcons.glyphMap }[] {
@@ -46,15 +47,19 @@ function secondaryActions(estado: string | null): { label: string; targetEstado:
 interface Props {
   partido: PartidoResponse
   isUpdating: boolean
-  onSave: (golesLocal: number, golesVisitante: number, estado: string, anotaciones: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number, tipoPartido?: string) => void
+  registrarParticipaciones?: boolean
+  usarPenalesEnEmpates?: boolean
+  onSave: (golesLocal: number, golesVisitante: number, estado: string, anotaciones: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number, tipoPartido?: string, participaciones?: ParticipacionInput[], notas?: string | null) => void
   onReplaceTeam?: (side: "local" | "visitor") => void
   canReplaceTeams?: boolean
   multiplesCanchas?: boolean
   localPlayers?: ScorerCandidate[]
   visitorPlayers?: ScorerCandidate[]
+  localParticipantPlayers?: ScorerCandidate[]
+  visitorParticipantPlayers?: ScorerCandidate[]
 }
 
-function PartidoResultEditorForm({ partido, isUpdating, onSave, onReplaceTeam, canReplaceTeams = false, multiplesCanchas = false, localPlayers = [], visitorPlayers = [] }: Props) {
+function PartidoResultEditorForm({ partido, isUpdating, registrarParticipaciones = false, usarPenalesEnEmpates = true, onSave, onReplaceTeam, canReplaceTeams = false, multiplesCanchas = false, localPlayers = [], visitorPlayers = [], localParticipantPlayers = localPlayers, visitorParticipantPlayers = visitorPlayers }: Props) {
   const toast = useToast()
   const arbitros = partido.arbitros?.map((arbitro) => arbitro.nombre).filter(Boolean).join(", ") ?? ""
   const [golesLocal, setGolesLocal] = useState(() => partido.estado === "PROGRAMADO" || !partido.estado ? "" : String(partido.golesLocal))
@@ -64,6 +69,15 @@ function PartidoResultEditorForm({ partido, isUpdating, onSave, onReplaceTeam, c
   const [actionHelpOpen, setActionHelpOpen] = useState(false)
   const [correcting, setCorrecting] = useState(false)
   const [allocations, setAllocations] = useState<ScorerAllocation[]>(() => allocationsFromAnnotations(partido.anotaciones))
+  const [participaciones, setParticipaciones] = useState<ParticipacionInput[]>(() => participacionesFromResponse(partido.participaciones))
+  const [notas, setNotas] = useState(() => partido.notas ?? "")
+  const hasParticipantes = registrarParticipaciones || (partido.participaciones ?? []).length > 0
+  const [expandedSection, setExpandedSection] = useState<"participantes" | "goleadores" | null>(hasParticipantes ? "participantes" : "goleadores")
+  const toggleSection = (section: "participantes" | "goleadores") => setExpandedSection((current) => (current === section ? null : section))
+
+  const handleParticipacionesChange = (next: ParticipacionInput[]) => {
+    setParticipaciones(next)
+  }
 
   const parseGoles = () => {
     const gl = parseInt(golesLocal, 10)
@@ -96,9 +110,26 @@ function PartidoResultEditorForm({ partido, isUpdating, onSave, onReplaceTeam, c
       toast.error("Los goles asignados no pueden superar el marcador")
       return
     }
+    if (registrarParticipaciones) {
+      const unnamedScorer = allocations.some((item) => !participaciones.some((p) => p.ladoMarcador === item.ladoMarcador && p.jugadorId === item.jugadorId))
+      if (unnamedScorer) {
+        toast.error("Todos los goleadores deben estar registrados como participantes")
+        return
+      }
+    }
+    if (!registrarParticipaciones && (partido.participaciones ?? []).length > 0) {
+      const historyKeys = new Set((partido.participaciones ?? []).map((p) => `${p.ladoMarcador}:${p.jugadorId}`))
+      const scorerOutsideHistory = allocations.some((item) => !historyKeys.has(`${item.ladoMarcador}:${item.jugadorId}`))
+      if (scorerOutsideHistory) {
+        toast.error("El goleador no está en el historial de participantes. Activa el registro de participantes para corregir la lista")
+        return
+      }
+    }
     const penales = parsePenales()
 
-    if (parsed.gl === parsed.gv && partido.tipoPartido !== "AMISTOSO") {
+    const requierePenales = parsed.gl === parsed.gv
+      && (partido.tipoPartido === "ELIMINATORIA" || (partido.tipoPartido !== "AMISTOSO" && usarPenalesEnEmpates))
+    if (requierePenales) {
       if (penales?.pl == null || penales?.pv == null) {
         toast.error("Ingresa los penales para definir al ganador")
         return
@@ -109,7 +140,7 @@ function PartidoResultEditorForm({ partido, isUpdating, onSave, onReplaceTeam, c
       }
     }
 
-    onSave(parsed.gl, parsed.gv, "FINALIZADO", allocations, penales?.pl ?? undefined, penales?.pv ?? undefined, partido.tipoPartido)
+    onSave(parsed.gl, parsed.gv, "FINALIZADO", allocations, requierePenales ? (penales?.pl ?? undefined) : undefined, requierePenales ? (penales?.pv ?? undefined) : undefined, partido.tipoPartido, registrarParticipaciones ? participaciones : undefined, notas)
   }
 
   const handleSecondary = (targetEstado: string) => {
@@ -128,6 +159,8 @@ function PartidoResultEditorForm({ partido, isUpdating, onSave, onReplaceTeam, c
     const gv = parseInt(golesVisitante, 10)
     return !isNaN(gl) && !isNaN(gv) && gl === gv
   })()
+  const mostrarPenales = golesIguales
+    && (partido.tipoPartido === "ELIMINATORIA" || (partido.tipoPartido !== "AMISTOSO" && usarPenalesEnEmpates))
 
   const estado = partido.estado ?? "PROGRAMADO"
   const estadoLabel = ESTADO_LABELS[estado] ?? estado
@@ -237,9 +270,13 @@ function PartidoResultEditorForm({ partido, isUpdating, onSave, onReplaceTeam, c
           </View>
         </View>
 
-        <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, parseInt(golesLocal, 10) || 0)} visitorScore={Math.max(0, parseInt(golesVisitante, 10) || 0)} localPlayers={localPlayers} visitorPlayers={visitorPlayers} allocations={allocations} onChange={setAllocations} disabled={inputsDisabled || isUpdating} />
+        {hasParticipantes ? (
+          <ParticipacionEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localPlayers={localParticipantPlayers} visitorPlayers={visitorParticipantPlayers} participaciones={participaciones} onChange={handleParticipacionesChange} disabled={inputsDisabled || isUpdating} readOnly={!registrarParticipaciones} expanded={expandedSection === "participantes"} onToggle={() => toggleSection("participantes")} />
+        ) : null}
 
-        {golesIguales && partido.tipoPartido !== "AMISTOSO" ? (
+        <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, parseInt(golesLocal, 10) || 0)} visitorScore={Math.max(0, parseInt(golesVisitante, 10) || 0)} localPlayers={localPlayers} visitorPlayers={visitorPlayers} allocations={allocations} onChange={setAllocations} disabled={inputsDisabled || isUpdating} participantes={participaciones} limitToParticipantes={registrarParticipaciones} expanded={expandedSection === "goleadores"} onToggle={() => toggleSection("goleadores")} />
+
+        {mostrarPenales ? (
           <View style={{ backgroundColor: Palette.warning10, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.warning, padding: Pad.md, gap: Gap.md }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
               <MaterialIcons name="flag" size={18} color={Palette.warning} />
@@ -275,6 +312,27 @@ function PartidoResultEditorForm({ partido, isUpdating, onSave, onReplaceTeam, c
             </View>
           </View>
         ) : null}
+
+        <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.md, gap: Gap.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+              <MaterialIcons name="notes" size={18} color={Palette.textMuted} />
+              <Text style={{ color: Palette.text, fontSize: 13, fontFamily: Fonts.semiBold }}>Notas del partido</Text>
+            </View>
+            <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans }}>{notas.length}/1000</Text>
+          </View>
+          <TextInput
+            accessibilityLabel="Notas del partido"
+            style={{ minHeight: 72, borderRadius: Radius.md, borderWidth: 1, borderColor: inputsDisabled ? Palette.border : Palette.borderActive, backgroundColor: Palette.black, color: Palette.text, fontSize: 13, fontFamily: Fonts.sans, padding: Pad.sm, textAlignVertical: "top" }}
+            multiline
+            editable={!inputsDisabled}
+            value={notas}
+            onChangeText={setNotas}
+            maxLength={1000}
+            placeholder="Notas internas para el dueño y el árbitro..."
+            placeholderTextColor={Palette.textMuted}
+          />
+        </View>
 
         <View style={{ gap: Gap.sm }}>
           {!isFinalizado || correcting ? (
@@ -345,6 +403,6 @@ function PartidoResultEditorForm({ partido, isUpdating, onSave, onReplaceTeam, c
 
 export default function PartidoResultEditor(props: Props) {
   const { partido } = props
-  const resultKey = `${partido.id}:${partido.version ?? ""}:${partido.estado ?? ""}:${partido.golesLocal}:${partido.golesVisitante}:${partido.penalesLocal ?? ""}:${partido.penalesVisitante ?? ""}:${JSON.stringify(partido.anotaciones ?? [])}`
+  const resultKey = `${partido.id}:${partido.version ?? ""}:${partido.estado ?? ""}:${partido.golesLocal}:${partido.golesVisitante}:${partido.penalesLocal ?? ""}:${partido.penalesVisitante ?? ""}:${partido.notas ?? ""}:${JSON.stringify(partido.anotaciones ?? [])}:${JSON.stringify(partido.participaciones ?? [])}`
   return <PartidoResultEditorForm key={resultKey} {...props} />
 }

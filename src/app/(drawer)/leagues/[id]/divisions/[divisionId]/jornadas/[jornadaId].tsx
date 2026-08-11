@@ -22,9 +22,11 @@ import { useLeague } from "@/features/league/hooks/useLeagues"
 import { useToast } from "@/shared/components/Toast"
 import { authClient } from "@/infrastructure/auth/client"
 import { toLocalDateKey } from "@/shared/utils/date-time"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 export default function JornadaDetailScreen() {
   const toast = useToast()
+  const guard = useNavGuard()
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
   const { id, divisionId, jornadaId } = useLocalSearchParams<{ id: string; divisionId: string; jornadaId: string }>()
@@ -193,7 +195,7 @@ export default function JornadaDetailScreen() {
 
   const handlePartidoPress = (partido: PartidoResponse) => {
     if (isTourActive && activeTourId === "jornada-detail-v1") endTour()
-    router.push(`/leagues/${id}/divisions/${divisionId}/partidos/${partido.id}`)
+    guard(() => router.push(`/leagues/${id}/divisions/${divisionId}/partidos/${partido.id}`))
   }
 
   const handleDownloadPdf = async () => {

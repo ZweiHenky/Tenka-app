@@ -1,7 +1,8 @@
-import { useState, useCallback } from "react"
-import { View, Text, TextInput, TouchableOpacity, Image, ActivityIndicator, Alert } from "react-native"
+import { useState, useCallback, useMemo, useRef, useEffect } from "react"
+import { View, Text, TextInput, TouchableOpacity, Image, ActivityIndicator, BackHandler } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
-import { useLocalSearchParams, router } from "expo-router"
+import { useLocalSearchParams, router, useNavigation } from "expo-router"
+import type { NavigationAction } from "expo-router/build/react-navigation"
 import * as ImagePicker from "expo-image-picker"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { api } from "@/infrastructure/api/client"
@@ -15,6 +16,7 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import { AuthGate } from "@/shared/components/AuthGate"
+import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import { canCreateLeague, type UserRole } from "@/domain/interfaces/user"
 import type { CreateLeagueInput } from "@/domain/interfaces/league"
 import { createCourtDrafts, toCourtPayload, validateCourtConfig, type CourtDraft } from "@/features/league/utils/court-config"
@@ -24,6 +26,19 @@ let nextCourtKey = 0
 function newCourt(): CourtDraft {
   nextCourtKey += 1
   return { key: `new-court-${nextCourtKey}`, nombre: "", activa: true }
+}
+
+let nextRuleKey = 0
+
+function newRule(): RuleDraft {
+  nextRuleKey += 1
+  return { key: `new-rule-${nextRuleKey}`, titulo: "", detalle: "" }
+}
+
+interface RuleDraft {
+  key: string
+  titulo: string
+  detalle: string
 }
 
 interface FormState {
@@ -37,6 +52,7 @@ interface FormState {
   canchas: CourtDraft[]
   usaArbitros: boolean
   arbitroNombres: string[]
+  reglas: RuleDraft[]
   ubicacionId: string
   ubicacionTexto: string
   ubicacionLat: string
@@ -44,6 +60,29 @@ interface FormState {
   ubicacionEstado: string
   ubicacionMunicipio: string
   ubicacionNombreCompleto: string
+}
+
+function normalizeForm(form: FormState) {
+  return {
+    nombre: form.nombre,
+    descripcion: form.descripcion,
+    logo: form.logo,
+    logoAssetId: form.logoAssetId,
+    cancha: form.cancha,
+    coverAssetId: form.coverAssetId,
+    multiplesCanchas: form.multiplesCanchas,
+    canchas: form.canchas,
+    usaArbitros: form.usaArbitros,
+    arbitroNombres: form.arbitroNombres,
+    reglas: form.reglas.map(({ titulo, detalle }) => ({ titulo, detalle })),
+    ubicacionId: form.ubicacionId,
+    ubicacionTexto: form.ubicacionTexto,
+    ubicacionLat: form.ubicacionLat,
+    ubicacionLng: form.ubicacionLng,
+    ubicacionEstado: form.ubicacionEstado,
+    ubicacionMunicipio: form.ubicacionMunicipio,
+    ubicacionNombreCompleto: form.ubicacionNombreCompleto,
+  }
 }
 
 const EMPTY_FORM: FormState = {
@@ -57,6 +96,7 @@ const EMPTY_FORM: FormState = {
   canchas: [],
   usaArbitros: false,
   arbitroNombres: [""],
+  reglas: [],
   ubicacionId: "",
   ubicacionTexto: "",
   ubicacionLat: "",
@@ -97,6 +137,7 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
           }
           return nombres.length > 0 ? nombres : [""]
         })(),
+        reglas: league.reglas?.map((regla) => ({ key: `rule-${nextRuleKey++}`, titulo: regla.titulo, detalle: regla.detalle })) ?? [],
         ubicacionId: league.ubicacionId,
         ubicacionTexto: league.ubicacion?.nombreCompleto ?? lookups.ubicaciones.find((u) => u.id === league.ubicacionId)?.nombreCompleto ?? "",
         ubicacionLat: "",
@@ -109,10 +150,21 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
     return EMPTY_FORM
   }
 
-  const [form, setForm] = useState<FormState>(initForm)
+  const [initialForm] = useState<FormState>(initForm)
+  const [form, setForm] = useState<FormState>(initialForm)
   const [showLocationPicker, setShowLocationPicker] = useState(false)
   const [picked, setPicked] = useState<Record<string, { uri: string; fileSize: number | null; mimeType: string | null }>>({})
   const [saving, setSaving] = useState(false)
+  const [nombreError, setNombreError] = useState<string | null>(null)
+  const [showDiscard, setShowDiscard] = useState(false)
+  const [showDisableArbitros, setShowDisableArbitros] = useState(false)
+  const navigation = useNavigation()
+  const pendingActionRef = useRef<NavigationAction | null>(null)
+  const allowLeaveRef = useRef(false)
+
+  const dirty = useMemo(() => {
+    return JSON.stringify(normalizeForm(form)) !== JSON.stringify(normalizeForm(initialForm)) || !!picked.logo || !!picked.cancha
+  }, [form, initialForm, picked])
 
   const handleSave = async () => {
     if (!form.nombre.trim()) { toast.error("El nombre es obligatorio"); return }
@@ -127,6 +179,26 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
     }
     if (new Set(arbitroNombres.map((n) => n.toLocaleLowerCase())).size !== arbitroNombres.length) {
       toast.error("Los nombres de los árbitros no pueden repetirse")
+      return
+    }
+
+    const reglas = form.reglas
+      .map((regla) => ({ titulo: regla.titulo.trim(), detalle: regla.detalle.trim() }))
+      .filter((regla) => regla.titulo || regla.detalle)
+    if (reglas.some((regla) => !regla.titulo)) {
+      toast.error("Cada regla necesita un título")
+      return
+    }
+    if (reglas.some((regla) => !regla.detalle)) {
+      toast.error("Cada regla necesita un detalle")
+      return
+    }
+    if (reglas.length > 30) {
+      toast.error("Máximo 30 reglas o directivas")
+      return
+    }
+    if (new Set(reglas.map((regla) => regla.titulo.toLocaleLowerCase())).size !== reglas.length) {
+      toast.error("Los títulos de las reglas no pueden repetirse")
       return
     }
 
@@ -173,6 +245,7 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
         canchas: toCourtPayload(form.canchas),
         usaArbitros: form.usaArbitros,
         arbitros: form.usaArbitros && arbitroNombres.length > 0 ? arbitroNombres.map((nombre) => ({ nombre })) : undefined,
+        reglas: isEdit ? reglas : (reglas.length > 0 ? reglas : undefined),
         ubicacionId,
       }
 
@@ -183,37 +256,48 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
         await createLeague.mutateAsync(payload)
         toast.success("Liga creada")
       }
+      allowLeaveRef.current = true
       router.back()
     } catch (e: any) {
       for (const id of uploadedAssets) { await api.post(`/api/media/${id}/abandon`).catch(() => undefined) }
-      toast.error(e.message || "Error al guardar")
+      if (e?.response?.status === 409) {
+        setNombreError("Ya existe una liga con ese nombre")
+        toast.error("Ya existe una liga con ese nombre")
+      } else {
+        setNombreError(null)
+        toast.error(e.message || "Error al guardar")
+      }
     } finally {
       setSaving(false)
     }
   }
 
   const handleBack = useCallback(() => {
-    const dirty = Object.entries(form).some(([k, v]) => {
-      if (k === "nombre") return v !== (isEdit ? league.nombre : "")
-      if (k === "descripcion") return v !== (isEdit ? league.descripcion : "")
-      if (k.startsWith("ubicacion")) return v !== ""
-      if (k === "logo") return v !== (isEdit ? (league.logo || "") : "")
-      if (k === "cancha") return v !== (isEdit ? (league.cancha || "") : "")
-      if (k === "multiplesCanchas") return v !== (isEdit ? league.multiplesCanchas ?? false : false)
-      if (k === "canchas") return JSON.stringify(v) !== JSON.stringify(isEdit ? createCourtDrafts(league.canchas) : [])
-      if (k === "usaArbitros") return v !== (isEdit ? league.usaArbitros ?? false : false)
-      if (k === "arbitroNombres") return JSON.stringify(v) !== JSON.stringify(isEdit ? ((league.arbitros?.length ? league.arbitros.map((arbitro) => arbitro.nombre) : [""])) : [""])
-      return v !== ""
-    }) || !!picked.logo || !!picked.cancha
     if (dirty) {
-      Alert.alert("Descartar cambios", "¿Seguro que quieres salir? Los cambios no guardados se perderán.", [
-        { text: "Seguir editando", style: "cancel" },
-        { text: "Salir", style: "destructive", onPress: () => router.back() },
-      ])
+      setShowDiscard(true)
     } else {
       router.back()
     }
-  }, [form, isEdit, league, picked])
+  }, [dirty])
+
+  useEffect(() => {
+    const sub = navigation.addListener("beforeRemove", (e) => {
+      if (allowLeaveRef.current || !dirty) return
+      e.preventDefault()
+      pendingActionRef.current = e.data.action
+      setShowDiscard(true)
+    })
+    return sub
+  }, [navigation, dirty])
+
+  useEffect(() => {
+    if (!dirty) return
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setShowDiscard(true)
+      return true
+    })
+    return () => sub.remove()
+  }, [dirty])
 
   const pickImage = async (field: string, aspect: [number, number]) => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -240,13 +324,16 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
             <View>
               <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Nombre *</Text>
               <TextInput
-                style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.md, fontSize: 15, color: Palette.text }}
+                style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: nombreError ? Palette.danger : Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.md, fontSize: 15, color: Palette.text }}
                 placeholder="Ej: Apertura 2026"
                 placeholderTextColor={Palette.textMuted}
                 value={form.nombre}
-                onChangeText={(v) => setForm((p) => ({ ...p, nombre: v }))}
+                onChangeText={(v) => { setForm((p) => ({ ...p, nombre: v })); if (nombreError) setNombreError(null) }}
                 maxLength={20}
               />
+              {nombreError ? (
+                <Text style={{ color: Palette.danger, fontSize: 12, marginTop: 4 }}>{nombreError}</Text>
+              ) : null}
             </View>
             <View>
               <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>Descripción</Text>
@@ -406,14 +493,7 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
             <TouchableOpacity
               onPress={() => {
                 if (form.usaArbitros && form.arbitroNombres.some((n) => n.trim())) {
-                  Alert.alert(
-                    "Desactivar árbitros",
-                    "Los nombres se perderán. ¿Continuar?",
-                    [
-                      { text: "Cancelar", style: "cancel" },
-                      { text: "Sí", style: "destructive", onPress: () => setForm((p) => ({ ...p, usaArbitros: false, arbitroNombres: [""] })) },
-                    ]
-                  )
+                  setShowDisableArbitros(true)
                 } else {
                   setForm((p) => {
                     const usaArbitros = !p.usaArbitros
@@ -480,6 +560,57 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
           </View>
         </View>
 
+        <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
+          <View style={{ backgroundColor: Palette.cyan10, borderBottomWidth: 1, borderBottomColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.sm }}>
+            <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.cyan }}>Reglas y directivas</Text>
+          </View>
+          <View style={{ padding: Pad.base, gap: Gap.md }}>
+            {form.reglas.map((regla, index) => (
+              <View key={regla.key} style={{ gap: Gap.sm, padding: Pad.md, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surfaceLight }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: Gap.sm }}>
+                  <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.semiBold }}>Regla {index + 1}</Text>
+                  <TouchableOpacity
+                    onPress={() => setForm((p) => ({ ...p, reglas: p.reglas.filter((item) => item.key !== regla.key) }))}
+                    style={{ padding: Pad.sm }}
+                  >
+                    <Text style={{ color: Palette.danger, fontSize: 18, fontFamily: Fonts.bold }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+                <TextInput
+                  style={{ borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.md, fontSize: 15, color: Palette.text }}
+                  placeholder="Ej: Puntualidad"
+                  placeholderTextColor={Palette.textMuted}
+                  value={regla.titulo}
+                  onChangeText={(titulo) => setForm((p) => ({
+                    ...p,
+                    reglas: p.reglas.map((item) => item.key === regla.key ? { ...item, titulo } : item),
+                  }))}
+                  maxLength={60}
+                />
+                <TextInput
+                  style={{ borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.md, fontSize: 15, color: Palette.text, minHeight: 80, textAlignVertical: "top" }}
+                  placeholder="Detalle de la regla"
+                  placeholderTextColor={Palette.textMuted}
+                  multiline
+                  value={regla.detalle}
+                  onChangeText={(detalle) => setForm((p) => ({
+                    ...p,
+                    reglas: p.reglas.map((item) => item.key === regla.key ? { ...item, detalle } : item),
+                  }))}
+                  maxLength={500}
+                />
+              </View>
+            ))}
+            <TouchableOpacity
+              onPress={() => setForm((p) => ({ ...p, reglas: [...p.reglas, newRule()] }))}
+              style={{ paddingVertical: Pad.sm }}
+            >
+              <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>+ Agregar regla</Text>
+            </TouchableOpacity>
+            <Text style={{ color: Palette.textMuted, fontSize: 11 }}>Hasta 30 reglas o directivas. Los títulos deben ser únicos.</Text>
+          </View>
+        </View>
+
         <TouchableOpacity
           onPress={handleSave}
           disabled={saving}
@@ -511,6 +642,38 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
           }))
         }}
         onClose={() => setShowLocationPicker(false)}
+      />
+      <ConfirmationModal
+        visible={showDiscard}
+        title="Descartar cambios"
+        message="¿Seguro que quieres salir? Los cambios no guardados se perderán."
+        confirmLabel="Salir"
+        cancelLabel="Seguir editando"
+        variant="danger"
+        onConfirm={() => {
+          const action = pendingActionRef.current
+          pendingActionRef.current = null
+          allowLeaveRef.current = true
+          setShowDiscard(false)
+          requestAnimationFrame(() => {
+            if (action) navigation.dispatch(action)
+            else router.back()
+          })
+        }}
+        onClose={() => {
+          pendingActionRef.current = null
+          setShowDiscard(false)
+        }}
+      />
+      <ConfirmationModal
+        visible={showDisableArbitros}
+        title="Desactivar árbitros"
+        message="Los nombres se perderán. ¿Continuar?"
+        confirmLabel="Sí"
+        cancelLabel="Cancelar"
+        variant="danger"
+        onConfirm={() => { setShowDisableArbitros(false); setForm((p) => ({ ...p, usaArbitros: false, arbitroNombres: [""] })) }}
+        onClose={() => setShowDisableArbitros(false)}
       />
     </View>
   )

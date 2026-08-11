@@ -21,9 +21,11 @@ import { useToast } from "@/shared/components/Toast"
 import { canCreateLeague, type UserRole } from "@/domain/interfaces/user"
 import { userApi } from "@/features/users/api/users"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 export default function LeaguesScreen() {
   const toast = useToast()
+  const guard = useNavGuard()
   const { data: session, refetch: refetchSession } = authClient.useSession()
   const userId = session?.user?.id ?? ""
   const role = (session?.user as { rol?: UserRole } | undefined)?.rol
@@ -212,7 +214,7 @@ export default function LeaguesScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader
           title="Ligas"
-          rightActions={canCreate ? [{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/leagues/league-form" }), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
+          rightActions={canCreate ? [{ icon: "add", onPress: () => guard(() => router.push({ pathname: "/(drawer)/leagues/league-form" })), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
         />
         <LoadingScreen />
       </View>
@@ -224,7 +226,7 @@ export default function LeaguesScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader
           title="Ligas"
-          rightActions={canCreate ? [{ icon: "add", onPress: () => router.push({ pathname: "/(drawer)/leagues/league-form" }), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
+          rightActions={canCreate ? [{ icon: "add", onPress: () => guard(() => router.push({ pathname: "/(drawer)/leagues/league-form" })), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
         />
         <PullToRefresh scrollRef={scrollRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ paddingHorizontal: Pad.xl, paddingTop: Gap.base, paddingBottom: 48, gap: Gap.md }}>
@@ -269,8 +271,8 @@ export default function LeaguesScreen() {
                   logo={l.logo}
                   detailButtonRef={i === 0 ? detailBtnRef : undefined}
                   editButtonRef={i === 0 ? editBtnRef : undefined}
-                  onPress={(id) => router.push(`/(drawer)/leagues/${id}`)}
-                  onEdit={(id) => router.push({ pathname: "/(drawer)/leagues/league-form", params: { leagueId: id } })}
+                  onPress={(id) => guard(() => router.push(`/(drawer)/leagues/${id}`))}
+                  onEdit={(id) => guard(() => router.push({ pathname: "/(drawer)/leagues/league-form", params: { leagueId: id } }))}
                   onDelete={(id, nombre) => handleDelete(id, nombre)}
                 />
               )
