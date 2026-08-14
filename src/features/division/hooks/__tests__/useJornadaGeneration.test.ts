@@ -112,7 +112,7 @@ describe("useJornadaGeneration", () => {
   it("allows an odd schedule with a complemento slot", async () => {
     mocks.store.habilitados = { [divisionId]: ["a", "b", "c"] }
     mocks.store.schedules[divisionId] = {
-      slots: [{ id: "extra-1", fecha: "2026-07-27", horaInicio: "08:00", horaFin: "09:00", tipo: "complemento" }],
+      slots: [{ id: "extra-1", fecha: "2026-07-27", horaInicio: "08:00", horaFin: "09:00", tipo: "complemento", equipoLocalId: "c", equipoVisitanteId: "a" }],
     }
     const { result } = renderGeneration()
 
@@ -122,6 +122,19 @@ describe("useJornadaGeneration", () => {
       { divisionId, slots: preparedSlots, equipoIds: ["a", "b", "c"], descansoEquipoId: undefined, idempotencyKey: expect.stringMatching(/^jornada-/) },
       expect.any(Object),
     )
+  })
+
+  it("requires the Sin puntos team in a complemento", () => {
+    mocks.store.habilitados = { [divisionId]: ["a", "b", "c"] }
+    mocks.store.schedules[divisionId] = {
+      slots: [{ id: "extra-1", fecha: "2026-07-27", horaInicio: "08:00", horaFin: "09:00", tipo: "complemento", equipoLocalId: "c" }],
+    }
+    const { result } = renderGeneration()
+
+    act(() => { result.current.handleGenerateJornada() })
+
+    expect(mocks.error).toHaveBeenCalledWith("Asigna el equipo que repetirá partido sin puntos en el complemento")
+    expect(mocks.mutate).not.toHaveBeenCalled()
   })
 
   it("normalizes every slot to the latest fixed court before planning", async () => {

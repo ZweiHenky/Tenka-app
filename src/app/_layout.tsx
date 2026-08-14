@@ -1,6 +1,6 @@
 import "../../global.css"
 import { useEffect } from "react"
-import { LogBox, Pressable, Text, TextInput, View } from "react-native"
+import { Pressable, Text, TextInput, View } from "react-native"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
 import { KeyboardProvider } from "react-native-keyboard-controller"
 import { Stack, type ErrorBoundaryProps } from "expo-router"
@@ -18,9 +18,18 @@ import { NotificationBootstrap } from "@/infrastructure/notifications/Notificati
 
 SplashScreen.preventAutoHideAsync()
 
-LogBox.ignoreLogs(["InteractionManager has been deprecated"])
-
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+      retry: (failureCount, error) => {
+        const status = (error as { response?: { status?: number } })?.response?.status
+        return failureCount < 1 && (status === undefined || status >= 500)
+      },
+    },
+  },
+})
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (

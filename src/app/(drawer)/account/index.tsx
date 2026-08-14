@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { View, Text, TouchableOpacity, Image, ActivityIndicator, InteractionManager } from "react-native"
+import { View, Text, TouchableOpacity, Image, ActivityIndicator } from "react-native"
 import { router } from "expo-router"
 import { useQueryClient } from "@tanstack/react-query"
 import { authClient } from "@/infrastructure/auth/client"
@@ -11,6 +11,7 @@ import PullToRefresh from "@/shared/components/PullToRefresh"
 import { useToast } from "@/shared/components/Toast"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { waitForIdle } from "@/shared/utils/wait-for-idle"
 
 export default function ProfileScreen() {
   const guard = useNavGuard()
@@ -28,7 +29,7 @@ export default function ProfileScreen() {
     setSigningOut(true)
     try {
       router.replace("/(drawer)")
-      await new Promise<void>((resolve) => InteractionManager.runAfterInteractions(() => resolve()))
+      await waitForIdle()
 
       const { error } = await authClient.signOut()
       if (error) {
@@ -48,7 +49,7 @@ export default function ProfileScreen() {
     try {
       await userApi.activateLeagueRole()
       await refetchSession({ query: { disableCookieCache: true } })
-      qc.invalidateQueries()
+      qc.invalidateQueries({ queryKey: ["leagues"] })
       toast.success("Tu cuenta ya puede administrar ligas.")
     } catch (error) {
       toast.error(getAuthErrorMessage(error, "No se pudo activar el rol de liga."))

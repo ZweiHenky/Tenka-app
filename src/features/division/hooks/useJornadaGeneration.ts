@@ -49,7 +49,15 @@ export function useJornadaGeneration({
     }
 
     const oddCount = habilitados.length % 2 !== 0
-    const hasComplementoSlot = schedule.slots.some((slot) => slot.tipo === "complemento")
+    const complementoSlots = schedule.slots.filter((slot) => slot.tipo === "complemento")
+    const hasComplementoSlot = complementoSlots.length > 0
+    const incompleteComplemento = complementoSlots.find((slot) => !slot.equipoLocalId || !slot.equipoVisitanteId)
+    if (incompleteComplemento) {
+      if (!incompleteComplemento.equipoLocalId && !incompleteComplemento.equipoVisitanteId) toast.error("Asigna ambos equipos del partido de complemento antes de generar la jornada")
+      else if (!incompleteComplemento.equipoLocalId) toast.error("Asigna el equipo que gana puntos en el partido de complemento")
+      else toast.error("Asigna el equipo que repetirá partido sin puntos en el complemento")
+      return
+    }
     if (!playoffMode && oddCount && !hasComplementoSlot && !schedule.descansoEquipoId) {
       toast.error("Selecciona qué equipo descansa antes de generar la jornada")
       return
@@ -97,7 +105,8 @@ export function useJornadaGeneration({
     }
 
     const slotsParaJornada = prepareJornadaSlots(plannedSlots, habilitados, playoffMode)
-    const fingerprint = JSON.stringify({ slots: slotsParaJornada, equipoIds: [...habilitados].sort(), descansoEquipoId: schedule.descansoEquipoId ?? null })
+    const descansoEquipoId = hasComplementoSlot ? undefined : schedule.descansoEquipoId
+    const fingerprint = JSON.stringify({ slots: slotsParaJornada, equipoIds: [...habilitados].sort(), descansoEquipoId: descansoEquipoId ?? null })
     if (generationAttemptRef.current?.fingerprint !== fingerprint) {
       generationAttemptRef.current = {
         fingerprint,
@@ -112,7 +121,7 @@ export function useJornadaGeneration({
         divisionId,
         slots: slotsParaJornada,
         equipoIds: habilitados,
-        descansoEquipoId: schedule.descansoEquipoId,
+        descansoEquipoId,
         idempotencyKey: generationAttemptRef.current.key,
       },
       {

@@ -38,7 +38,7 @@ export default function PartidoDetailScreen() {
   const updateResult = useUpdatePartidoResult()
   const createLink = useCreateRefereeLink()
   const revokeLink = useRevokeRefereeLink()
-  const { data: linkStatus, isLoading: linkStatusLoading } = useRefereeLinkStatus(partidoId!)
+  const { data: linkStatus, isLoading: linkStatusLoading } = useRefereeLinkStatus(partidoId!, refereeExpanded)
   const { data: divisionLinks = [] } = useDivisionEquipos(divisionId!)
   const { data: teams = [] } = useTeams()
   const { data: jornada } = useQuery({ queryKey: ["jornada", partido?.jornadaId], queryFn: () => partido?.jornadaId ? jornadaApi.getById(partido.jornadaId) : Promise.reject(new Error("El partido no pertenece a una jornada")), enabled: !!partido?.jornadaId })
@@ -128,8 +128,9 @@ export default function PartidoDetailScreen() {
     )
   }
 
-  const linkExists = linkStatus?.exists ?? false
   const linkExpiresAt = linkStatus?.expiresAt ?? null
+  const linkExists = linkStatus?.exists === true
+  const linkStatusKnown = linkStatus !== undefined
   const divisionTeamIds = new Set(divisionLinks.map((link) => link.equipoId))
   const divisionTeams = teams.filter((team) => divisionTeamIds.has(team.id)).sort((a, b) => a.nombre.localeCompare(b.nombre))
   const currentTeam = replacementSide === "local" ? partido.equipoLocal : partido.equipoVisitante
@@ -167,7 +168,7 @@ export default function PartidoDetailScreen() {
               activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityState={{ expanded: refereeExpanded }}
-              accessibilityLabel={`Acceso del árbitro, ${linkExists ? "enlace activo" : "sin enlace"}`}
+              accessibilityLabel={`Acceso del árbitro, ${!linkStatusKnown ? "estado sin consultar" : linkExists ? "enlace activo" : "sin enlace"}`}
               onPress={() => setRefereeExpanded((expanded) => !expanded)}
               style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, padding: Pad.base }}
             >
@@ -177,7 +178,7 @@ export default function PartidoDetailScreen() {
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Acceso del árbitro</Text>
                 <Text style={{ color: linkExists ? Palette.success : Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans }}>
-                  {linkStatusLoading ? "Consultando enlace..." : linkExists ? "Enlace activo" : "Sin enlace compartido"}
+                  {linkStatusLoading ? "Consultando enlace..." : !linkStatusKnown ? "Consulta el estado al abrir" : linkExists ? "Enlace activo" : "Sin enlace compartido"}
                 </Text>
               </View>
               {linkStatusLoading ? (

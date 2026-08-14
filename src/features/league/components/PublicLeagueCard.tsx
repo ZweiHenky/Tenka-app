@@ -75,7 +75,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
   return (
     <TouchableOpacity activeOpacity={0.85} onPress={handleNav} style={{ borderRadius: Radius.lg, backgroundColor: Palette.surface, borderWidth: 1, borderColor: Palette.border, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.25, shadowRadius: 6 }}>
       <View style={{ position: "relative", overflow: "hidden", borderTopLeftRadius: Radius.lg, borderTopRightRadius: Radius.lg }}>
-        <Image source={l.cancha ? { uri: l.cancha } : require("@/assets/ejemplos/campo.jpg")} style={{ width: "100%", height: 160 }} resizeMode="cover" />
+        <Image source={l.cancha ? { uri: l.cancha } : require("@/assets/ejemplos/cancha.png")} style={{ width: "100%", height: 160 }} resizeMode="cover" />
         <LinearGradient
           colors={["rgba(0,0,0,0.20)", "rgba(0,0,0,0.90)"]}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}

@@ -8,6 +8,11 @@ interface ApiRes<T> {
   message?: string
 }
 
+interface PaginatedResponse<T> {
+  rows: T[]
+  total: number
+}
+
 export const jugadorApi = {
   getMe: () =>
     api.get<ApiRes<Jugador | null>>("/api/jugadores/me").then((r) => r.data.data ?? null),
@@ -21,11 +26,13 @@ export const jugadorApi = {
 
 
   list: (equipoId?: string) =>
-    api.get<ApiRes<Jugador[]>>(`/api/jugadores${equipoId ? `?equipoId=${equipoId}` : ""}`).then((r) => r.data.data!),
+    equipoId
+      ? api.get<ApiRes<Jugador[]>>(`/api/jugadores?equipoId=${equipoId}`).then((r) => r.data.data!)
+      : api.get<ApiRes<PaginatedResponse<Jugador>>>("/api/jugadores?page=1&limit=100").then((r) => r.data.data!.rows),
 
 
   search: (search: string) =>
-    api.get<ApiRes<Jugador[]>>(`/api/jugadores?search=${encodeURIComponent(search)}`).then((r) => r.data.data!),
+    api.get<ApiRes<PaginatedResponse<Jugador>>>(`/api/jugadores?search=${encodeURIComponent(search)}&page=1&limit=50`).then((r) => r.data.data!.rows),
 
 
   getById: (id: string) =>
@@ -44,7 +51,9 @@ export const jugadorApi = {
 
 
   assignToTeam: (data: { equipoId: string; jugadorId: string; dorsal: number }) =>
-    api.post<ApiRes<EquipoJugador>>("/api/jugadores/equipo", data).then((r) => r.data.data!),
+    withNetworkRetry(() =>
+      api.post<ApiRes<EquipoJugador>>("/api/jugadores/equipo", data).then((r) => r.data.data!),
+    ),
 
   findForTeam: (equipoId: string, telefono: string) =>
     withNetworkRetry(() =>

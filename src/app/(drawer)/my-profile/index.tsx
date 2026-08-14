@@ -59,7 +59,7 @@ function ProfileCard({ jugador }: { jugador: Jugador }) {
           source={
             jugador.foto
               ? { uri: jugador.foto }
-              : require("@/assets/ejemplos/logo.jpg")
+              : require("@/assets/ejemplos/logo.png")
           }
           style={{ width: 88, height: 88 }}
           resizeMode="cover"

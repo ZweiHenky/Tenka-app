@@ -59,7 +59,7 @@ export default function PlayerDetailScreen() {
         <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.xl, alignItems: "center", gap: Gap.md }}>
             <View style={{ width: 104, height: 104, borderRadius: Radius.full, overflow: "hidden", borderWidth: 2, borderColor: Palette.cyan, backgroundColor: Palette.surfaceLight }}>
-              <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 104, height: 104 }} resizeMode="cover" />
+              <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 104, height: 104 }} resizeMode="cover" />
             </View>
             <Text style={{ color: Palette.text, fontSize: 24, fontFamily: Fonts.displayBold, textAlign: "center" }}>{jugador.nombre}</Text>
             <Text style={{ color: Palette.cyan, fontFamily: Fonts.semiBold, fontSize: 14 }}>{formatPosicion(jugador.posicion)}{dorsal != null ? ` · #${dorsal}` : ""}</Text>

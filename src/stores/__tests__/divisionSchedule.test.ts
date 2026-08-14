@@ -428,6 +428,47 @@ describe('useDivisionScheduleStore', () => {
     })
   })
 
+  describe('syncSchedule', () => {
+    it('restores the first valid week from today when no jornadas remain', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(2026, 7, 12, 12, 0))
+      useDivisionScheduleStore.setState({
+        schedules: {
+          'div-sync': {
+            divisionId: 'div-sync',
+            refDate: '2026-08-31',
+            slots: [{ id: 'slot-0', fecha: '2026-08-31', horaInicio: '18:00', horaFin: '19:00', tipo: 'regular' }],
+          },
+        },
+      })
+
+      useDivisionScheduleStore.getState().syncSchedule('div-sync', null)
+
+      const schedule = useDivisionScheduleStore.getState().schedules['div-sync']
+      expect(schedule.refDate).toBe('2026-08-17')
+      expect(schedule.slots[0].fecha).toBe('2026-08-17')
+      vi.useRealTimers()
+    })
+
+    it('sets the exact week after the last remaining jornada', () => {
+      useDivisionScheduleStore.setState({
+        schedules: {
+          'div-sync': {
+            divisionId: 'div-sync',
+            refDate: '2026-08-31',
+            slots: [{ id: 'slot-0', fecha: '2026-08-31', horaInicio: '18:00', horaFin: '19:00', tipo: 'regular' }],
+          },
+        },
+      })
+
+      useDivisionScheduleStore.getState().syncSchedule('div-sync', '2026-08-17T00:01:00.000Z')
+
+      const schedule = useDivisionScheduleStore.getState().schedules['div-sync']
+      expect(schedule.refDate).toBe('2026-08-24')
+      expect(schedule.slots[0].fecha).toBe('2026-08-24')
+    })
+  })
+
   describe('initSchedule - reconstruction with plantilla', () => {
     it('reuses template when snapshots match', () => {
       // First call to create schedule
@@ -795,6 +836,48 @@ describe('useDivisionScheduleStore', () => {
       expect(next.slots.filter((slot) => slot.tipo === 'eliminatoria')).toHaveLength(1)
       expect(next.slots.filter((slot) => slot.tipo === 'amistoso')).toHaveLength(4)
       expect(new Set(next.slots.map((slot) => `${slot.fecha}-${slot.horaInicio}`)).size).toBe(4)
+    })
+  })
+
+  describe('setHabilitados rest normalization', () => {
+    it('clears rest for an even selection while preserving slot teams', () => {
+      const store = useDivisionScheduleStore.getState()
+      store.initSchedule('div-even-rest', 'L', '18:00 - 20:00', 60, 0, '2026-07-20', 2)
+      const slot = useDivisionScheduleStore.getState().schedules['div-even-rest'].slots[0]
+      store.setSlotTeams('div-even-rest', slot.id, 'team-a', 'team-b')
+      store.setDescansoEquipoId('div-even-rest', 'team-c')
+
+      store.setHabilitados('div-even-rest', ['team-a', 'team-b'])
+
+      const schedule = useDivisionScheduleStore.getState().schedules['div-even-rest']
+      expect(schedule.descansoEquipoId).toBeUndefined()
+      expect(schedule.slots[0]).toMatchObject({ equipoLocalId: 'team-a', equipoVisitanteId: 'team-b' })
+    })
+
+    it('clears rest when that team is no longer enabled', () => {
+      const store = useDivisionScheduleStore.getState()
+      store.initSchedule('div-stale-rest', 'L', '18:00 - 20:00', 60, 0, '2026-07-20', 2)
+      store.setDescansoEquipoId('div-stale-rest', 'team-c')
+
+      store.setHabilitados('div-stale-rest', ['team-a', 'team-b', 'team-d'])
+
+      expect(useDivisionScheduleStore.getState().schedules['div-stale-rest'].descansoEquipoId).toBeUndefined()
+    })
+  })
+
+  describe('complemento rest normalization', () => {
+    it('clears rest when a slot becomes complemento without changing its teams', () => {
+      const store = useDivisionScheduleStore.getState()
+      store.initSchedule('div-complement-rest', 'L', '18:00 - 20:00', 60, 0, '2026-07-20', 2)
+      const slot = useDivisionScheduleStore.getState().schedules['div-complement-rest'].slots[0]
+      store.setSlotTeams('div-complement-rest', slot.id, 'team-a', 'team-b')
+      store.setDescansoEquipoId('div-complement-rest', 'team-c')
+
+      store.setSlotTipo('div-complement-rest', slot.id, 'complemento')
+
+      const schedule = useDivisionScheduleStore.getState().schedules['div-complement-rest']
+      expect(schedule.descansoEquipoId).toBeUndefined()
+      expect(schedule.slots[0]).toMatchObject({ tipo: 'complemento', equipoLocalId: 'team-a', equipoVisitanteId: 'team-b' })
     })
   })
 

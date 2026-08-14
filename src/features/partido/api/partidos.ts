@@ -21,6 +21,7 @@ export interface PartidoResponse {
   equipoLocalId: string | null
   equipoVisitanteId: string | null
   canchaId: string | null
+  timeZone?: string
   equipoLocal?: { id: string; nombre: string; logo: string | null }
   equipoVisitante?: { id: string; nombre: string; logo: string | null }
   cancha?: { id: string; nombre: string } | null
@@ -42,6 +43,42 @@ export interface UpdateResultInput {
   notas?: string | null
 }
 
+export interface JornadaPartidoTeamOption {
+  id: string
+  nombre: string
+  pendiente: boolean
+}
+
+export interface JornadaPartidoSlotOption {
+  id: string
+  fecha: string
+  horaInicio: string
+  horaFin: string
+  canchaId: string | null
+  canchaNombre: string | null
+  equiposOcupados: string[]
+  canchaDisponible: boolean
+}
+
+export interface JornadaPartidoOptions {
+  equipos: JornadaPartidoTeamOption[]
+  pendientes: JornadaPartidoTeamOption[]
+  recomendacion: "REGULAR" | "COMPLEMENTO" | "MANUAL"
+  localSugeridoId: string | null
+  visitanteSugeridoId: string | null
+  slots: JornadaPartidoSlotOption[]
+}
+
+export interface CreateJornadaPartidoInput {
+  equipoLocalId: string
+  equipoVisitanteId: string
+  tipoPartido: "REGULAR" | "COMPLEMENTO"
+  fecha: string
+  horaInicio: string
+  horaFin: string
+  canchaId: string | null
+}
+
 interface ApiRes<T> {
   success: boolean
   data?: T
@@ -53,6 +90,10 @@ export const partidoApi = {
     api.get<ApiRes<PartidoResponse>>(`/api/partidos/${id}`).then((r) => r.data.data!),
   findByRondaPlayoff: (rondaPlayoffId: string) =>
     api.get<ApiRes<PartidoResponse[]>>(`/api/partidos/ronda-playoff/${rondaPlayoffId}`).then((r) => r.data.data!),
+  getJornadaCreationOptions: (jornadaId: string) =>
+    api.get<ApiRes<JornadaPartidoOptions>>(`/api/partidos/jornada/${jornadaId}/creation-options`).then((r) => r.data.data!),
+  createInJornada: (jornadaId: string, data: CreateJornadaPartidoInput, idempotencyKey: string) =>
+    api.post<ApiRes<PartidoResponse>>(`/api/partidos/jornada/${jornadaId}`, data, { headers: { "Idempotency-Key": idempotencyKey } }).then((r) => r.data.data!),
   update: (id: string, data: { golesLocal?: number; golesVisitante?: number; penalesLocal?: number | null; penalesVisitante?: number | null; estado?: string; tipoPartido?: string; equipoLocalId?: string; equipoVisitanteId?: string }) =>
     api.patch<ApiRes<PartidoResponse>>(`/api/partidos/${id}`, data).then((r) => r.data.data!),
   updateResult: (id: string, data: UpdateResultInput) =>

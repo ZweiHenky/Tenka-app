@@ -147,7 +147,7 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
                 style={{ flexDirection: "row", alignItems: "center", gap: Gap.base, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
               >
                 <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                  <Image source={pickedLogo?.uri ? { uri: pickedLogo.uri } : form.logo ? { uri: form.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
+                  <Image source={pickedLogo?.uri ? { uri: pickedLogo.uri } : form.logo ? { uri: form.logo } : require("@/assets/ejemplos/logo.png")} style={{ width: 48, height: 48 }} resizeMode="cover" />
                 </View>
                 <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar imagen</Text>
               </TouchableOpacity>

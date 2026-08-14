@@ -1,11 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { divisionEquipoApi } from "@/features/division-equipo/api/division-equipo"
 
-export function useDivisionEquipos(divisionId: string) {
+export function useDivisionEquipos(divisionId: string, enabled = true) {
   return useQuery({
     queryKey: ["division-equipos", divisionId],
     queryFn: () => divisionEquipoApi.findByDivision(divisionId),
-    enabled: !!divisionId,
+    enabled: enabled && !!divisionId,
     staleTime: 1000 * 30,
   })
 }

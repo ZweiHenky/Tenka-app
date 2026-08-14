@@ -2,7 +2,7 @@ import { Image, Text, View } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Fonts, Palette, Radius } from "@/constants/theme"
 
-const FALLBACK_LOGO = require("@/assets/ejemplos/logo.jpg")
+const FALLBACK_LOGO = require("@/assets/ejemplos/logo.png")
 
 interface LogoImageProps {
   uri?: string | null

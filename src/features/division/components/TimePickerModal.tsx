@@ -2,6 +2,7 @@ import { Text, ScrollView, TouchableOpacity } from "react-native"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
 import type { TimeSlotConfig } from "@/stores/divisionSchedule"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
+import { isTimeOccupied } from "@/features/division/utils/time-occupancy"
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number)
@@ -49,28 +50,10 @@ function generateTimeOptions(
   return options
 }
 
-function isOccupied(
-  time: { horaInicio: string; horaFin: string },
-  currentSlotId: string,
-  slots: TimeSlotConfig[],
-  fecha: string,
-): boolean {
-  const tStart = timeToMinutes(time.horaInicio)
-  const tEnd = timeToMinutes(time.horaFin)
-  return slots.some(
-    (sl) => {
-      if (sl.id === currentSlotId || sl.fecha !== fecha) return false
-      if (!sl.horaInicio || !sl.horaFin) return false
-      const sStart = timeToMinutes(sl.horaInicio)
-      const sEnd = timeToMinutes(sl.horaFin)
-      return tStart < sEnd && tEnd > sStart
-    },
-  )
-}
-
 interface Props {
   visible: boolean
   currentSlotId: string
+  currentCanchaId?: string
   fecha: string
   horarioPartido: string
   duracionPartido: number
@@ -83,6 +66,7 @@ interface Props {
 export default function TimePickerModal({
   visible,
   currentSlotId,
+  currentCanchaId,
   fecha,
   horarioPartido,
   duracionPartido,
@@ -97,7 +81,7 @@ export default function TimePickerModal({
     <AppBottomSheetModal visible={visible} onClose={onClose} title="Elegir horario" snapPoints={["70%"]}>
           <ScrollView>
             {options.map((opt) => {
-              const taken = isOccupied(opt, currentSlotId, slots, fecha)
+              const taken = isTimeOccupied(opt, currentSlotId, slots, fecha, currentCanchaId)
               return (
                 <TouchableOpacity
                   key={opt.horaInicio}

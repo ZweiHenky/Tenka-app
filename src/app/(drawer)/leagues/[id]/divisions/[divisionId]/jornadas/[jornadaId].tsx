@@ -23,6 +23,7 @@ import { useToast } from "@/shared/components/Toast"
 import { authClient } from "@/infrastructure/auth/client"
 import { toLocalDateKey } from "@/shared/utils/date-time"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import AddJornadaPartidoSheet from "@/features/partido/components/AddJornadaPartidoSheet"
 
 export default function JornadaDetailScreen() {
   const toast = useToast()
@@ -34,6 +35,7 @@ export default function JornadaDetailScreen() {
   const { data: session } = authClient.useSession()
   const { data: league } = useLeague(id ?? "")
   const division = league?.divisiones?.find((item) => item.id === divisionId)
+  const canManage = (session?.user as { rol?: string } | undefined)?.rol === "ADMINISTRADOR" || session?.user?.id === league?.userId
   const { startTour, endTour, isActive: isTourActive, activeTourId } = useTourGuide()
 
   const { data: jornada, isLoading, error, refetch } = useQuery({
@@ -43,6 +45,7 @@ export default function JornadaDetailScreen() {
   })
 
   const [refreshing, setRefreshing] = useState(false)
+  const [addingPartido, setAddingPartido] = useState(false)
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>()
   const summaryRef = useRef<any>(null)
   const dayHeaderRef = useRef<any>(null)
@@ -122,7 +125,7 @@ export default function JornadaDetailScreen() {
           id: "jornada-detail-summary",
           targetRef: summaryRef,
           title: "Resumen de la jornada",
-          description: "Consulta cuántos partidos tiene la jornada y usa el botón PDF para compartir su programación.",
+          description: "Agrega partidos y usa el botón PDF para compartir la programación de la jornada.",
           spotlightPadding: 8,
           tooltipPosition: "bottom",
         },
@@ -266,7 +269,12 @@ export default function JornadaDetailScreen() {
               <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.display }}>Jornada {jornada.numero}</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-              {jornada.partidos ? <Text style={{ color: Palette.textMuted, fontSize: 13 }}>{jornada.partidos.length} partidos</Text> : null}
+              {canManage ? (
+                <TouchableOpacity onPress={() => setAddingPartido(true)} style={{ height: 32, paddingHorizontal: Pad.md, borderRadius: Radius.full, backgroundColor: Palette.cyan20, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: Gap.micro }}>
+                  <MaterialIcons name="add" size={18} color={Palette.cyan} />
+                  <Text style={{ color: Palette.cyan, fontFamily: Fonts.semiBold, fontSize: 12 }}>Partido</Text>
+                </TouchableOpacity>
+              ) : null}
               {jornada.partidos && jornada.partidos.length > 0 ? (
                 <TouchableOpacity onPress={handleDownloadPdf} style={{ width: 32, height: 32, borderRadius: Radius.full, backgroundColor: Palette.cyan20, alignItems: "center", justifyContent: "center" }}>
                   <MaterialIcons name="picture-as-pdf" size={18} color={Palette.cyan} />
@@ -320,6 +328,7 @@ export default function JornadaDetailScreen() {
           </View>
           </View>
         </PullToRefresh>
+        {canManage && addingPartido ? <AddJornadaPartidoSheet visible jornadaId={jornadaId!} divisionId={divisionId!} onClose={() => setAddingPartido(false)} /> : null}
       </View>
     </AuthGate>
   )

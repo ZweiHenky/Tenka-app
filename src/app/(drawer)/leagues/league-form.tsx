@@ -157,7 +157,6 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
   const [saving, setSaving] = useState(false)
   const [nombreError, setNombreError] = useState<string | null>(null)
   const [showDiscard, setShowDiscard] = useState(false)
-  const [showDisableArbitros, setShowDisableArbitros] = useState(false)
   const navigation = useNavigation()
   const pendingActionRef = useRef<NavigationAction | null>(null)
   const allowLeaveRef = useRef(false)
@@ -383,7 +382,7 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
                 style={{ flexDirection: "row", alignItems: "center", gap: Gap.base, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
               >
                 <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                  <Image source={picked.logo?.uri ? { uri: picked.logo.uri } : form.logo ? { uri: form.logo } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
+                  <Image source={picked.logo?.uri ? { uri: picked.logo.uri } : form.logo ? { uri: form.logo } : require("@/assets/ejemplos/logo.png")} style={{ width: 48, height: 48 }} resizeMode="cover" />
                 </View>
                 <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar imagen</Text>
               </TouchableOpacity>
@@ -396,7 +395,7 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
                 style={{ flexDirection: "row", alignItems: "center", gap: Gap.base, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
               >
                 <View style={{ width: 64, height: 48, borderRadius: Radius.md, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                  <Image source={picked.cancha?.uri ? { uri: picked.cancha.uri } : form.cancha ? { uri: form.cancha } : require("@/assets/ejemplos/campo.jpg")} style={{ width: 64, height: 48 }} resizeMode="cover" />
+                  <Image source={picked.cancha?.uri ? { uri: picked.cancha.uri } : form.cancha ? { uri: form.cancha } : require("@/assets/ejemplos/cancha.png")} style={{ width: 64, height: 48 }} resizeMode="cover" />
                 </View>
                 <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar imagen</Text>
               </TouchableOpacity>
@@ -480,81 +479,6 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
                   <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>+ Agregar cancha</Text>
                 </TouchableOpacity>
                 <Text style={{ color: Palette.textMuted, fontSize: 11 }}>Se requieren al menos 2 canchas activas con nombres únicos. Las canchas inactivas se conservan para el historial.</Text>
-              </>
-            )}
-          </View>
-        </View>
-
-        <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
-          <View style={{ backgroundColor: Palette.cyan10, borderBottomWidth: 1, borderBottomColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.sm }}>
-            <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.cyan }}>Árbitros</Text>
-          </View>
-          <View style={{ padding: Pad.base, gap: Gap.md }}>
-            <TouchableOpacity
-              onPress={() => {
-                if (form.usaArbitros && form.arbitroNombres.some((n) => n.trim())) {
-                  setShowDisableArbitros(true)
-                } else {
-                  setForm((p) => {
-                    const usaArbitros = !p.usaArbitros
-                    return {
-                      ...p,
-                      usaArbitros,
-                      arbitroNombres: usaArbitros
-                        ? [...p.arbitroNombres, ...Array(Math.max(0, 2 - p.arbitroNombres.length)).fill("")]
-                        : p.arbitroNombres,
-                    }
-                  })
-                }
-              }}
-              style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}
-            >
-              <View style={{
-                width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: form.usaArbitros ? Palette.cyan : Palette.border,
-                backgroundColor: form.usaArbitros ? Palette.cyan : "transparent",
-                alignItems: "center", justifyContent: "center",
-              }}>
-                {form.usaArbitros && <Text style={{ color: Palette.black, fontSize: 14, fontFamily: Fonts.bold }}>✓</Text>}
-              </View>
-              <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.medium }}>¿Asignas árbitros a los partidos?</Text>
-            </TouchableOpacity>
-
-            {form.usaArbitros && (
-              <>
-                {form.arbitroNombres.map((nombre, idx) => (
-                  <View key={idx} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-                    <TextInput
-                      style={{
-                        flex: 1, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border,
-                        paddingHorizontal: Pad.base, paddingVertical: Pad.md, fontSize: 15, color: Palette.text,
-                      }}
-                      placeholder={idx === 0 ? "Ej: Juan Pérez" : `Árbitro ${idx + 1}`}
-                      placeholderTextColor={Palette.textMuted}
-                      value={nombre}
-                      onChangeText={(v) => {
-                        const copy = [...form.arbitroNombres]
-                        copy[idx] = v
-                        setForm((p) => ({ ...p, arbitroNombres: copy }))
-                      }}
-                      maxLength={50}
-                    />
-                    {form.arbitroNombres.length > 2 && (
-                      <TouchableOpacity
-                        onPress={() => setForm((p) => ({ ...p, arbitroNombres: p.arbitroNombres.filter((_, i) => i !== idx) }))}
-                        style={{ padding: Pad.sm }}
-                      >
-                        <Text style={{ color: Palette.danger, fontSize: 18, fontFamily: Fonts.bold }}>✕</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                ))}
-                <TouchableOpacity
-                  onPress={() => setForm((p) => ({ ...p, arbitroNombres: [...p.arbitroNombres, ""] }))}
-                  style={{ paddingVertical: Pad.sm }}
-                >
-                  <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>+ Agregar árbitro</Text>
-                </TouchableOpacity>
-                <Text style={{ color: Palette.textMuted, fontSize: 11 }}>Agrega al menos 2 árbitros. Se comparten entre todas las divisiones de la liga.</Text>
               </>
             )}
           </View>
@@ -664,16 +588,6 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
           pendingActionRef.current = null
           setShowDiscard(false)
         }}
-      />
-      <ConfirmationModal
-        visible={showDisableArbitros}
-        title="Desactivar árbitros"
-        message="Los nombres se perderán. ¿Continuar?"
-        confirmLabel="Sí"
-        cancelLabel="Cancelar"
-        variant="danger"
-        onConfirm={() => { setShowDisableArbitros(false); setForm((p) => ({ ...p, usaArbitros: false, arbitroNombres: [""] })) }}
-        onClose={() => setShowDisableArbitros(false)}
       />
     </View>
   )

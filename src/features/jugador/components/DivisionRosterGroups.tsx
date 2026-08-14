@@ -41,7 +41,7 @@ export default function DivisionRosterGroups({ players, onPlayerPress }: Props) 
                 onPress={() => onPlayerPress?.(row.jugadorId)}
                 style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, padding: Pad.sm, marginHorizontal: Pad.sm, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: Palette.border }}
               >
-                <Image source={row.jugador.foto ? { uri: row.jugador.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 40, height: 40, borderRadius: Radius.full }} resizeMode="cover" />
+                <Image source={row.jugador.foto ? { uri: row.jugador.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 40, height: 40, borderRadius: Radius.full }} resizeMode="cover" />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 14 }}>{row.jugador.nombre}</Text>
                   <Text style={{ color: Palette.textMuted, fontSize: 11 }}>{formatPosicion(row.jugador.posicion)}</Text>

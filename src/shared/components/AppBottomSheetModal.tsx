@@ -16,6 +16,7 @@ interface Props {
   stackBehavior?: BottomSheetModalProps["stackBehavior"]
   enableContentPanningGesture?: boolean
   dismissible?: boolean
+  onPresented?: () => void
 }
 
 export default function AppBottomSheetModal({
@@ -29,6 +30,7 @@ export default function AppBottomSheetModal({
   stackBehavior,
   enableContentPanningGesture = true,
   dismissible = true,
+  onPresented,
 }: Props) {
   const insets = useSafeAreaInsets()
   const bottomContentInset = Math.max(insets.bottom, Platform.OS === "android" ? 32 : 0)
@@ -36,12 +38,14 @@ export default function AppBottomSheetModal({
   const points = useMemo(() => snapPoints ?? ["50%"], [snapPoints])
   const suppressDismissRef = useRef(false)
   const previousVisibleRef = useRef(false)
+  const presentedRef = useRef(false)
 
   useEffect(() => {
     const wasVisible = previousVisibleRef.current
     previousVisibleRef.current = visible
 
     if (visible) {
+      presentedRef.current = false
       const frame = requestAnimationFrame(() => ref.current?.present())
       return () => cancelAnimationFrame(frame)
     }
@@ -57,6 +61,7 @@ export default function AppBottomSheetModal({
   ), [dismissible])
 
   const handleDismiss = () => {
+    presentedRef.current = false
     if (suppressDismissRef.current) {
       suppressDismissRef.current = false
       return
@@ -64,6 +69,12 @@ export default function AppBottomSheetModal({
     previousVisibleRef.current = false
     onClose()
   }
+
+  const handleChange = useCallback((index: number) => {
+    if (index < 0 || presentedRef.current) return
+    presentedRef.current = true
+    onPresented?.()
+  }, [onPresented])
 
   return (
     <BottomSheetModal
@@ -74,6 +85,7 @@ export default function AppBottomSheetModal({
       enableContentPanningGesture={enableContentPanningGesture}
       backdropComponent={renderBackdrop}
       onDismiss={handleDismiss}
+      onChange={handleChange}
       handleIndicatorStyle={{ backgroundColor: Palette.borderActive, width: 40, height: 4 }}
       backgroundStyle={{ backgroundColor: Palette.dark, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border }}
     >

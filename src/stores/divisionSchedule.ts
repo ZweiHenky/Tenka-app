@@ -67,6 +67,7 @@ interface DivisionScheduleState {
   setHabilitados: (divisionId: string, equipoIds: string[]) => void
   guardarProgramacion: (divisionId: string) => void
   advanceSchedule: (divisionId: string, lastJornadaFechaInicio?: string | null) => void
+  syncSchedule: (divisionId: string, lastJornadaFechaInicio?: string | null) => void
   rewindSchedule: (divisionId: string) => void
   clearScheduleTeams: (divisionId: string) => void
   hasUnsaved: boolean
@@ -633,7 +634,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       })
       if (!changed) return s
       return {
-        schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, plantilla: undefined } },
+        schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, plantilla: undefined, ...(tipo === 'complemento' ? { descansoEquipoId: undefined } : {}) } },
         hasUnsaved: true,
         programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
       }
@@ -1058,7 +1059,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       const schedule = s.schedules[divisionId]
       if (!schedule) return s
       return {
-        schedules: { ...s.schedules, [divisionId]: { ...schedule, slots: [...schedule.slots, newSlot], plantilla: undefined } },
+        schedules: { ...s.schedules, [divisionId]: { ...schedule, slots: [...schedule.slots, newSlot], plantilla: undefined, ...(tipo === 'complemento' ? { descansoEquipoId: undefined } : {}) } },
         hasUnsaved: true,
         programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
       }
@@ -1118,7 +1119,10 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
 
   setHabilitados: (divisionId, equipoIds) => {
     set((s) => {
-      const schedule = s.schedules[divisionId]
+      const currentSchedule = s.schedules[divisionId]
+      const schedule = currentSchedule && (equipoIds.length % 2 === 0 || !currentSchedule.descansoEquipoId || !equipoIds.includes(currentSchedule.descansoEquipoId))
+        ? { ...currentSchedule, descansoEquipoId: undefined }
+        : currentSchedule
       if (schedule && !schedule.playoffMode && equipoIds.length > 0 && equipoIds.length % 2 !== 0 && schedule.plantilla) {
         const needsRestore = schedule.slots.some((sl, i) => {
           const tmpl = schedule.plantilla![i]
@@ -1139,7 +1143,11 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
           }
         }
       }
-      return { habilitados: { ...s.habilitados, [divisionId]: equipoIds }, programacionGuardada: { ...s.programacionGuardada, [divisionId]: false } }
+      return {
+        habilitados: { ...s.habilitados, [divisionId]: equipoIds },
+        ...(schedule && schedule !== currentSchedule ? { schedules: { ...s.schedules, [divisionId]: schedule } } : {}),
+        programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
+      }
     })
   },
 
@@ -1169,7 +1177,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     })
   },
 
-  advanceSchedule: (divisionId, lastJornadaFechaInicio) => {
+  syncSchedule: (divisionId, lastJornadaFechaInicio) => {
     const schedule = get().schedules[divisionId]
     if (!schedule) return
 
@@ -1203,6 +1211,10 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       hasUnsaved: false,
       programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
     }))
+  },
+
+  advanceSchedule: (divisionId, lastJornadaFechaInicio) => {
+    get().syncSchedule(divisionId, lastJornadaFechaInicio)
   },
 
   rewindSchedule: (divisionId) => {

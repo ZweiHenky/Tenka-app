@@ -8,6 +8,8 @@ import AppBottomSheetModal from "./AppBottomSheetModal"
 interface Option {
   id: string
   nombre: string
+  disabled?: boolean
+  description?: string
 }
 
 interface SelectFieldProps {
@@ -46,10 +48,14 @@ export function SelectField({ label, current, options, onSelect }: SelectFieldPr
                 const active = item.id === current
                 return (
                   <TouchableOpacity
+                    disabled={item.disabled}
                     onPress={() => { onSelect(item.id); setOpen(false) }}
-                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: Pad.md, paddingHorizontal: Pad.base, borderRadius: Radius.md, backgroundColor: active ? Palette.cyan10 : "transparent" }}
+                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: Pad.md, paddingHorizontal: Pad.base, borderRadius: Radius.md, backgroundColor: active ? Palette.cyan10 : "transparent", opacity: item.disabled ? 0.5 : 1 }}
                   >
-                    <Text style={{ fontSize: 16, fontWeight: active ? "700" : "400", color: active ? Palette.cyan : Palette.text }}>{item.nombre}</Text>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={{ fontSize: 16, fontWeight: active ? "700" : "400", color: active ? Palette.cyan : Palette.text }}>{item.nombre}</Text>
+                      {item.description ? <Text style={{ fontSize: 12, color: Palette.textMuted }}>{item.description}</Text> : null}
+                    </View>
                     {active ? <MaterialIcons name="check" size={20} color={Palette.cyan} /> : null}
                   </TouchableOpacity>
                 )

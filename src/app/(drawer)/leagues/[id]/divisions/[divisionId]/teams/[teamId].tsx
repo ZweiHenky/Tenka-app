@@ -126,7 +126,7 @@ export default function DivisionTeamPlayersScreen() {
                 const isPending = loadingPlayerId === jugador.id
                 return (
                   <View key={row.jugadorId} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm, opacity: isPending ? 0.55 : 1 }}>
-                    <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48, borderRadius: Radius.full }} resizeMode="cover" />
+                    <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 48, height: 48, borderRadius: Radius.full }} resizeMode="cover" />
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>{jugador.nombre}</Text>
                       <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{formatPosicion(jugador.posicion)} · #{row.dorsal}</Text>
@@ -153,7 +153,7 @@ export default function DivisionTeamPlayersScreen() {
               const isPending = loadingPlayerId === jugador.id
               return (
                 <TouchableOpacity key={jugador.id} disabled={isPending} onPress={() => handleAssign(jugador.id)} activeOpacity={0.75} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm, opacity: isPending ? 0.55 : 1 }}>
-                  <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 40, height: 40, borderRadius: Radius.full }} resizeMode="cover" />
+                  <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 40, height: 40, borderRadius: Radius.full }} resizeMode="cover" />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold }}>{jugador.nombre}</Text>
                     <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{formatPosicion(jugador.posicion)} · #{dorsalFor(jugador) ?? "-"}</Text>

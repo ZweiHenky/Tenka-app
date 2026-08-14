@@ -62,7 +62,10 @@ Ver `.env.example`:
 | Variable | Descripción |
 |----------|-------------|
 | `EXPO_PUBLIC_API_URL` | URL del backend (ej: ngrok) |
-| `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` | API Key para Google Places |
+| `EXPO_PUBLIC_GOOGLE_PLACES_ANDROID_API_KEY` | Places API (New), restringida a Android `studio.tenka.app` + SHA-1 |
+| `EXPO_PUBLIC_GOOGLE_PLACES_IOS_API_KEY` | Places API (New), restringida al bundle iOS `studio.tenka.app` |
+| `EXPO_PUBLIC_GOOGLE_PLACES_WEB_API_KEY` | Places API (New), restringida por referentes web |
+| `EXPO_PUBLIC_GOOGLE_PLACES_ANDROID_SHA1` | SHA-1 del certificado del build Android |
 | `EXPO_PUBLIC_ONESIGNAL_APP_ID` | App ID de OneSignal para push notifications |
 
 ## Estructura del Proyecto

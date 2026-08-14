@@ -7,6 +7,7 @@ export default function PublicLayout() {
       <Stack.Screen name="equipo/[id]" />
       <Stack.Screen name="equipo/[id]/division/[divisionId]" />
       <Stack.Screen name="jugador/[id]" />
+      <Stack.Screen name="partido/[partidoId]" />
     </Stack>
   )
 }

@@ -63,7 +63,9 @@ function buildQuery(p: LigaFilterParams): string {
 
 export const leagueApi = {
   list: (userId?: string) =>
-    api.get<ApiRes<League[]>>(`/api/ligas${userId ? `?userId=${userId}` : ""}`).then((r) => r.data.data!),
+    userId
+      ? api.get<ApiRes<League[]>>(`/api/ligas?userId=${userId}`).then((r) => r.data.data!)
+      : api.get<ApiRes<PaginatedResponse<League>>>("/api/ligas?page=1&limit=100").then((r) => r.data.data!.rows),
 
   listPaginated: (params: LigaFilterParams) =>
     api.get<ApiRes<PaginatedResponse<League>>>(`/api/ligas?${buildQuery(params)}`).then((r) => ({ ...r.data.data!, page: params.page, limit: params.limit })),

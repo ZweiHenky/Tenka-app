@@ -47,6 +47,7 @@ export default function DivisionDetailScreen() {
   const toast = useToast()
   const guard = useNavGuard()
   const { id: ligaId, divisionId } = useLocalSearchParams<{ id: string; divisionId: string }>()
+  const [tab, setTab] = useState("equipos")
 
   const { data: division, isLoading: loadDiv, error: divError, refetch: refetchDiv } = useQuery({
     queryKey: ["division", divisionId],
@@ -58,15 +59,14 @@ export default function DivisionDetailScreen() {
   const { data: links = [], isLoading: linksLoading, error: linksError, refetch: refetchLinks } = useDivisionEquipos(divisionId!)
   const { data: allTeams = [], isLoading: teamsLoading, error: teamsError } = useTeams()
   const removeTeam = useRemoveTeam()
-  const { data: jornadas = [], isLoading: jornadasLoading, error: jornadasError, refetch: refetchJornadas } = useJornadas(divisionId!)
+  const { data: jornadas = [], isLoading: jornadasLoading, error: jornadasError, refetch: refetchJornadas } = useJornadas(divisionId!, tab === "jornadas" || tab === "programacion")
   const deleteJornada = useDeleteJornada()
   const setHabilitados = useDivisionScheduleStore((s) => s.setHabilitados)
   const habilitados = useDivisionScheduleStore((s) => (divisionId ? s.habilitados[divisionId] : undefined))
   const schedules = useDivisionScheduleStore((s) => s.schedules)
-  const rewindSchedule = useDivisionScheduleStore((s) => s.rewindSchedule)
   const { data: rondas = [], isLoading: rondasLoading, error: rondasError } = useRondasPlayoff(divisionId!)
-  const { data: standings = [], isLoading: standingsLoading, error: standingsError } = useTablaPosiciones(divisionId!)
-  const goleadores = useGoleadores(divisionId)
+  const { data: standings = [], isLoading: standingsLoading, error: standingsError } = useTablaPosiciones(divisionId!, tab === "posiciones")
+  const goleadores = useGoleadores(divisionId, tab === "goleo")
   const playoffMode = rondas.length > 0
   const generateRondas = useGenerateRondas()
   const deleteRondas = useDeleteRondasByDivision()
@@ -83,7 +83,6 @@ export default function DivisionDetailScreen() {
   const [pendingTeamRemoval, setPendingTeamRemoval] = useState<{ nombre: string; equipoId: string } | null>(null)
   const [pendingJornadaDelete, setPendingJornadaDelete] = useState<{ jornadaId: string; numero: number } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [tab, setTab] = useState("equipos")
   const [infoSheetOpen, setInfoSheetOpen] = useState(false)
   const [actionSheetOpen, setActionSheetOpen] = useState(false)
   const infoActionRef = useRef<any>(null)
@@ -134,17 +133,16 @@ export default function DivisionDetailScreen() {
         qc.invalidateQueries({ queryKey: ["division", divisionId] }),
         qc.invalidateQueries({ queryKey: ["division-equipos", divisionId] }),
         qc.invalidateQueries({ queryKey: ["teams"] }),
-        qc.invalidateQueries({ queryKey: ["jornadas", divisionId] }),
-        qc.invalidateQueries({ queryKey: ["jornadas-infinitas", divisionId] }),
         qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] }),
-        qc.invalidateQueries({ queryKey: ["tabla-posiciones", divisionId] }),
-        qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] }),
-        qc.invalidateQueries({ queryKey: ["goleadores", divisionId] }),
+        tab === "jornadas" || tab === "programacion" ? qc.invalidateQueries({ queryKey: ["jornadas", divisionId] }) : Promise.resolve(),
+        tab === "programacion" ? qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] }) : Promise.resolve(),
+        tab === "posiciones" ? qc.invalidateQueries({ queryKey: ["tabla-posiciones", divisionId] }) : Promise.resolve(),
+        tab === "goleo" ? qc.invalidateQueries({ queryKey: ["goleadores", divisionId] }) : Promise.resolve(),
       ])
     } finally {
       setRefreshing(false)
     }
-  }, [qc, divisionId])
+  }, [qc, divisionId, tab])
 
   const {
     scannerOpen,
@@ -334,13 +332,12 @@ export default function DivisionDetailScreen() {
       { id: pendingJornadaDelete.jornadaId, divisionId: divisionId! },
       {
         onSuccess: () => {
-          rewindSchedule(divisionId!)
           setPendingJornadaDelete(null)
         },
         onError: (error: Error) => toast.error(error.message),
       },
     )
-  }, [divisionId, pendingJornadaDelete, deleteJornada, rewindSchedule, toast])
+  }, [divisionId, pendingJornadaDelete, deleteJornada, toast])
 
   const handleConfirmDeletePlayoffs = useCallback(() => {
     deleteRondas.mutate(divisionId!, {

@@ -141,7 +141,7 @@ export default function MyProfileFormScreen() {
                 style={{ flexDirection: "row", alignItems: "center", gap: Gap.base, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
               >
                 <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.dark40 }}>
-                  <Image source={pickedPhoto?.uri ? { uri: pickedPhoto.uri } : foto ? { uri: foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
+                  <Image source={pickedPhoto?.uri ? { uri: pickedPhoto.uri } : foto ? { uri: foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 48, height: 48 }} resizeMode="cover" />
                 </View>
                 <Text style={{ color: Palette.white, fontSize: 14, fontFamily: Fonts.medium }}>Seleccionar foto</Text>
               </TouchableOpacity>

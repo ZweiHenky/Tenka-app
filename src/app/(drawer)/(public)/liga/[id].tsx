@@ -30,16 +30,14 @@ import { useToast } from "@/shared/components/Toast"
 import { OneSignal } from "react-native-onesignal"
 import { notificationSubscriptionApi } from "@/features/notification/api/notificationSubscription"
 import { nonemptyId } from "@/infrastructure/notifications/notificationIdentity"
+import { initializeOneSignal } from "@/infrastructure/notifications/oneSignalRuntime"
 import { changeDivisionSubscription } from "@/features/notification/subscriptionFlow"
-import { formatLocalTime, toLocalDateKey } from "@/shared/utils/date-time"
+import { ensureNotificationPermission } from "@/infrastructure/notifications/notificationPermission"
+import { formatTimeInTimeZone, toDateKeyInTimeZone } from "@/shared/utils/date-time"
 import { getPlayoffRoundMatchCounts } from "@/features/division/utils/playoff"
 import { useGoleadores } from "@/features/goleador/hooks/useGoleadores"
 import GoleadoresTable from "@/features/goleador/components/GoleadoresTable"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
-
-function fmtHora(f: string) {
-  return formatLocalTime(f)
-}
 
 function toLocalDateDisplay(dateStr: string): string {
   const [y, m, d] = dateStr.split("T")[0].split("-").map(Number)
@@ -147,6 +145,7 @@ export default function PublicLeagueScreen() {
   const ubicacionNombre = league?.ubicacion?.nombreCompleto ?? null
 
   const divisiones = league?.divisiones ?? []
+  const leagueTimeZone = league?.timeZone ?? "America/Mexico_City"
   const currentDivision = selectedDivisionId
     ? divisiones.find((d) => d.id === selectedDivisionId) ?? divisiones[0] ?? null
     : divisiones[0] ?? null
@@ -179,25 +178,28 @@ export default function PublicLeagueScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: ["leagues", id] }),
-      currentDivisionId ? qc.invalidateQueries({ queryKey: ["division-equipos", currentDivisionId] }) : Promise.resolve(),
-      currentDivisionId ? qc.invalidateQueries({ queryKey: ["tabla-posiciones", currentDivisionId] }) : Promise.resolve(),
-      currentDivisionId ? qc.invalidateQueries({ queryKey: ["jornadas-infinitas", currentDivisionId] }) : Promise.resolve(),
-      currentDivisionId ? qc.invalidateQueries({ queryKey: ["rondas-playoff", currentDivisionId] }) : Promise.resolve(),
-      currentDivisionId ? qc.invalidateQueries({ queryKey: ["goleadores", currentDivisionId] }) : Promise.resolve(),
-    ])
-    setRefreshing(false)
-  }, [qc, id, currentDivisionId])
+    try {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["leagues", id] }),
+        currentDivisionId && tab === "info" ? qc.invalidateQueries({ queryKey: ["division-equipos", currentDivisionId] }) : Promise.resolve(),
+        currentDivisionId && tab === "posiciones" ? qc.invalidateQueries({ queryKey: ["tabla-posiciones", currentDivisionId] }) : Promise.resolve(),
+        currentDivisionId && tab === "posiciones" ? qc.invalidateQueries({ queryKey: ["rondas-playoff", currentDivisionId] }) : Promise.resolve(),
+        currentDivisionId && tab === "horario" ? qc.resetQueries({ queryKey: ["jornadas-infinitas", currentDivisionId], exact: true }) : Promise.resolve(),
+        currentDivisionId && tab === "goleo" ? qc.invalidateQueries({ queryKey: ["goleadores", currentDivisionId] }) : Promise.resolve(),
+      ])
+    } finally {
+      setRefreshing(false)
+    }
+  }, [qc, id, currentDivisionId, tab])
 
-  const { data: links = [] } = useDivisionEquipos(currentDivision?.id ?? "")
+  const { data: links = [] } = useDivisionEquipos(currentDivision?.id ?? "", tab === "info")
   const teamCount = links.length
 
-  const { data: standings = [], isLoading: standingsLoading } = useTablaPosiciones(currentDivision?.id ?? null)
-  const goleadores = useGoleadores(currentDivision?.id)
-  const { data, isLoading: jornadasLoading, fetchNextPage, error: jornadasError, refetch: refetchJornadas } = useJornadasInfinitas(currentDivision?.id ?? null)
+  const { data: standings = [], isLoading: standingsLoading } = useTablaPosiciones(currentDivision?.id ?? null, tab === "posiciones")
+  const goleadores = useGoleadores(currentDivision?.id, tab === "goleo")
+  const { data, isLoading: jornadasLoading, fetchNextPage, error: jornadasError, refetch: refetchJornadas } = useJornadasInfinitas(currentDivision?.id ?? null, tab === "horario")
 
-  const { data: rondas = [] } = useRondasPlayoff(currentDivision?.id ?? null)
+  const { data: rondas = [] } = useRondasPlayoff(currentDivision?.id ?? null, tab === "posiciones")
 
   const jornadas = useMemo(() => data?.pages.flatMap((p) => p.rows) ?? [], [data])
   const totalJornadas = data?.pages[0]?.total ?? 0
@@ -315,7 +317,7 @@ export default function PublicLeagueScreen() {
     const partidos = item.partidos ?? []
     const groups: Record<string, typeof partidos> = {}
     for (const p of partidos) {
-      const key = p.fecha ? toLocalDateKey(p.fecha) : "sin-fecha"
+      const key = p.fecha ? toDateKeyInTimeZone(p.fecha, leagueTimeZone) : "sin-fecha"
       if (!groups[key]) groups[key] = []
       groups[key].push(p)
     }
@@ -366,13 +368,13 @@ export default function PublicLeagueScreen() {
                     : p.tipoPartido === 'AMISTOSO'
                     ? { bg: Palette.success10, border: Palette.success, text: Palette.success, label: "Amistoso" }
                     : p.tipoPartido === 'COMPLEMENTO'
-                    ? { bg: Palette.warning10, border: Palette.warning, text: Palette.warning, label: "Completar" }
+                    ? { bg: Palette.cyan10, border: Palette.cyan, text: Palette.cyan, label: "Liga" }
                     : p.tipoPartido === 'REGULAR'
                     ? { bg: Palette.cyan10, border: Palette.cyan, text: Palette.cyan, label: "Liga" }
                     : null
                   return (
                   <View key={p.id}>
-                     <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, paddingVertical: Pad.sm }}>
+                     <TouchableOpacity activeOpacity={0.7} onPress={() => router.push({ pathname: "/(drawer)/(public)/partido/[partidoId]", params: { partidoId: p.id } })} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, paddingVertical: Pad.sm }}>
                        <View style={{ width: 72, alignItems: "center", gap: Gap.sm }}>
                          {badgeTipo ? (
                            <View style={{ maxWidth: 72, backgroundColor: badgeTipo.bg, borderRadius: Radius.sm, borderWidth: 1, borderColor: badgeTipo.border, paddingHorizontal: 6, paddingVertical: 2 }}>
@@ -380,7 +382,7 @@ export default function PublicLeagueScreen() {
                            </View>
                          ) : null}
                          {p.fecha ? (
-                           <Text style={{ color: Palette.cyan, fontSize: 13, fontFamily: Fonts.semiBold }}>{fmtHora(p.fecha)}</Text>
+                           <Text style={{ color: Palette.cyan, fontSize: 13, fontFamily: Fonts.semiBold }}>{formatTimeInTimeZone(p.fecha, leagueTimeZone)}</Text>
                          ) : null}
                          {p.cancha?.nombre ? (
                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2 }}>
@@ -390,35 +392,35 @@ export default function PublicLeagueScreen() {
                          ) : null}
                        </View>
                         <View style={{ flex: 1, gap: 6 }}>
-                        <TouchableOpacity activeOpacity={p.equipoLocal?.id ? 0.75 : 1} onPress={() => goToTeam(p.equipoLocal?.id)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-                          <LogoImage uri={p.equipoLocal?.logo} size={22} backgroundColor={Palette.dark40} radius={Radius.sm} />
-                          <Text style={{ fontSize: 13, color: Palette.text, fontFamily: Fonts.medium, flexShrink: 1 }} numberOfLines={1}>{p.equipoLocal?.nombre ?? ""}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity activeOpacity={p.equipoVisitante?.id ? 0.75 : 1} onPress={() => goToTeam(p.equipoVisitante?.id)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-                          <LogoImage uri={p.equipoVisitante?.logo} size={22} backgroundColor={Palette.dark40} radius={Radius.sm} />
-                          <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.medium, flexShrink: 1 }} numberOfLines={1}>{p.equipoVisitante?.nombre ?? ""}</Text>
-                        </TouchableOpacity>
-                      </View>
+                         <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+                           <LogoImage uri={p.equipoLocal?.logo} size={22} backgroundColor={Palette.dark40} radius={Radius.sm} />
+                           <Text style={{ fontSize: 13, color: Palette.text, fontFamily: Fonts.medium, flexShrink: 1 }} numberOfLines={1}>{p.equipoLocal?.nombre ?? ""}</Text>
+                         </View>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+                            <LogoImage uri={p.equipoVisitante?.logo} size={22} backgroundColor={Palette.dark40} radius={Radius.sm} />
+                            <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.medium, flexShrink: 1 }} numberOfLines={1}>{p.equipoVisitante?.nombre ?? ""}</Text>
+                          </View>
+                         </View>
                        <View style={{ width: 50, alignItems: "center", justifyContent: "center" }}>
-                           {p.estado === "FINALIZADO" ? (
-                            <View style={{ alignItems: "center" }}>
-                              <Text style={{ fontSize: 16, fontFamily: Fonts.displayBold, color: Palette.cyan }}>{p.golesLocal}</Text>
-                              <View style={{ width: 20, height: 1, backgroundColor: Palette.border, marginVertical: 1 }} />
-                              <Text style={{ fontSize: 16, fontFamily: Fonts.displayBold, color: Palette.textSecondary }}>{p.golesVisitante}</Text>
-                            </View>
-                          ) : p.estado === "EN_JUEGO" ? (
-                            <View style={{ backgroundColor: Palette.success, borderRadius: Radius.sm, paddingHorizontal: 6, paddingVertical: 3 }}>
-                              <Text style={{ fontSize: 9, fontFamily: Fonts.semiBold, color: Palette.black }}>EN VIVO</Text>
-                            </View>
-                          ) : p.estado === "SUSPENDIDO" ? (
-                            <View style={{ backgroundColor: Palette.danger, borderRadius: Radius.sm, paddingHorizontal: 6, paddingVertical: 3 }}>
-                              <Text style={{ fontSize: 9, fontFamily: Fonts.semiBold, color: Palette.white }}>SUSP</Text>
-                            </View>
-                          ) : (
-                            <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.textMuted }}>VS</Text>
-                          )}
+                         {p.estado === "FINALIZADO" ? (
+                           <View style={{ alignItems: "center" }}>
+                             <Text style={{ fontSize: 16, fontFamily: Fonts.displayBold, color: Palette.cyan }}>{p.golesLocal}</Text>
+                             <View style={{ width: 20, height: 1, backgroundColor: Palette.border, marginVertical: 1 }} />
+                             <Text style={{ fontSize: 16, fontFamily: Fonts.displayBold, color: Palette.textSecondary }}>{p.golesVisitante}</Text>
+                           </View>
+                         ) : p.estado === "EN_JUEGO" ? (
+                           <View style={{ backgroundColor: Palette.success, borderRadius: Radius.sm, paddingHorizontal: 6, paddingVertical: 3 }}>
+                             <Text style={{ fontSize: 9, fontFamily: Fonts.semiBold, color: Palette.black }}>EN VIVO</Text>
+                           </View>
+                         ) : p.estado === "SUSPENDIDO" ? (
+                           <View style={{ backgroundColor: Palette.danger, borderRadius: Radius.sm, paddingHorizontal: 6, paddingVertical: 3 }}>
+                             <Text style={{ fontSize: 9, fontFamily: Fonts.semiBold, color: Palette.white }}>SUSP</Text>
+                           </View>
+                         ) : (
+                           <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.textMuted }}>VS</Text>
+                         )}
                        </View>
-                    </View>
+                     </TouchableOpacity>
                     {idx < partidos.length - 1 ? (
                       <View style={{ height: 1, backgroundColor: Palette.border, marginVertical: Gap.sm }} />
                     ) : null}
@@ -433,7 +435,7 @@ export default function PublicLeagueScreen() {
         </View>
       </View>
     )
-  }, [goToTeam, rondaMap])
+  }, [leagueTimeZone, rondaMap, router])
 
   const direccionContent = ubicacionNombre ? (
     <View style={{ gap: Gap.md }}>
@@ -538,7 +540,7 @@ export default function PublicLeagueScreen() {
   const headerContent = (
     <View>
       <View style={{ position: "relative" }}>
-        <Image source={league?.cancha ? { uri: league.cancha } : require("@/assets/ejemplos/campo.jpg")} style={{ width: "100%", height: 180 }} resizeMode="cover" />
+        <Image source={league?.cancha ? { uri: league.cancha } : require("@/assets/ejemplos/cancha.png")} style={{ width: "100%", height: 180 }} resizeMode="cover" />
         <LinearGradient
           colors={["rgba(0,0,0,0.20)", "rgba(0,0,0,0.90)"]}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
@@ -612,6 +614,14 @@ export default function PublicLeagueScreen() {
               const divId = currentDivision.id
               setSubscribing(divId)
               try {
+                if (!divisionSubscribed) {
+                  const granted = await ensureNotificationPermission({
+                    getPermission: () => OneSignal.Notifications.getPermissionAsync(),
+                    requestPermission: () => OneSignal.Notifications.requestPermission(true),
+                  })
+                  if (!granted) throw new Error("Activa las notificaciones del dispositivo para seguir esta división")
+                }
+                if (!initializeOneSignal()) throw new Error("Las notificaciones no están configuradas")
                 const [rawOneSignalId, rawPushSubscriptionId] = await Promise.all([
                   OneSignal.User.getOnesignalId(),
                   OneSignal.User.pushSubscription.getIdAsync(),
@@ -634,7 +644,10 @@ export default function PublicLeagueScreen() {
                   }),
                 })
               } catch (e: any) {
-                toast.error(e?.message ?? 'Error al cambiar suscripción')
+                const message = e?.code === "ERR_NETWORK" || e?.message === "Network Error"
+                  ? "No pudimos conectar con el servidor. Intenta nuevamente"
+                  : e?.message ?? "Error al cambiar suscripción"
+                toast.error(message)
               } finally {
                 setSubscribing(null)
               }
@@ -886,17 +899,23 @@ export default function PublicLeagueScreen() {
           ) : null}
           {tab === "posiciones" ? (
             <View style={{ gap: Gap.md }}>
-              <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
-                <StandingsTable rows={standings} isLoading={standingsLoading} onTeamPress={goToTeam} />
-              </View>
+              {standingsLoading ? (
+                <ActivityIndicator size="large" color={Palette.cyan} />
+              ) : (
+                <View style={{ width: "95%", alignSelf: "center", backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
+                  <StandingsTable rows={standings} isLoading={false} onTeamPress={goToTeam} />
+                </View>
+              )}
               {bracketRounds.length > 0 ? <BracketView rounds={bracketRounds} /> : null}
             </View>
           ) : null}
           {tab === "horario" ? (
             <View style={{ gap: Gap.md }}>
-              {jornadasError ? (
+              {jornadasLoading ? (
+                <ActivityIndicator size="large" color={Palette.cyan} />
+              ) : jornadasError ? (
                 <ErrorState message={(jornadasError as Error).message} onRetry={() => refetchJornadas()} />
-              ) : jornadas.length === 0 && !jornadasLoading ? (
+              ) : jornadas.length === 0 ? (
                 <EmptyState message="Sin jornadas registradas" icon="calendar-month" />
               ) : (
                 <>

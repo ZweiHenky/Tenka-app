@@ -319,7 +319,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
     }
   }, [partidosEliminatoria, divisionId, division?.horarioPartido, division?.duracionPartido, division?.descanso, division?.diasPartido, habilitados, slots, replaceSlots, schedule?.descansoEquipoId, schedule?.refDate, setDescansoEquipoId, playoffMode])
 
-  const { data: lastJornada } = useQuery({
+  const { data: lastJornada, isSuccess: lastJornadaLoaded } = useQuery({
     queryKey: ["last-jornada", divisionId],
     queryFn: async () => {
       const result = await jornadaApi.listByDivisionPaginated(divisionId!, 1, 1)
@@ -346,14 +346,16 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
 
   // Sync schedule if refDate is out of sync with last jornada
   useEffect(() => {
-    if (!lastJornada?.fechaInicio) return
-    const expectedRefDate = computeRefDateFromJornada(lastJornada.fechaInicio)
+    if (!lastJornadaLoaded) return
+    const expectedRefDate = lastJornada?.fechaInicio
+      ? computeRefDateFromJornada(lastJornada.fechaInicio)
+      : computeRefDateFromJornada(new Date().toISOString())
     if (!expectedRefDate) return
     if (schedule?.refDate && schedule.refDate !== expectedRefDate) {
-      advanceSchedule(divisionId!, lastJornada.fechaInicio)
+      advanceSchedule(divisionId!, lastJornada?.fechaInicio)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastJornada?.fechaInicio, schedule?.refDate])
+  }, [lastJornadaLoaded, lastJornada?.fechaInicio, schedule?.refDate])
 
   const assignedTeams = useMemo(
     () => {
@@ -949,9 +951,11 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
                 toast.error("Asigna ambos equipos al partido amistoso antes de generar la jornada")
                 return
               }
-              const incompleteComplemento = slots.find((s) => s.tipo === 'complemento' && !s.equipoLocalId)
+              const incompleteComplemento = slots.find((s) => s.tipo === 'complemento' && (!s.equipoLocalId || !s.equipoVisitanteId))
               if (incompleteComplemento) {
-                toast.error("Asigna el equipo que obtiene puntos antes de generar la jornada")
+                if (!incompleteComplemento.equipoLocalId && !incompleteComplemento.equipoVisitanteId) toast.error("Asigna ambos equipos del partido de complemento antes de generar la jornada")
+                else if (!incompleteComplemento.equipoLocalId) toast.error("Asigna el equipo que gana puntos en el partido de complemento")
+                else toast.error("Asigna el equipo que repetirá partido sin puntos en el complemento")
                 return
               }
               onGenerateJornada()
@@ -989,6 +993,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isGenera
       <TimePickerModal
         visible={!!timePickerSlot}
         currentSlotId={timePickerSlot?.id ?? ""}
+        currentCanchaId={timePickerSlot?.canchaId}
         fecha={timePickerSlot?.fecha ?? ""}
         horarioPartido={division?.horarioPartido ?? "08:00-20:00"}
         duracionPartido={division?.duracionPartido ?? 60}

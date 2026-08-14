@@ -1,11 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { rondaPlayoffApi } from "@/features/ronda-playoff/api/rondasPlayoff"
 
-export function useRondasPlayoff(divisionId: string | null) {
+export function useRondasPlayoff(divisionId: string | null, enabled = true) {
   return useQuery({
     queryKey: ["rondas-playoff", divisionId],
     queryFn: () => rondaPlayoffApi.listByDivision(divisionId!),
-    enabled: !!divisionId,
+    enabled: enabled && !!divisionId,
   })
 }
 

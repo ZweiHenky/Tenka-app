@@ -1,8 +1,9 @@
 import { View, Text, TouchableOpacity, Keyboard, Platform, ActivityIndicator } from "react-native"
-import { useEffect, useState } from "react"
-import GooglePlacesTextInput, { type Place, type PlaceDetailsFields } from "react-native-google-places-textinput"
+import { useCallback, useEffect, useRef, useState } from "react"
+import GooglePlacesTextInput, { type GooglePlacesTextInputRef, type Place, type PlaceDetailsFields } from "react-native-google-places-textinput"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { env } from "@/infrastructure/config/env"
+import { resolveGooglePlacesConfig } from "@/infrastructure/config/google-places"
 import AppBottomSheetModal from "./AppBottomSheetModal"
 
 interface PlaceResult {
@@ -34,7 +35,7 @@ interface PlaceDetails extends PlaceDetailsFields {
   location?: { latitude?: number; longitude?: number }
 }
 
-async function fetchDetails(placeId: string, apiKey: string): Promise<PlaceDetails | null> {
+async function fetchDetails(placeId: string, apiKey: string, applicationHeaders?: Record<string, string>): Promise<PlaceDetails | null> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const ac = new AbortController()
@@ -45,6 +46,7 @@ async function fetchDetails(placeId: string, apiKey: string): Promise<PlaceDetai
           "Content-Type": "application/json",
           "X-Goog-Api-Key": apiKey,
           "X-Goog-FieldMask": DETAILS_FIELDS.join(","),
+          ...applicationHeaders,
         },
         signal: ac.signal,
       })
@@ -68,14 +70,43 @@ export default function LocationPickerModal({ visible, currentText, onSelect, on
   const [keyboardH, setKeyboardH] = useState(0)
   const [selecting, setSelecting] = useState(false)
   const [error, setError] = useState("")
+  const inputRef = useRef<GooglePlacesTextInputRef>(null)
+  const focusFrameRef = useRef<number | null>(null)
+  const placesConfig = resolveGooglePlacesConfig(Platform.OS === "android" ? "android" : Platform.OS === "ios" ? "ios" : "web", env)
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", (e) => setKeyboardH(e.endCoordinates.height))
     const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardH(0))
-    return () => { show.remove(); hide.remove() }
+    return () => {
+      show.remove()
+      hide.remove()
+      if (focusFrameRef.current !== null) cancelAnimationFrame(focusFrameRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (visible) {
+      Keyboard.dismiss()
+      return
+    }
+    if (focusFrameRef.current !== null) cancelAnimationFrame(focusFrameRef.current)
+    focusFrameRef.current = null
+    inputRef.current?.blur()
+  }, [visible])
+
+  const handlePresented = useCallback(() => {
+    if (focusFrameRef.current !== null) cancelAnimationFrame(focusFrameRef.current)
+    focusFrameRef.current = requestAnimationFrame(() => {
+      focusFrameRef.current = null
+      inputRef.current?.focus()
+    })
   }, [])
 
   const handleClose = () => {
+    if (focusFrameRef.current !== null) cancelAnimationFrame(focusFrameRef.current)
+    focusFrameRef.current = null
+    inputRef.current?.blur()
+    Keyboard.dismiss()
     setSelecting(false)
     setError("")
     onClose()
@@ -89,7 +120,7 @@ export default function LocationPickerModal({ visible, currentText, onSelect, on
     try {
       let details: PlaceDetails | null | undefined = place.details as PlaceDetails | undefined
       if (!details && place.placeId) {
-        details = await fetchDetails(place.placeId, env.GOOGLE_PLACES_API_KEY)
+        details = await fetchDetails(place.placeId, placesConfig.apiKey, placesConfig.headers)
       }
 
       if (!details) {
@@ -121,13 +152,18 @@ export default function LocationPickerModal({ visible, currentText, onSelect, on
   }
 
   return (
-    <AppBottomSheetModal visible={visible} onClose={handleClose} title="Ubicación" snapPoints={["85%"]} scrollable={false} enableContentPanningGesture={false}>
+    <AppBottomSheetModal visible={visible} onClose={handleClose} onPresented={handlePresented} title="Ubicación" snapPoints={["85%"]} scrollable={false} enableContentPanningGesture={false}>
       <View style={{ gap: Gap.md, marginBottom: keyboardH }}>
         {currentText ? (
           <Text style={{ fontSize: 13, color: Palette.textMuted, fontFamily: Fonts.medium, marginTop: Gap.sm }}>Actual: {currentText}</Text>
         ) : null}
         <GooglePlacesTextInput
-          apiKey={env.GOOGLE_PLACES_API_KEY}
+          ref={inputRef}
+          apiKey={placesConfig.apiKey}
+          proxyUrl={placesConfig.autocompleteUrl}
+          proxyHeaders={placesConfig.headers}
+          detailsProxyUrl={placesConfig.detailsUrl}
+          detailsProxyHeaders={placesConfig.headers}
           placeHolderText="Ej: Estadio Azteca"
           fetchDetails
           detailsFields={DETAILS_FIELDS}

@@ -2,14 +2,35 @@
 import type { ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, renderHook } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import { useUpdatePartido, useUpdatePartidoResult } from "./usePartidos"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { useRefereeLinkStatus, useUpdatePartido, useUpdatePartidoResult } from "./usePartidos"
 
-const mocks = vi.hoisted(() => ({ update: vi.fn(), updateResult: vi.fn() }))
+const mocks = vi.hoisted(() => ({ getRefereeLinkStatus: vi.fn(), update: vi.fn(), updateResult: vi.fn() }))
 
 vi.mock("../api/partidos", () => ({
-  partidoApi: { update: mocks.update, updateResult: mocks.updateResult },
+  partidoApi: { getRefereeLinkStatus: mocks.getRefereeLinkStatus, update: mocks.update, updateResult: mocks.updateResult },
 }))
+
+afterEach(() => vi.useRealTimers())
+
+describe("useRefereeLinkStatus", () => {
+  it("waits until the referee UI is relevant and does not poll an absent link", async () => {
+    vi.useFakeTimers()
+    mocks.getRefereeLinkStatus.mockResolvedValue({ exists: false, expiresAt: null })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    const { rerender } = renderHook(({ enabled }) => useRefereeLinkStatus("partido-1", enabled), { initialProps: { enabled: false }, wrapper })
+
+    expect(mocks.getRefereeLinkStatus).not.toHaveBeenCalled()
+
+    rerender({ enabled: true })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(mocks.getRefereeLinkStatus).toHaveBeenCalledTimes(1)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    expect(mocks.getRefereeLinkStatus).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe("useUpdatePartido", () => {
   beforeEach(() => {

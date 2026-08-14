@@ -289,7 +289,7 @@ export default function TeamDetailScreen() {
                 const card = (
                   <TouchableOpacity key={j.id} activeOpacity={0.8} onPress={() => guard(() => router.push(`/(drawer)/player/${j.id}`))} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}>
                     <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight }}>
-                      <Image source={j.foto ? { uri: j.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48 }} resizeMode="cover" />
+                       <Image source={j.foto ? { uri: j.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 48, height: 48 }} resizeMode="cover" />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>{j.nombre}</Text>
@@ -390,7 +390,7 @@ export default function TeamDetailScreen() {
          {foundPlayer ? (
            <View style={{ gap: Gap.md }}>
              <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}>
-               <Image source={foundPlayer.foto ? { uri: foundPlayer.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 52, height: 52, borderRadius: Radius.full }} resizeMode="cover" />
+                <Image source={foundPlayer.foto ? { uri: foundPlayer.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 52, height: 52, borderRadius: Radius.full }} resizeMode="cover" />
                <View style={{ flex: 1, gap: Gap.micro }}>
                  <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>{foundPlayer.nombre}</Text>
                  <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{formatPosicion(foundPlayer.posicion)}</Text>

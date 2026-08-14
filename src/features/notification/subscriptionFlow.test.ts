@@ -22,4 +22,15 @@ describe("division notification subscription flow", () => {
     })).rejects.toBe(failure)
     expect(commitLocalState).not.toHaveBeenCalled()
   })
+
+  it("unsubscribes using both current OneSignal identifiers", async () => {
+    const unsubscribe = vi.fn().mockResolvedValue(undefined)
+
+    await changeDivisionSubscription({
+      subscribed: true, divisionId: "d1", oneSignalId: "one", pushSubscriptionId: "push",
+      subscribe: vi.fn(), unsubscribe, commitLocalState: vi.fn(),
+    })
+
+    expect(unsubscribe).toHaveBeenCalledWith({ divisionId: "d1", oneSignalId: "one", pushSubscriptionId: "push" })
+  })
 })

@@ -90,7 +90,7 @@ export default function PublicTeamDivisionSelectorScreen() {
                       onPress={() => guard(() => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: jugador.id } }))}
                       style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}
                     >
-                      <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.jpg")} style={{ width: 48, height: 48, borderRadius: Radius.full }} resizeMode="cover" />
+                       <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 48, height: 48, borderRadius: Radius.full }} resizeMode="cover" />
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>{jugador.nombre}</Text>
                         <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{formatPosicion(jugador.posicion)} · #{dorsal ?? "-"}</Text>

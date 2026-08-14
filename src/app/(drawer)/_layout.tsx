@@ -1,6 +1,6 @@
 import { Drawer, DrawerContentScrollView } from "expo-router/drawer"
 import { router, usePathname } from "expo-router"
-import { ActivityIndicator, InteractionManager, Text, View, TouchableOpacity, Image } from "react-native"
+import { ActivityIndicator, Text, View, TouchableOpacity, Image } from "react-native"
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { MaterialIcons } from "@expo/vector-icons"
@@ -9,6 +9,7 @@ import { styles } from "@/constants/drawer.styles"
 import { authClient } from "@/infrastructure/auth/client"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 import { useToast } from "@/shared/components/Toast"
+import { waitForIdle } from "@/shared/utils/wait-for-idle"
 
 type DrawerRoute = "index" | "my-profile" | "team" | "leagues" | "account" | "support"
 
@@ -73,7 +74,7 @@ function CustomDrawerContent(props: any) {
       try {
         navigation.closeDrawer()
         router.replace("/(drawer)")
-        await new Promise<void>((resolve) => InteractionManager.runAfterInteractions(() => resolve()))
+        await waitForIdle()
 
         const { error } = await authClient.signOut()
         if (error) {

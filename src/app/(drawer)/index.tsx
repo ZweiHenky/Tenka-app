@@ -4,6 +4,7 @@ import { router, useIsFocused } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
+import { useQueryClient } from "@tanstack/react-query"
 import { Radius, Pad, Gap, Palette, MaxContentWidth, Fonts } from "@/constants/theme"
 import { MaterialIcons } from "@expo/vector-icons"
 import { useLookups } from "@/features/league/hooks/useLookups"
@@ -109,18 +110,24 @@ export default function Home() {
     estadoLigaId: selectedEstadoIds.size === 1 ? [...selectedEstadoIds][0] : undefined,
   }), [debouncedSearch, selectedCategoriaIds, selectedTipoIds, selectedEstadoIds])
 
-  const { data, isLoading, fetchNextPage, isFetchingNextPage, hasNextPage, error, refetch } = useLigasInfinitas(filters)
+  const qc = useQueryClient()
+  const { data, isLoading, fetchNextPage, isFetchingNextPage, hasNextPage, error } = useLigasInfinitas(filters)
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
-    await refetch()
-    setRefreshing(false)
-  }, [refetch])
+    try {
+      await qc.resetQueries({ queryKey: ["ligas-infinitas", filters], exact: true })
+    } finally {
+      setRefreshing(false)
+    }
+  }, [filters, qc])
 
   const ligas = useMemo(() => {
     const todas = data?.pages.flatMap((p) => p.rows) ?? []
     return todas
   }, [data])
+  const initialLoading = isLoading && !refreshing
+  const loadingNextPage = isFetchingNextPage && !refreshing
 
   const hasAnyFilter = selectedCategoriaIds.size > 0 || selectedTipoIds.size > 0 || selectedEstadoIds.size > 0
 
@@ -234,7 +241,7 @@ export default function Home() {
         data={ligas}
         renderItem={renderItem}
         keyExtractor={(item: any) => item.id}
-        onEndReached={hasNextPage ? () => fetchNextPage() : undefined}
+        onEndReached={hasNextPage && !isFetchingNextPage && !refreshing ? () => fetchNextPage() : undefined}
         onEndReachedThreshold={0.5}
         refreshControl={
           <RefreshControl
@@ -297,16 +304,16 @@ export default function Home() {
           </View>
         }
         ListEmptyComponent={error ? (
-          <ErrorState message={(error as Error).message} onRetry={() => refetch()} />
-        ) : ligas.length === 0 && !isLoading ? (
+          <ErrorState message={(error as Error).message} onRetry={handleRefresh} />
+        ) : ligas.length === 0 && !initialLoading ? (
           <EmptyState message="Sin resultados" icon="search-off" />
         ) : null}
         ListFooterComponent={
-          isLoading ? (
+          initialLoading ? (
             <View style={{ paddingVertical: Pad.base, alignItems: "center" }}>
               <ActivityIndicator size="large" color={Palette.cyan} />
             </View>
-          ) : isFetchingNextPage ? (
+          ) : loadingNextPage ? (
             <View style={{ paddingVertical: Pad.base, alignItems: "center" }}>
               <ActivityIndicator size="small" color={Palette.cyan} />
             </View>

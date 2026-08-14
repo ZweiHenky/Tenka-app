@@ -69,6 +69,7 @@ export interface League {
   logo: string | null
   cancha: string | null
   multiplesCanchas: boolean
+  timeZone: string
   createdAt: string
   updatedAt: string
   ubicacionId: string
@@ -85,6 +86,7 @@ export interface League {
     municipio: string
     lat: number
     lng: number
+    timeZone: string
   }
   divisiones?: DivisionConRelaciones[]
   canchas?: LigaCanchaRef[]

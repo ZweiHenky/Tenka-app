@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { partidoApi } from "../api/partidos"
-import type { UpdateResultInput } from "../api/partidos"
+import type { CreateJornadaPartidoInput, UpdateResultInput } from "../api/partidos"
 
 export function usePartido(id: string) {
   return useQuery({
@@ -49,6 +49,32 @@ export function useUpdatePartidoResult() {
   })
 }
 
+export function useJornadaPartidoOptions(jornadaId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["jornada-partido-options", jornadaId],
+    queryFn: () => partidoApi.getJornadaCreationOptions(jornadaId),
+    enabled: enabled && !!jornadaId,
+    staleTime: 0,
+  })
+}
+
+export function useCreateJornadaPartido() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ jornadaId, divisionId: _divisionId, idempotencyKey, data }: { jornadaId: string; divisionId: string; idempotencyKey: string; data: CreateJornadaPartidoInput }) =>
+      partidoApi.createInJornada(jornadaId, data, idempotencyKey),
+    onSuccess: (_, { jornadaId, divisionId }) => {
+      queryClient.invalidateQueries({ queryKey: ["jornada", jornadaId] })
+      queryClient.invalidateQueries({ queryKey: ["jornada-partido-options", jornadaId] })
+      queryClient.invalidateQueries({ queryKey: ["jornadas", divisionId] })
+      queryClient.invalidateQueries({ queryKey: ["jornadas-infinitas", divisionId] })
+      queryClient.invalidateQueries({ queryKey: ["last-jornada", divisionId] })
+      queryClient.invalidateQueries({ queryKey: ["court-availability"] })
+      queryClient.invalidateQueries({ queryKey: ["referee-candidates"] })
+    },
+  })
+}
+
 export function useCreateRefereeLink() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -69,11 +95,17 @@ export function useRevokeRefereeLink() {
   })
 }
 
-export function useRefereeLinkStatus(partidoId: string) {
+export function useRefereeLinkStatus(partidoId: string, enabled = true) {
   return useQuery({
     queryKey: ["referee-link-status", partidoId],
     queryFn: () => partidoApi.getRefereeLinkStatus(partidoId),
-    enabled: !!partidoId,
-    refetchInterval: 30000,
+    enabled: enabled && !!partidoId,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchInterval: (query) => {
+      const status = query.state.data
+      if (!status?.exists || !status.expiresAt || new Date(status.expiresAt).getTime() <= Date.now()) return false
+      return 30_000
+    },
   })
 }
