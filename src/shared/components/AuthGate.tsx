@@ -3,10 +3,12 @@ import { router } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
 import { authClient } from "@/infrastructure/auth/client"
+import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
+import ErrorState from "@/shared/components/ErrorState"
 import type { ReactNode } from "react"
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { data: session, isPending } = authClient.useSession()
+  const { data: session, error, isPending, refetch } = authClient.useSession()
 
   if (isPending) {
     return (
@@ -14,6 +16,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
         <ActivityIndicator color={Palette.cyan} size="large" />
       </View>
     )
+  }
+
+  if (error && !session?.user) {
+    return <ErrorState message={getAuthErrorMessage(error, "No se pudo verificar tu sesión.")} onRetry={() => { void refetch() }} fullScreen />
   }
 
   if (!session?.user) {

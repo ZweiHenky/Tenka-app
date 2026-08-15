@@ -21,7 +21,7 @@ SplashScreen.preventAutoHideAsync()
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60_000,
+      staleTime: 5 * 60_000,
       refetchOnWindowFocus: false,
       retry: (failureCount, error) => {
         const status = (error as { response?: { status?: number } })?.response?.status

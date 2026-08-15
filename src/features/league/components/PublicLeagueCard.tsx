@@ -7,11 +7,11 @@ import { MaterialIcons } from "@expo/vector-icons"
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import LogoImage from "@/shared/components/LogoImage"
-import type { League } from "@/domain/interfaces/league"
+import type { PublicLeagueListDto } from "@/features/league/api/leagues"
 import { useLigaFavoritaStore } from "@/stores/ligaFavoritaStore"
 
 interface Props {
-  league: League
+  league: PublicLeagueListDto
   ubicacionTexto?: string
 }
 

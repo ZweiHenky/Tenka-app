@@ -1,7 +1,7 @@
 import React, { useCallback } from "react"
 import { View, Text, TouchableOpacity, RefreshControl, Share, ActivityIndicator } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
-import { useLocalSearchParams, router } from "expo-router"
+import { useIsFocused, useLocalSearchParams, router } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import LogoImage from "@/shared/components/LogoImage"
@@ -15,7 +15,6 @@ import { AuthGate } from "@/shared/components/AuthGate"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import { useDivisionEquipos } from "@/features/division-equipo/hooks/useDivisionEquipo"
-import { useTeams } from "@/features/team/hooks/useTeams"
 import type { EquipoResponse } from "@/features/team/api/teams"
 import { useQuery } from "@tanstack/react-query"
 import { jornadaApi } from "@/features/jornada/api/jornadas"
@@ -26,22 +25,25 @@ import { buildResultPayload, buildScorerCandidates, type ParticipacionInput, typ
 
 export default function PartidoDetailScreen() {
   const toast = useToast()
+  const isFocused = useIsFocused()
   const { id, divisionId, partidoId } = useLocalSearchParams<{ id: string; divisionId: string; partidoId: string }>()
   const [refreshing, setRefreshing] = React.useState(false)
   const [refereeExpanded, setRefereeExpanded] = React.useState(false)
   const [replacementSide, setReplacementSide] = React.useState<"local" | "visitor" | null>(null)
   const [replacementTarget, setReplacementTarget] = React.useState<EquipoResponse | null>(null)
+  const resultSubmissionRef = React.useRef(false)
+  const replacementSubmissionRef = React.useRef(false)
 
   const { data: partido, isLoading, error, refetch } = usePartido(partidoId!)
+  const canLoadReplacementData = isFocused && replacementSide !== null && partido?.estado === "PROGRAMADO" && !!partido.jornadaId && !partido.rondaPlayoffId && partido.tipoPartido === "REGULAR"
   const { data: league, isLoading: isLeagueLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!)
   const { mutate: updatePartido, isPending: isUpdating } = useUpdatePartido()
   const updateResult = useUpdatePartidoResult()
   const createLink = useCreateRefereeLink()
   const revokeLink = useRevokeRefereeLink()
-  const { data: linkStatus, isLoading: linkStatusLoading } = useRefereeLinkStatus(partidoId!, refereeExpanded)
-  const { data: divisionLinks = [] } = useDivisionEquipos(divisionId!)
-  const { data: teams = [] } = useTeams()
-  const { data: jornada } = useQuery({ queryKey: ["jornada", partido?.jornadaId], queryFn: () => partido?.jornadaId ? jornadaApi.getById(partido.jornadaId) : Promise.reject(new Error("El partido no pertenece a una jornada")), enabled: !!partido?.jornadaId })
+  const { data: linkStatus, isLoading: linkStatusLoading } = useRefereeLinkStatus(partidoId!, isFocused && refereeExpanded)
+  const { data: divisionLinks = [], isLoading: replacementTeamsLoading } = useDivisionEquipos(divisionId!, canLoadReplacementData)
+  const { data: jornada, isLoading: replacementJornadaLoading } = useQuery({ queryKey: ["jornada", partido?.jornadaId], queryFn: () => partido?.jornadaId ? jornadaApi.getById(partido.jornadaId) : Promise.reject(new Error("El partido no pertenece a una jornada")), enabled: canLoadReplacementData })
   const { data: localRoster = [] } = useDivisionJugadores(divisionId, partido?.equipoLocalId ?? undefined)
   const { data: visitorRoster = [] } = useDivisionJugadores(divisionId, partido?.equipoVisitanteId ?? undefined)
   const { data: division, isLoading: isDivisionLoading, error: divisionError, refetch: refetchDivision } = useDivision(divisionId!)
@@ -57,10 +59,18 @@ export default function PartidoDetailScreen() {
   }, [refetch, refetchDivision])
 
   const handleSave = (golesLocal: number, golesVisitante: number, estado: string, allocations: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number, _tipoPartido?: string, participaciones?: ParticipacionInput[], notas?: string | null) => {
-    if (!partido) return
+    if (!partido || resultSubmissionRef.current) return
+    resultSubmissionRef.current = true
     updateResult.mutate(
-      { id: partido.id, divisionId, ...buildResultPayload({ expectedVersion: partido.version, golesLocal, golesVisitante, penalesLocal, penalesVisitante, estado, allocations, participaciones, notas }) },
-      { onSuccess: () => { toast.success("Resultado guardado") }, onError: (e: any) => { if (e?.response?.status === 409) { refetch(); toast.error("El partido cambió en otro dispositivo. Actualizamos los datos; revisa el resultado e inténtalo de nuevo."); return } toast.error(e.message) } },
+      { id: partido.id, divisionId, leagueId: id, previous: { estado: partido.estado, tipoPartido: partido.tipoPartido, jornadaId: partido.jornadaId, rondaPlayoffId: partido.rondaPlayoffId }, ...buildResultPayload({ expectedVersion: partido.version, golesLocal, golesVisitante, penalesLocal, penalesVisitante, estado, allocations, participaciones, notas }) },
+      {
+        onSuccess: () => { resultSubmissionRef.current = false; toast.success("Resultado guardado") },
+        onError: (e: any) => {
+          resultSubmissionRef.current = false
+          if (e?.response?.status === 409) { refetch(); toast.error("El partido cambió en otro dispositivo. Actualizamos los datos; revisa el resultado e inténtalo de nuevo."); return }
+          toast.error(e.message)
+        },
+      },
     )
   }
 
@@ -91,11 +101,12 @@ export default function PartidoDetailScreen() {
 
   const closeReplacement = () => { setReplacementSide(null); setReplacementTarget(null) }
   const confirmReplacement = () => {
-    if (!partido || !replacementSide || !replacementTarget) return
+    if (!partido || !replacementSide || !replacementTarget || replacementSubmissionRef.current) return
+    replacementSubmissionRef.current = true
     const field = replacementSide === "local" ? { equipoLocalId: replacementTarget.id } : { equipoVisitanteId: replacementTarget.id }
-    updatePartido({ id: partido.id, divisionId, ...field }, {
-      onSuccess: (updated) => { closeReplacement(); const count = updated.jornadasRecalculadas ?? 0; toast.success(count ? `Equipos intercambiados y ${count} jornada(s) futura(s) recalculada(s)` : "Equipos intercambiados") },
-      onError: (error) => toast.error(error.message),
+    updatePartido({ id: partido.id, divisionId, leagueId: id, previous: { estado: partido.estado, tipoPartido: partido.tipoPartido, jornadaId: partido.jornadaId, rondaPlayoffId: partido.rondaPlayoffId }, ...field }, {
+      onSuccess: (updated) => { replacementSubmissionRef.current = false; closeReplacement(); const count = updated.jornadasRecalculadas ?? 0; toast.success(count ? `Equipos intercambiados y ${count} jornada(s) futura(s) recalculada(s)` : "Equipos intercambiados") },
+      onError: (error) => { replacementSubmissionRef.current = false; toast.error(error.message) },
     })
   }
 
@@ -131,16 +142,16 @@ export default function PartidoDetailScreen() {
   const linkExpiresAt = linkStatus?.expiresAt ?? null
   const linkExists = linkStatus?.exists === true
   const linkStatusKnown = linkStatus !== undefined
-  const divisionTeamIds = new Set(divisionLinks.map((link) => link.equipoId))
-  const divisionTeams = teams.filter((team) => divisionTeamIds.has(team.id)).sort((a, b) => a.nombre.localeCompare(b.nombre))
+  const divisionTeams = divisionLinks.map((link) => link.equipo).sort((a, b) => a.nombre.localeCompare(b.nombre))
   const currentTeam = replacementSide === "local" ? partido.equipoLocal : partido.equipoVisitante
   const rivalId = replacementSide === "local" ? partido.equipoVisitanteId : partido.equipoLocalId
   const swappableTeamCounts = (jornada?.partidos ?? []).filter((item) => item.id !== partido.id && item.estado === "PROGRAMADO" && item.tipoPartido === "REGULAR").reduce<Record<string, number>>((counts, item) => { if (item.equipoLocalId) counts[item.equipoLocalId] = (counts[item.equipoLocalId] ?? 0) + 1; if (item.equipoVisitanteId) counts[item.equipoVisitanteId] = (counts[item.equipoVisitanteId] ?? 0) + 1; return counts }, {})
   const replacementOptions = divisionTeams.filter((team) => team.id !== rivalId && team.id !== currentTeam?.id && swappableTeamCounts[team.id] === 1)
   const canReplaceTeams = partido.estado === "PROGRAMADO" && !!partido.jornadaId && !partido.rondaPlayoffId && partido.tipoPartido === "REGULAR"
+  const replacementDataLoading = replacementTeamsLoading || replacementJornadaLoading
   const rosterCandidates = (roster: typeof localRoster, side: "LOCAL" | "VISITANTE") => (records: { ladoMarcador: "LOCAL" | "VISITANTE"; jugadorId: string | null; jugadorNombre?: string | null; dorsal?: number | null }[]): ScorerCandidate[] =>
     buildScorerCandidates(
-      roster.map((link) => ({ id: link.jugador.id, nombre: link.jugador.nombre, foto: link.jugador.foto, dorsal: link.jugador.equipos?.find((team) => team.equipoId === link.equipoId)?.dorsal ?? null })),
+      roster.map((link) => ({ id: link.jugador.id, nombre: link.jugador.nombre, foto: link.jugador.foto, dorsal: link.dorsal })),
       records,
       side,
     )
@@ -237,8 +248,8 @@ export default function PartidoDetailScreen() {
         </KeyboardAwareScrollView>
         <AppBottomSheetModal visible={replacementSide !== null && replacementTarget === null} onClose={closeReplacement} title={replacementSide === "local" ? "Cambiar equipo local" : "Cambiar equipo visitante"} snapPoints={["65%"]}>
           <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.sans }}>Selecciona otro equipo con partido programado en esta jornada. Ambos intercambiarán su lugar.</Text>
-          {replacementOptions.map((team) => <TouchableOpacity key={team.id} onPress={() => setReplacementTarget(team)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.md }}><LogoImage uri={team.logo} size={38} backgroundColor={Palette.surface} iconFallback="shield" /><Text style={{ color: Palette.text, fontFamily: Fonts.medium, flex: 1 }}>{team.nombre}</Text><MaterialIcons name="swap-horiz" size={22} color={Palette.cyan} /></TouchableOpacity>)}
-          {!replacementOptions.length ? <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, textAlign: "center" }}>No hay otro equipo con un partido programado disponible para intercambiar.</Text> : null}
+          {replacementDataLoading ? <ActivityIndicator color={Palette.cyan} /> : replacementOptions.map((team) => <TouchableOpacity key={team.id} onPress={() => setReplacementTarget(team)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.md }}><LogoImage uri={team.logo} size={38} backgroundColor={Palette.surface} iconFallback="shield" /><Text style={{ color: Palette.text, fontFamily: Fonts.medium, flex: 1 }}>{team.nombre}</Text><MaterialIcons name="swap-horiz" size={22} color={Palette.cyan} /></TouchableOpacity>)}
+          {!replacementDataLoading && !replacementOptions.length ? <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, textAlign: "center" }}>No hay otro equipo con un partido programado disponible para intercambiar.</Text> : null}
         </AppBottomSheetModal>
         <ConfirmationModal visible={replacementTarget !== null} title="Intercambiar equipos" message={`${currentTeam?.nombre ?? "El equipo actual"} y ${replacementTarget?.nombre ?? "el equipo seleccionado"} intercambiarán sus lugares. También se recalcularán los enfrentamientos regulares de las jornadas futuras para conservar el round-robin.`} highlightText={replacementTarget?.nombre} confirmLabel="Intercambiar" variant="warning" loading={isUpdating} onConfirm={confirmReplacement} onClose={closeReplacement} />
       </View>

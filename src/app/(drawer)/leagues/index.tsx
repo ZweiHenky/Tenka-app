@@ -22,6 +22,7 @@ import { canCreateLeague, type UserRole } from "@/domain/interfaces/user"
 import { userApi } from "@/features/users/api/users"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { isRateLimitError } from "@/infrastructure/api/rate-limit"
 
 export default function LeaguesScreen() {
   const toast = useToast()
@@ -31,7 +32,7 @@ export default function LeaguesScreen() {
   const role = (session?.user as { rol?: UserRole } | undefined)?.rol
   const canCreate = canCreateLeague(role)
   const { data: leagues = [], isLoading, error, refetch } = useUserLeagues(userId)
-  const deleteLeague = useDeleteLeague()
+  const deleteLeague = useDeleteLeague(userId)
   const [refreshing, setRefreshing] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string; divisionCount: number } | null>(null)
   const [checkingDelete, setCheckingDelete] = useState(false)
@@ -186,10 +187,10 @@ export default function LeaguesScreen() {
   const handleDelete = async (id: string, nombre: string) => {
     setCheckingDelete(true)
     try {
-      const divisions = await api.get(`/api/divisiones/por-liga/${id}`).then((r) => r.data.data ?? []).catch(() => [])
+      const divisions = await api.get(`/api/divisiones/por-liga/${id}`).then((r) => r.data.data ?? [])
       setDeleteTarget({ id, nombre, divisionCount: divisions.length })
-    } catch {
-      setDeleteTarget({ id, nombre, divisionCount: 0 })
+    } catch (error) {
+      toast.error((error as Error).message || "No se pudo revisar la liga")
     } finally {
       setCheckingDelete(false)
     }
@@ -204,7 +205,7 @@ export default function LeaguesScreen() {
       },
       onError: (e) => {
         toast.error(e.message || "Error al eliminar")
-        setDeleteTarget(null)
+        if (!isRateLimitError(e)) setDeleteTarget(null)
       },
     })
   }

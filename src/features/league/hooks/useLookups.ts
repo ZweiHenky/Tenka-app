@@ -11,14 +11,29 @@ export interface Lookups {
   isLoading: boolean
 }
 
-export function useLookups(): Lookups {
+export interface LookupSelection {
+  categorias?: boolean
+  tipos?: boolean
+  ubicaciones?: boolean
+  estadosLiga?: boolean
+  tiposCompetencia?: boolean
+}
+
+export function useLookups(selection: LookupSelection): Lookups {
+  const enabled = [
+    selection.categorias === true,
+    selection.tipos === true,
+    selection.ubicaciones === true,
+    selection.estadosLiga === true,
+    selection.tiposCompetencia === true,
+  ]
   const results = useQueries({
     queries: [
-      { queryKey: ["categorias"], queryFn: lookupsApi.categorias, staleTime: 1000 * 60 * 5 },
-      { queryKey: ["tipos"], queryFn: lookupsApi.tipos, staleTime: 1000 * 60 * 5 },
-      { queryKey: ["ubicaciones"], queryFn: lookupsApi.ubicaciones, staleTime: 1000 * 60 * 5 },
-      { queryKey: ["estadosLiga"], queryFn: lookupsApi.estadosLiga, staleTime: 1000 * 60 * 5 },
-      { queryKey: ["tiposCompetencia"], queryFn: lookupsApi.tiposCompetencia, staleTime: 1000 * 60 * 5 },
+      { queryKey: ["categorias"], queryFn: lookupsApi.categorias, staleTime: 1000 * 60 * 5, enabled: enabled[0] },
+      { queryKey: ["tipos"], queryFn: lookupsApi.tipos, staleTime: 1000 * 60 * 5, enabled: enabled[1] },
+      { queryKey: ["ubicaciones"], queryFn: lookupsApi.ubicaciones, staleTime: 1000 * 60 * 5, enabled: enabled[2] },
+      { queryKey: ["estadosLiga"], queryFn: lookupsApi.estadosLiga, staleTime: 1000 * 60 * 5, enabled: enabled[3] },
+      { queryKey: ["tiposCompetencia"], queryFn: lookupsApi.tiposCompetencia, staleTime: 1000 * 60 * 5, enabled: enabled[4] },
     ],
   })
 
@@ -28,6 +43,6 @@ export function useLookups(): Lookups {
     ubicaciones: results[2].data ?? [],
     estadosLiga: results[3].data ?? [],
     tiposCompetencia: results[4].data ?? [],
-    isLoading: results.some((r) => r.isLoading),
+    isLoading: results.some((result, index) => enabled[index] && result.isLoading),
   }
 }

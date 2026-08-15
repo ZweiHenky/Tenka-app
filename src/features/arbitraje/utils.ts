@@ -27,6 +27,11 @@ export function groupMatchesByDivision(matches: RefereeMatch[]) {
 
 export const scheduledMatches = (matches: RefereeMatch[]) => matches.filter((match) => match.fecha && match.fechaFin)
 
+export function allSelectionsLoaded(selectedIds: string[], loadedIds: string[]): boolean {
+  const loaded = new Set(loadedIds)
+  return selectedIds.every((id) => loaded.has(id))
+}
+
 export function assignmentProgress(matches: RefereeMatch[], assignments: Record<string, string[]>) {
   const scheduled = scheduledMatches(matches)
   const assigned = scheduled.filter((match) => (assignments[match.id] ?? []).length > 0).length

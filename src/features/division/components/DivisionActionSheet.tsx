@@ -28,6 +28,7 @@ interface Props {
   onGeneratePlayoffs: () => void
   onDeletePlayoffs: () => void
   onReset: () => void
+  dataLoading?: boolean
 }
 
 export default function DivisionActionSheet({
@@ -53,12 +54,14 @@ export default function DivisionActionSheet({
   onGeneratePlayoffs,
   onDeletePlayoffs,
   onReset,
+  dataLoading,
 }: Props) {
   const [selectingCourt, setSelectingCourt] = useState(false)
 
   return (
     <AppBottomSheetModal visible={visible} onClose={() => { setSelectingCourt(false); onClose() }} title="Opciones de división" snapPoints={["80%"]} scrollable>
       <View style={{ gap: Gap.md }}>
+        {dataLoading ? <ActivityIndicator color={Palette.cyan} /> : null}
         <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, paddingBottom: Pad.sm, borderBottomWidth: 1, borderBottomColor: Palette.border }}>
           <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.sans }}>Estado actual:</Text>
           <View style={{ backgroundColor: isBorrador ? Palette.warning10 : Palette.cyan10, borderRadius: Radius.full, paddingHorizontal: Pad.md, paddingVertical: Pad.micro }}>
@@ -174,7 +177,7 @@ export default function DivisionActionSheet({
           </TouchableOpacity>
         ) : null}
 
-        {tieneEliminatorias && !hasRondas ? (
+        {tieneEliminatorias && !dataLoading && !hasRondas ? (
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={onGeneratePlayoffs}
@@ -197,7 +200,7 @@ export default function DivisionActionSheet({
           <View style={{ flex: 1, height: 1, backgroundColor: Palette.danger }} />
         </View>
 
-        {hasRondas ? (
+        {!dataLoading && hasRondas ? (
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={onDeletePlayoffs}

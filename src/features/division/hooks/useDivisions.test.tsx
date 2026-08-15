@@ -17,24 +17,25 @@ describe("useResetDivision", () => {
     mocks.reset.mockResolvedValue(undefined)
   })
 
-  it("invalidates every division view derived from deleted matches", async () => {
+  it("writes known reset state and only refetches non-derivable views", async () => {
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined)
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     )
     const { result } = renderHook(() => useResetDivision(), { wrapper })
+    queryClient.setQueryData(["jornadas", "division-1"], [{ id: "jornada-1", partidos: [] }])
+    queryClient.setQueryData(["rondas-playoff", "division-1"], [{ id: "ronda-1", partidos: [] }])
 
     await act(async () => {
-      await result.current.mutateAsync("division-1")
+      await result.current.mutateAsync({ divisionId: "division-1", leagueId: "league-1" })
     })
 
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["jornadas", "division-1"] })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["jornadas-infinitas", "division-1"] })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["tabla-posiciones", "division-1"] })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rondas-playoff", "division-1"] })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["goleadores", "division-1"] })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["last-jornada", "division-1"] })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["partido"] })
+    expect(queryClient.getQueryData(["jornadas", "division-1"])).toEqual([])
+    expect(queryClient.getQueryData(["rondas-playoff", "division-1"])).toEqual([])
+    expect(queryClient.getQueryData(["last-jornada", "division-1"])).toBeNull()
+    expect(queryClient.getQueryData(["goleadores", "division-1"])).toEqual({ rows: [], unattributedGoals: 0 })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["tabla-posiciones", "division-1"], exact: true })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["referee-candidates", "league-1"], exact: true })
   })
 })

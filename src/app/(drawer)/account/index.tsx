@@ -12,6 +12,7 @@ import { useToast } from "@/shared/components/Toast"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
 import { waitForIdle } from "@/shared/utils/wait-for-idle"
+import type { League } from "@/domain/interfaces/league"
 
 export default function ProfileScreen() {
   const guard = useNavGuard()
@@ -49,7 +50,6 @@ export default function ProfileScreen() {
     try {
       await userApi.activateLeagueRole()
       await refetchSession({ query: { disableCookieCache: true } })
-      qc.invalidateQueries({ queryKey: ["leagues"] })
       toast.success("Tu cuenta ya puede administrar ligas.")
     } catch (error) {
       toast.error(getAuthErrorMessage(error, "No se pudo activar el rol de liga."))
@@ -58,9 +58,14 @@ export default function ProfileScreen() {
     }
   }
 
-  const handleUserUpdated = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ["session"] })
-    qc.invalidateQueries({ queryKey: ["leagues"] })
+  const handleUserUpdated = useCallback((showPhoneInPublicLeague: boolean) => {
+    qc.setQueriesData<League>({
+      queryKey: ["leagues"],
+      predicate: (query) => query.queryKey.length === 2 && query.queryKey[1] !== "user",
+    }, (league) => league?.user ? {
+      ...league,
+      user: { ...league.user, showPhoneInPublicLeague },
+    } : league)
   }, [qc])
 
   const handleRefresh = async () => {
@@ -77,13 +82,14 @@ export default function ProfileScreen() {
     setPhoneVisibleOverride(nextValue)
     try {
       await userApi.updatePhoneVisibility(nextValue)
-      handleUserUpdated()
+      await refetchSession({ query: { disableCookieCache: true } })
+      handleUserUpdated(nextValue)
     } catch {
       setPhoneVisibleOverride(next)
     } finally {
       setSavingPhoneVisibility(false)
     }
-  }, [handleUserUpdated, phoneVisibleOverride, user])
+  }, [handleUserUpdated, phoneVisibleOverride, refetchSession, user])
 
   if (isPending) {
     return (

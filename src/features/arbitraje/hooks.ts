@@ -1,9 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { refereeApi } from "./api"
 
 const key = (leagueId: string) => ["referee-batches", leagueId] as const
-export const useRefereeBatches = (leagueId: string) => useQuery({ queryKey: key(leagueId), queryFn: () => refereeApi.list(leagueId), enabled: !!leagueId })
-export const useRefereeCandidates = (leagueId: string) => useQuery({ queryKey: ["referee-candidates", leagueId], queryFn: () => refereeApi.candidates(leagueId), enabled: !!leagueId, refetchOnMount: "always" })
+export const useRefereeBatches = (leagueId: string, enabled = true) => useQuery({ queryKey: key(leagueId), queryFn: () => refereeApi.list(leagueId), enabled: enabled && !!leagueId })
+export const useRefereeCandidates = (leagueId: string, enabled = true) => useInfiniteQuery({
+  queryKey: ["referee-candidates", leagueId],
+  queryFn: ({ pageParam }) => refereeApi.candidates(leagueId, pageParam),
+  initialPageParam: 1,
+  getNextPageParam: (lastPage) => lastPage.rows.length > 0 && lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined,
+  enabled: enabled && !!leagueId,
+})
 
 export function useRefereeMutations(leagueId: string) {
   const qc = useQueryClient()

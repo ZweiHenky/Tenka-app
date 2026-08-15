@@ -100,7 +100,12 @@ export default function Home() {
   const isFocused = useIsFocused()
   const { startTour } = useTourGuide()
 
-  const lookups = useLookups()
+  const lookups = useLookups({
+    ubicaciones: isFocused,
+    categorias: isFocused && filterOpen,
+    tipos: isFocused && filterOpen,
+    estadosLiga: isFocused && filterOpen,
+  })
   const favoritos = useLigaFavoritaStore((s) => s.favoritos)
 
   const filters = useMemo(() => ({
@@ -111,7 +116,7 @@ export default function Home() {
   }), [debouncedSearch, selectedCategoriaIds, selectedTipoIds, selectedEstadoIds])
 
   const qc = useQueryClient()
-  const { data, isLoading, fetchNextPage, isFetchingNextPage, hasNextPage, error } = useLigasInfinitas(filters)
+  const { data, isLoading, fetchNextPage, isFetchingNextPage, hasNextPage, error } = useLigasInfinitas(filters, isFocused)
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -325,6 +330,7 @@ export default function Home() {
 
       <AppBottomSheetModal visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filtros" snapPoints={["65%"]}>
         <View style={{ gap: Gap.md }}>
+          {lookups.isLoading ? <ActivityIndicator color={Palette.cyan} /> : null}
           <AccordionFilterSection title="Categoría" icon="category" items={lookups.categorias} selected={selectedCategoriaIds} onToggle={(id) => setSelectedCategoriaIds((p) => toggleSet(p, id))} isExpanded={expandedSections.has("categoria")} onToggleExpand={() => toggleSection("categoria")} />
           <AccordionFilterSection title="Tipo" icon="sports" items={lookups.tipos} selected={selectedTipoIds} onToggle={(id) => setSelectedTipoIds((p) => toggleSet(p, id))} isExpanded={expandedSections.has("tipo")} onToggleExpand={() => toggleSection("tipo")} />
           <AccordionFilterSection title="Estado" icon="flag" items={lookups.estadosLiga} selected={selectedEstadoIds} onToggle={(id) => setSelectedEstadoIds((p) => toggleSet(p, id))} isExpanded={expandedSections.has("estado")} onToggleExpand={() => toggleSection("estado")} />

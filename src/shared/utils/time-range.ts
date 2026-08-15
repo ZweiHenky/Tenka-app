@@ -10,12 +10,23 @@ export interface TimeRangeCapacity {
   remainingMinutes: number
 }
 
+export interface GeneratedTimeSlot {
+  horaInicio: string
+  horaFin: string
+}
+
 export const TIME_HOURS = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, "0"))
 export const TIME_MINUTES = ["00", "10", "20", "30", "40", "50"]
 
 export function timeToMinutes(time: string): number {
   const [hours, minutes] = time.split(":").map(Number)
   return hours * 60 + (minutes || 0)
+}
+
+export function minutesToTime(minutes: number): string {
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
 }
 
 export function parseTimeRanges(value: string): TimeRange[] {
@@ -27,6 +38,37 @@ export function parseTimeRanges(value: string): TimeRange[] {
     if (parts.length === 2) return { start: parts[0], end: parts[1] }
     return null
   }).filter(Boolean) as TimeRange[]
+}
+
+export function generateTimeSlots(value: string, matchDuration: number, breakDuration: number): GeneratedTimeSlot[] {
+  if (!Number.isFinite(matchDuration) || matchDuration <= 0) return []
+  const slotStep = matchDuration + Math.max(0, breakDuration)
+  const slots: GeneratedTimeSlot[] = []
+
+  for (const range of parseTimeRanges(value)) {
+    let current = timeToMinutes(range.start)
+    const rangeEnd = timeToMinutes(range.end)
+    while (current < rangeEnd && current + matchDuration <= rangeEnd) {
+      slots.push({
+        horaInicio: minutesToTime(current),
+        horaFin: minutesToTime(current + matchDuration),
+      })
+      current += slotStep
+    }
+  }
+  return slots
+}
+
+export function isTimeSlotWithinRanges(value: string, horaInicio: string, horaFin: string): boolean {
+  const slotStart = timeToMinutes(horaInicio)
+  const slotEnd = timeToMinutes(horaFin)
+  if (!Number.isFinite(slotStart) || !Number.isFinite(slotEnd) || slotEnd <= slotStart) return false
+
+  return parseTimeRanges(value).some((range) => {
+    const rangeStart = timeToMinutes(range.start)
+    const rangeEnd = timeToMinutes(range.end)
+    return slotStart >= rangeStart && slotStart < rangeEnd && slotEnd <= rangeEnd
+  })
 }
 
 export function setTimeHour(value: string, hour: string): string {

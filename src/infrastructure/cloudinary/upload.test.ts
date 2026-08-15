@@ -42,4 +42,14 @@ describe("uploadToCloudinary", () => {
     await expect(uploadToCloudinary("file:///photo.jpg", "TEAM_LOGO", source)).rejects.toThrow("inesperado")
     expect(mocks.apiPost).toHaveBeenLastCalledWith("/api/media/intent-1/abandon")
   })
+
+  it("preserves an uploaded intent when completion is rate limited", async () => {
+    const rateLimitError = Object.assign(new Error("Demasiadas solicitudes"), { response: { status: 429 } })
+    mocks.apiPost.mockResolvedValueOnce({ data: { data: intent } }).mockRejectedValueOnce(rateLimitError)
+    mocks.cloudinaryPost.mockResolvedValue({ data: { public_id: intent.publicId, secure_url: "https://res.cloudinary.com/cloud/image/upload/v1/id.jpg", bytes: 5, format: "jpg", width: 200, height: 200 } })
+
+    await expect(uploadToCloudinary("file:///photo.jpg", "TEAM_LOGO", source)).rejects.toBe(rateLimitError)
+    expect(mocks.apiPost).toHaveBeenCalledTimes(2)
+    expect(mocks.apiPost).not.toHaveBeenCalledWith("/api/media/intent-1/abandon")
+  })
 })

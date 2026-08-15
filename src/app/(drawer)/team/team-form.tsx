@@ -24,14 +24,15 @@ interface FormState {
 
 interface FormContentProps {
   teamId: string | null
+  userId: string
   isEdit: boolean
   team: { id: string; nombre: string; logo: string | null }
 }
 
-function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
+function TeamFormContent({ teamId, userId, isEdit, team }: FormContentProps) {
   const toast = useToast()
-  const createTeam = useCreateTeam()
-  const updateTeam = useUpdateTeam()
+  const createTeam = useCreateTeam(userId)
+  const updateTeam = useUpdateTeam(userId)
 
   const [form, setForm] = useState<FormState>(() => ({
     nombre: isEdit ? team.nombre : "",
@@ -43,6 +44,7 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
   const navigation = useNavigation()
   const pendingActionRef = useRef<NavigationAction | null>(null)
   const allowLeaveRef = useRef(false)
+  const savingRef = useRef(false)
 
   const dirty = useMemo(() => {
     return form.nombre !== (isEdit ? team.nombre : "") || form.logo !== (isEdit ? (team.logo || "") : "") || !!pickedLogo
@@ -63,9 +65,10 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
   }
 
   const handleSave = async () => {
-    if (!form.nombre.trim()) { toast.error("El nombre del equipo es obligatorio"); return }
+    if (!form.nombre.trim() || savingRef.current) { if (!form.nombre.trim()) toast.error("El nombre del equipo es obligatorio"); return }
 
     let logoAssetId = ""
+    savingRef.current = true
     setSaving(true)
     try {
       if (pickedLogo) {
@@ -85,6 +88,7 @@ function TeamFormContent({ teamId, isEdit, team }: FormContentProps) {
       if (logoAssetId) { await api.post(`/api/media/${logoAssetId}/abandon`).catch(() => undefined) }
       toast.error(e.message || "Error al guardar")
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -246,6 +250,7 @@ export default function TeamFormScreen() {
       <TeamFormContent
         key={isEdit ? teamId : "create"}
         teamId={teamId ?? null}
+        userId={session?.user?.id ?? ""}
         isEdit={isEdit}
         team={team!}
       />

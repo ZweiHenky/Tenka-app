@@ -2,6 +2,9 @@ import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { parseDiasPartido } from "@/shared/utils/parse-dias-partido"
+import { generateTimeSlots, isTimeSlotWithinRanges } from "@/shared/utils/time-range"
+
+export const SLOT_DISTRIBUTION_VERSION = 1
 
 export interface TimeSlotConfig {
   id: string
@@ -38,6 +41,7 @@ export interface DivisionSchedule {
   descansoEquipoId?: string
   playoffMode?: boolean
   canchaUnicaIdSnapshot?: string | null
+  slotDistributionVersion?: number
 }
 
 interface DivisionScheduleState {
@@ -54,14 +58,13 @@ interface DivisionScheduleState {
   setScheduleTipoSlots: (divisionId: string, slots: TimeSlotConfig[]) => void
   replaceSlots: (divisionId: string, slots: TimeSlotConfig[]) => void
   syncCanchaUnica: (divisionId: string, canchaUnicaId: string | null, slots: TimeSlotConfig[]) => void
-  clearEliminatoriaSlots: (divisionId: string) => void
+  clearEliminatoriaSlots: (divisionId: string, partidoIds?: string[]) => void
   clearExtraSlots: (divisionId: string) => void
   resetSchedule: (divisionId: string) => void
   setDescansoEquipoId: (divisionId: string, equipoId: string | undefined) => void
   clearSlot: (divisionId: string, slotId: string) => void
-  addSlot: (divisionId: string, tipo: 'regular' | 'amistoso' | 'complemento') => TimeSlotConfig | null
+  addSlot: (divisionId: string, tipo: 'regular' | 'amistoso' | 'complemento', canchaId?: string) => TimeSlotConfig | null
   removeSlot: (divisionId: string, slotId: string) => void
-  moveSlotToDay: (divisionId: string, slotId: string, newFecha: string) => boolean
   moveSlotToTime: (divisionId: string, slotId: string, newHoraInicio: string, newHoraFin: string) => boolean
   setPlayoffMode: (divisionId: string, active: boolean) => void
   setHabilitados: (divisionId: string, equipoIds: string[]) => void
@@ -71,17 +74,6 @@ interface DivisionScheduleState {
   rewindSchedule: (divisionId: string) => void
   clearScheduleTeams: (divisionId: string) => void
   hasUnsaved: boolean
-}
-
-function parseHorario(horario: string): { inicio: string; fin: string }[] {
-  if (!horario) return []
-  return horario.split(" / ").map((r) => {
-    let parts = r.split(" - ").map((s) => s.trim())
-    if (parts.length === 2) return { inicio: parts[0], fin: parts[1] }
-    parts = r.split("-").map((s) => s.trim())
-    if (parts.length === 2) return { inicio: parts[0], fin: parts[1] }
-    return null
-  }).filter(Boolean) as { inicio: string; fin: string }[]
 }
 
 function timeToMinutes(t: string): number {
@@ -120,16 +112,6 @@ export function isValidDateStr(s: string): boolean {
 export function localDateFromString(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number)
   return new Date(y, m - 1, d)
-}
-
-function sameWeek(a: string, b: string): boolean {
-  const getMon = (s: string) => {
-    const date = localDateFromString(s)
-    const day = date.getDay()
-    date.setDate(date.getDate() + (day === 0 ? -6 : 1 - day))
-    return formatDate(date)
-  }
-  return getMon(a) === getMon(b)
 }
 
 function getMondayOfThisWeek(date: Date): Date {
@@ -216,6 +198,7 @@ export interface PlayoffSlotCandidate {
   fecha: string
   horaInicio: string
   horaFin: string
+  canchaId?: string
 }
 
 export interface PendingPlayoffSlot {
@@ -232,7 +215,10 @@ export function reconcilePlayoffSlots(
   targetAutoAmistosos: number,
   candidates: PlayoffSlotCandidate[],
 ): TimeSlotConfig[] {
-  const playoffSlots = normalizePlayoffSlotTypes(slots)
+  const reservedForNewMatches = new Set(candidates.slice(0, newMatches.length).map((candidate) => `${candidate.fecha}|${candidate.horaInicio}`))
+  const playoffSlots = normalizePlayoffSlotTypes(slots).filter((slot) =>
+    isSlotManual(slot) || slot.tipo !== 'amistoso' || !reservedForNewMatches.has(`${slot.fecha}|${slot.horaInicio}`)
+  )
   const autoAmistosos = playoffSlots.filter((slot) => slot.tipo === 'amistoso' && !isSlotManual(slot))
   const keptAutoAmistosos = new Set(autoAmistosos.slice(0, targetAutoAmistosos))
   const normalized = autoAmistosos.length > targetAutoAmistosos
@@ -337,26 +323,10 @@ export function computeRefDateFromJornada(fechaInicio: string | null | undefined
 }
 
 export function generateSlots(diasPartido: string, horarioPartido: string, duracion: number, descanso: number, refDate?: string, maxSlots?: number, courtIds: string[] = []): TimeSlotConfig[] {
-  const ranges = parseHorario(horarioPartido)
-  if (ranges.length === 0) return []
-
   const validDays = parseDiasPartido(diasPartido)
   if (validDays.length === 0) return []
 
-  const slotTotal = duracion + descanso
-
-  const dayTimeSlots: { horaInicio: string; horaFin: string }[] = []
-  for (const range of ranges) {
-    let current = timeToMinutes(range.inicio)
-    const finMin = timeToMinutes(range.fin)
-    while (current + duracion <= finMin) {
-      dayTimeSlots.push({
-        horaInicio: minutesToTime(current),
-        horaFin: minutesToTime(current + duracion),
-      })
-      current += slotTotal
-    }
-  }
+  const dayTimeSlots = generateTimeSlots(horarioPartido, duracion, descanso)
   if (dayTimeSlots.length === 0) return []
 
   let ref: Date
@@ -384,11 +354,8 @@ export function generateSlots(diasPartido: string, horarioPartido: string, durac
 
     for (const ts of dayTimeSlots) {
       if (slots.length >= (maxSlots ?? Infinity)) break
-      const capacity = courtIds.length > 0 ? courtIds : [undefined]
-      for (const canchaId of capacity) {
-        if (slots.length >= (maxSlots ?? Infinity)) break
-        slots.push({ id: `slot-${slots.length}`, fecha, horaInicio: ts.horaInicio, horaFin: ts.horaFin, tipo: 'regular', canchaId })
-      }
+      const canchaId = courtIds.length === 1 ? courtIds[0] : undefined
+      slots.push({ id: `slot-${slots.length}`, fecha, horaInicio: ts.horaInicio, horaFin: ts.horaFin, tipo: 'regular', canchaId })
     }
   }
 
@@ -426,16 +393,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
 
   initSchedule: (divisionId, diasPartido, horarioPartido, duracionPartido, descanso, refDate, maxSlots, habilitados, courtIds = [], canchaUnicaId = null) => {
     let existing = get().schedules[divisionId]
-
-    // Collect eliminatoria slots before any repair
-    const eliminatoriaSlots: TimeSlotConfig[] = []
-    if (existing) {
-      for (const sl of existing.slots) {
-        if (sl.tipo === 'eliminatoria') {
-          eliminatoriaSlots.push(sl)
-        }
-      }
-    }
+    const retainedEliminatoriaSlots = existing?.slots.filter((slot) => slot.tipo === 'eliminatoria' && isValidDateStr(slot.fecha)) ?? []
 
     // Repair corrupted NaN dates from previous ISO-timestamp parsing bug
     if (existing) {
@@ -456,24 +414,39 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       }
     }
 
+    if (existing?.slots.some((slot) => !isTimeSlotWithinRanges(horarioPartido, slot.horaInicio, slot.horaFin))) {
+      const repairedTimes = generateSlots(
+        diasPartido,
+        horarioPartido,
+        duracionPartido,
+        descanso,
+        refDate ?? existing.refDate,
+        existing.slots.length,
+        courtIds,
+      )
+      existing = {
+        ...existing,
+        plantilla: undefined,
+        slots: repairedTimes.map((time, index) => ({
+          ...existing!.slots[index],
+          fecha: time.fecha,
+          horaInicio: time.horaInicio,
+          horaFin: time.horaFin,
+          canchaId: time.canchaId ?? existing!.slots[index].canchaId,
+        })),
+      }
+    }
+
+    const currentEliminatoriaSlots = existing?.slots.filter((slot) => slot.tipo === 'eliminatoria') ?? []
+    const eliminatoriaSlots = currentEliminatoriaSlots.length > 0 ? currentEliminatoriaSlots : retainedEliminatoriaSlots
+
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     tomorrow.setHours(0, 0, 0, 0)
 
-    if (existing && existing.horarioSnapshot === horarioPartido && existing.diasSnapshot === diasPartido && existing.duracionSnapshot === duracionPartido && existing.descansoSnapshot === descanso) {
+    if (existing && existing.slotDistributionVersion === SLOT_DISTRIBUTION_VERSION && existing.horarioSnapshot === horarioPartido && existing.diasSnapshot === diasPartido && existing.duracionSnapshot === duracionPartido && existing.descansoSnapshot === descanso) {
       const validDays = parseDiasPartido(diasPartido)
-      const ranges = parseHorario(horarioPartido)
-
-      const dayTimeSlots: { horaInicio: string; horaFin: string }[] = []
-      const slotTotal = duracionPartido + descanso
-      for (const range of ranges) {
-        let current = timeToMinutes(range.inicio)
-        const finMin = timeToMinutes(range.fin)
-        while (current + duracionPartido <= finMin) {
-          dayTimeSlots.push({ horaInicio: minutesToTime(current), horaFin: minutesToTime(current + duracionPartido) })
-          current += slotTotal
-        }
-      }
+      const dayTimeSlots = generateTimeSlots(horarioPartido, duracionPartido, descanso)
 
       const refLocal = refDate && isValidDateStr(refDate) ? localDateFromString(refDate) : nextMondayFrom(tomorrow)
       const weekMonday = getMondayOfThisWeek(refLocal)
@@ -568,7 +541,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
 
       if (existing?.playoffMode) slots = normalizePlayoffSlotTypes(slots)
 
-      const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: migratedPlantilla, refDate: formatDate(weekMonday), horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, canchaUnicaIdSnapshot: canchaUnicaId }
+      const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: migratedPlantilla, refDate: formatDate(weekMonday), horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, canchaUnicaIdSnapshot: canchaUnicaId, slotDistributionVersion: SLOT_DISTRIBUTION_VERSION }
       nextSchedule.slots = resolveCanchaConflicts(nextSchedule.slots, nextSchedule)
       set((s) => ({ schedules: { ...s.schedules, [divisionId]: nextSchedule }, hasUnsaved: false, programacionGuardada: { ...s.programacionGuardada, [divisionId]: false } }))
       return
@@ -591,7 +564,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       : refDate && isValidDateStr(refDate)
         ? formatDate(getMondayOfThisWeek(localDateFromString(refDate)))
         : existing?.refDate
-    const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: undefined, refDate: refDateForStore, horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, canchaUnicaIdSnapshot: canchaUnicaId }
+    const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: undefined, refDate: refDateForStore, horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, canchaUnicaIdSnapshot: canchaUnicaId, slotDistributionVersion: SLOT_DISTRIBUTION_VERSION }
     nextSchedule.slots = resolveCanchaConflicts(nextSchedule.slots, nextSchedule)
     set((s) => ({ schedules: { ...s.schedules, [divisionId]: nextSchedule }, hasUnsaved: false, programacionGuardada: { ...s.programacionGuardada, [divisionId]: false } }))
   },
@@ -776,12 +749,15 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     })
   },
 
-  clearEliminatoriaSlots: (divisionId) => {
+  clearEliminatoriaSlots: (divisionId, partidoIds) => {
     set((s) => {
       const schedule = s.schedules[divisionId]
       if (!schedule) return s
-      if (!schedule.slots.some((sl) => sl.tipo === 'eliminatoria')) return s
-      const slots = schedule.slots.filter((sl) => sl.tipo !== 'eliminatoria')
+      const selectedIds = partidoIds ? new Set(partidoIds) : null
+      const shouldRemove = (slot: TimeSlotConfig) => slot.tipo === 'eliminatoria'
+        && (!selectedIds || (!!slot.partidoId && selectedIds.has(slot.partidoId)))
+      if (!schedule.slots.some(shouldRemove)) return s
+      const slots = schedule.slots.filter((slot) => !shouldRemove(slot))
       return {
         schedules: { ...s.schedules, [divisionId]: { ...schedule, slots } },
         hasUnsaved: true,
@@ -941,7 +917,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     })
   },
 
-  addSlot: (divisionId, tipo) => {
+  addSlot: (divisionId, tipo, canchaId) => {
     const schedule = get().schedules[divisionId]
     if (!schedule) return null
     if (schedule.playoffMode && (tipo === 'regular' || tipo === 'complemento')) return null
@@ -976,17 +952,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     const validDays = parseDiasPartido(diasStr)
     if (validDays.length === 0 || !horarioStr || !duracion) return null
 
-    const ranges = parseHorario(horarioStr)
-    const dayTimeSlots: { horaInicio: string; horaFin: string }[] = []
-    const slotTotal = duracion + descanso
-    for (const range of ranges) {
-      let current = timeToMinutes(range.inicio)
-      const finMin = timeToMinutes(range.fin)
-      while (current + duracion <= finMin) {
-        dayTimeSlots.push({ horaInicio: minutesToTime(current), horaFin: minutesToTime(current + duracion) })
-        current += slotTotal
-      }
-    }
+    const dayTimeSlots = generateTimeSlots(horarioStr, duracion, descanso)
     if (dayTimeSlots.length === 0) return null
 
     let refDate: Date
@@ -1053,6 +1019,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       horaInicio: foundHoraInicio,
       horaFin: foundHoraFin,
       tipo: schedule.playoffMode && (tipo === 'regular' || tipo === 'complemento') ? 'amistoso' : tipo,
+      canchaId,
     }
 
     set((s) => {
@@ -1080,41 +1047,6 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
         programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
       }
     })
-  },
-
-  moveSlotToDay: (divisionId, slotId, newFecha) => {
-    const schedule = get().schedules[divisionId]
-    if (!schedule) return false
-    const slot = schedule.slots.find((sl) => sl.id === slotId)
-    if (!slot) return false
-    if (!sameWeek(slot.fecha, newFecha)) return false
-
-    const conflicting = schedule.slots.find(
-      (sl) => {
-        if (sl.id === slotId || sl.fecha !== newFecha || sl.canchaId !== slot.canchaId) return false
-        if (!sl.horaInicio || !sl.horaFin || !slot.horaInicio || !slot.horaFin) return false
-        const aStart = timeToMinutes(slot.horaInicio)
-        const aEnd = timeToMinutes(slot.horaFin)
-        const bStart = timeToMinutes(sl.horaInicio)
-        const bEnd = timeToMinutes(sl.horaFin)
-        return aStart < bEnd && aEnd > bStart
-      },
-    )
-    if (conflicting) return false
-
-    set((s) => {
-      const schedule = s.schedules[divisionId]
-      if (!schedule) return s
-      const slots = schedule.slots.map((sl) =>
-        sl.id === slotId ? { ...sl, fecha: newFecha } : sl
-      )
-      return {
-        schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, plantilla: undefined } },
-        hasUnsaved: true,
-        programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
-      }
-    })
-    return true
   },
 
   setHabilitados: (divisionId, equipoIds) => {

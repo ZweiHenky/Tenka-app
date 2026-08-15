@@ -1,5 +1,6 @@
 import { parseDiasPartido } from "@/shared/utils/parse-dias-partido"
 import type { TimeSlotConfig } from "@/stores/divisionSchedule"
+import { generateTimeSlots } from "@/shared/utils/time-range"
 
 type DivisionConfig = {
   diasPartido: string | null
@@ -21,36 +22,14 @@ function formatDateLocal(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-function parseHorario(horario: string): { inicio: string; fin: string }[] {
-  return horario.split(" / ").map((range) => {
-    const parts = range.split(/\s*-\s*/)
-    return parts.length === 2 ? { inicio: parts[0], fin: parts[1] } : null
-  }).filter(Boolean) as { inicio: string; fin: string }[]
-}
-
 export function preparePlayoffSlots(
   existingSlots: TimeSlotConfig[],
   division: DivisionConfig,
   eliminados: Eliminado[],
 ): TimeSlotConfig[] {
   const validDays = parseDiasPartido(division.diasPartido ?? "sab")
-  const ranges = parseHorario(division.horarioPartido ?? "08:00-20:00")
-  const slotTotal = (division.duracionPartido ?? 60) + (division.descanso ?? 0)
   const duracion = division.duracionPartido ?? 60
-
-  const dayTimeSlots: { horaInicio: string; horaFin: string }[] = []
-  for (const range of ranges) {
-    const parseM = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + (m || 0) }
-    let current = parseM(range.inicio)
-    const finMin = parseM(range.fin)
-    while (current + duracion <= finMin) {
-      dayTimeSlots.push({
-        horaInicio: `${String(Math.floor(current / 60)).padStart(2, "0")}:${String(current % 60).padStart(2, "0")}`,
-        horaFin: `${String(Math.floor((current + duracion) / 60)).padStart(2, "0")}:${String((current + duracion) % 60).padStart(2, "0")}`,
-      })
-      current += slotTotal
-    }
-  }
+  const dayTimeSlots = generateTimeSlots(division.horarioPartido ?? "08:00-20:00", duracion, division.descanso ?? 0)
 
   const ocupadosMap = new Map<string, Set<string>>()
   for (const sl of existingSlots) {

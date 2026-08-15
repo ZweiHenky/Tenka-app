@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { ActivityIndicator, Image, Text, TouchableOpacity, View } from "react-native"
-import { useLocalSearchParams } from "expo-router"
+import { useIsFocused, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Fonts, Gap, Pad, Palette, Radius } from "@/constants/theme"
@@ -24,19 +24,20 @@ function formatPosicion(posicion: string) {
 export default function DivisionTeamPlayersScreen() {
   const toast = useToast()
   const { divisionId, teamId } = useLocalSearchParams<{ divisionId: string; teamId: string }>()
+  const isFocused = useIsFocused()
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [loadingPlayerId, setLoadingPlayerId] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const { data: team, isLoading: loadingTeam, error: teamError, refetch: refetchTeam } = useTeam(teamId)
   const { data: division, isLoading: loadingDivision, error: divisionError, refetch: refetchDivision } = useQuery({
     queryKey: ["division", divisionId],
     queryFn: () => divisionApi.getById(divisionId!),
     enabled: !!divisionId,
   })
-  const { data: plantilla = [], isLoading: loadingPlantilla, refetch: refetchPlantilla } = useJugadores(teamId)
+  const { data: plantilla = [], isLoading: loadingPlantilla, refetch: refetchPlantilla } = useJugadores(teamId, isFocused && pickerOpen)
   const { data: habilitados = [], isLoading: loadingHabilitados, refetch: refetchHabilitados } = useDivisionJugadores(divisionId, teamId)
   const assign = useAssignJugadorToDivision()
   const remove = useRemoveJugadorFromDivision()
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [loadingPlayerId, setLoadingPlayerId] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
 
   const enabledIds = useMemo(() => new Set(habilitados.map((row) => row.jugadorId)), [habilitados])
   const availablePlayers = useMemo(() => plantilla.filter((jugador) => !enabledIds.has(jugador.id)), [enabledIds, plantilla])
@@ -46,7 +47,9 @@ export default function DivisionTeamPlayersScreen() {
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
-      await Promise.all([refetchTeam(), refetchDivision(), refetchPlantilla(), refetchHabilitados()])
+      const refreshes: Promise<unknown>[] = [refetchTeam(), refetchDivision(), refetchHabilitados()]
+      if (pickerOpen) refreshes.push(refetchPlantilla())
+      await Promise.all(refreshes)
     } finally {
       setRefreshing(false)
     }
@@ -115,7 +118,7 @@ export default function DivisionTeamPlayersScreen() {
             </TouchableOpacity>
           </View>
 
-          {loadingPlantilla || loadingHabilitados ? (
+          {loadingHabilitados ? (
             <ActivityIndicator color={Palette.cyan} />
           ) : habilitados.length === 0 ? (
             <EmptyState message="No hay jugadores habilitados en esta división" icon="groups" />

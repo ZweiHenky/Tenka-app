@@ -1,4 +1,4 @@
-import { View, Text } from "react-native"
+import { ActivityIndicator, View, Text } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
@@ -19,6 +19,7 @@ interface Props {
   horarioPartido: string | null
   duracionPartido: number | null
   descanso: number | null
+  loading?: boolean
 }
 
 export default function DivisionInfoSheet({
@@ -37,10 +38,12 @@ export default function DivisionInfoSheet({
   horarioPartido,
   duracionPartido,
   descanso,
+  loading,
 }: Props) {
   return (
     <AppBottomSheetModal visible={visible} onClose={onClose} title="Información" snapPoints={["65%"]} scrollable>
       <View style={{ gap: Gap.lg }}>
+        {loading ? <ActivityIndicator color={Palette.cyan} /> : null}
         <View style={{ gap: Gap.sm }}>
           <Text style={{ fontSize: 22, fontFamily: Fonts.displayBold, color: Palette.text }}>{nombre}</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>

@@ -10,6 +10,7 @@ import { authClient } from "@/infrastructure/auth/client"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 import { useToast } from "@/shared/components/Toast"
 import { waitForIdle } from "@/shared/utils/wait-for-idle"
+import ErrorState from "@/shared/components/ErrorState"
 
 type DrawerRoute = "index" | "my-profile" | "team" | "leagues" | "account" | "support"
 
@@ -24,7 +25,7 @@ function routeMatches(route: string, pathname: string): boolean {
 }
 
 function CustomDrawerContent(props: any) {
-  const { data: session, isPending } = authClient.useSession()
+  const { data: session, error: sessionError, isPending, refetch: refetchSession } = authClient.useSession()
   const user = session?.user
   const pathname = usePathname()
   const { navigation } = props
@@ -38,6 +39,10 @@ function CustomDrawerContent(props: any) {
         <ActivityIndicator color={Palette.cyan} size="large" />
       </View>
     )
+  }
+
+  if (sessionError && !user) {
+    return <ErrorState message={getAuthErrorMessage(sessionError, "No se pudo verificar tu sesión.")} onRetry={() => { void refetchSession() }} fullScreen />
   }
 
   const items: { label: string; route: DrawerRoute }[] = [

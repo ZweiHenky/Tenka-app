@@ -11,6 +11,7 @@ interface Props {
   visible: boolean
   jornadaId: string
   divisionId: string
+  leagueId: string
   onClose: () => void
 }
 
@@ -22,7 +23,7 @@ function dateName(fecha: string): string {
   return new Intl.DateTimeFormat("es-MX", { weekday: "long", day: "numeric", month: "short" }).format(date)
 }
 
-export default function AddJornadaPartidoSheet({ visible, jornadaId, divisionId, onClose }: Props) {
+export default function AddJornadaPartidoSheet({ visible, jornadaId, divisionId, leagueId, onClose }: Props) {
   const toast = useToast()
   const optionsQuery = useJornadaPartidoOptions(jornadaId, visible)
   const createPartido = useCreateJornadaPartido()
@@ -89,7 +90,7 @@ export default function AddJornadaPartidoSheet({ visible, jornadaId, divisionId,
       attemptRef.current = { fingerprint, key: `partido:${jornadaId}:${slot.id}:${localId}:${visitanteId}` }
     }
     try {
-      await createPartido.mutateAsync({ jornadaId, divisionId, idempotencyKey: attemptRef.current.key, data })
+      await createPartido.mutateAsync({ jornadaId, divisionId, leagueId, idempotencyKey: attemptRef.current.key, data })
       toast.success("Partido agregado a la jornada")
       attemptRef.current = null
       onClose()

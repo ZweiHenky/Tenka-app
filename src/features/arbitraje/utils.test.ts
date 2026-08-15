@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest"
 import type { RefereeBatchDetail, RefereeCandidateDivision, RefereeMatch } from "./types"
 import { refereeAssignmentsHtml, refereeBatchHtml } from "./pdf"
-import { assignmentProgress, groupMatchesByDay, groupMatchesByDivision } from "./utils"
+import { allSelectionsLoaded, assignmentProgress, groupMatchesByDay, groupMatchesByDivision } from "./utils"
 
 const match = (id: string, fecha: string | null): RefereeMatch => ({ id, fecha, fechaFin: fecha ? new Date(new Date(fecha).getTime() + 3600000).toISOString() : null, equipoLocal: { id: "l", nombre: "Local & Co" }, equipoVisitante: { id: "v", nombre: "Visita" }, cancha: { id: "c", nombre: "Cancha 1" }, jornada: { id: "j", numero: 1, division: { id: "d", nombre: "Primera" } }, rondaPlayoff: null, arbitros: [{ id: "a", nombre: "Ana" }] })
 
 describe("referee output helpers", () => {
+  it("requires every persisted division selection to be loaded before saving", () => {
+    expect(allSelectionsLoaded(["d1", "d2"], ["d1"])).toBe(false)
+    expect(allSelectionsLoaded(["d1", "d2"], ["d2", "d1"])).toBe(true)
+  })
+
   it("groups chronologically and leaves undated matches last", () => {
     const groups = groupMatchesByDay([match("none", null), match("later", "2026-08-02T20:00:00Z"), match("first", "2026-08-01T20:00:00Z")])
     expect(groups.map((group) => group.key)).toEqual(["2026-08-01", "2026-08-02", "sin-fecha"])

@@ -7,7 +7,6 @@ import * as ImagePicker from "expo-image-picker"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { api } from "@/infrastructure/api/client"
 import { useLeague, useCreateLeague, useUpdateLeague } from "@/features/league/hooks/useLeagues"
-import { useLookups } from "@/features/league/hooks/useLookups"
 import { authClient } from "@/infrastructure/auth/client"
 import { uploadToCloudinary } from "@/infrastructure/cloudinary/upload"
 import { useToast } from "@/shared/components/Toast"
@@ -108,15 +107,15 @@ const EMPTY_FORM: FormState = {
 
 interface FormContentProps {
   leagueId: string | null
+  userId: string
   isEdit: boolean
   league: NonNullable<ReturnType<typeof useLeague>["data"]>
 }
 
-function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
+function LeagueFormContent({ leagueId, userId, isEdit, league }: FormContentProps) {
   const toast = useToast()
-  const createLeague = useCreateLeague()
+  const createLeague = useCreateLeague(userId)
   const updateLeague = useUpdateLeague()
-  const lookups = useLookups()
 
   const initForm = (): FormState => {
     if (isEdit) {
@@ -139,7 +138,7 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
         })(),
         reglas: league.reglas?.map((regla) => ({ key: `rule-${nextRuleKey++}`, titulo: regla.titulo, detalle: regla.detalle })) ?? [],
         ubicacionId: league.ubicacionId,
-        ubicacionTexto: league.ubicacion?.nombreCompleto ?? lookups.ubicaciones.find((u) => u.id === league.ubicacionId)?.nombreCompleto ?? "",
+        ubicacionTexto: league.ubicacion?.nombreCompleto ?? "",
         ubicacionLat: "",
         ubicacionLng: "",
         ubicacionEstado: "",
@@ -160,12 +159,14 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
   const navigation = useNavigation()
   const pendingActionRef = useRef<NavigationAction | null>(null)
   const allowLeaveRef = useRef(false)
+  const savingRef = useRef(false)
 
   const dirty = useMemo(() => {
     return JSON.stringify(normalizeForm(form)) !== JSON.stringify(normalizeForm(initialForm)) || !!picked.logo || !!picked.cancha
   }, [form, initialForm, picked])
 
   const handleSave = async () => {
+    if (savingRef.current) return
     if (!form.nombre.trim()) { toast.error("El nombre es obligatorio"); return }
 
     const courtError = validateCourtConfig(form.multiplesCanchas, form.canchas)
@@ -201,9 +202,14 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
       return
     }
 
-    let ubicacionId = form.ubicacionId
-    if (form.ubicacionLat && form.ubicacionLng) {
-      try {
+    let logoAssetId = form.logoAssetId
+    let coverAssetId = form.coverAssetId
+    const uploadedAssets: string[] = []
+    savingRef.current = true
+    setSaving(true)
+    try {
+      let ubicacionId = form.ubicacionId
+      if (form.ubicacionLat && form.ubicacionLng) {
         const res = await api.post("/api/ubicaciones/find-or-create", {
           lat: Number(form.ubicacionLat),
           lng: Number(form.ubicacionLng),
@@ -212,19 +218,10 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
           municipio: form.ubicacionMunicipio,
         })
         ubicacionId = res.data.data.id
-      } catch (e: any) {
-        toast.error(e.message)
-        return
       }
-    }
 
-    if (!ubicacionId) { toast.error("Debes seleccionar una ubicación"); return }
+      if (!ubicacionId) { toast.error("Debes seleccionar una ubicación"); return }
 
-    let logoAssetId = form.logoAssetId
-    let coverAssetId = form.coverAssetId
-    const uploadedAssets: string[] = []
-    setSaving(true)
-    try {
       if (picked.logo) {
         const { mediaAssetId } = await uploadToCloudinary(picked.logo.uri, "LEAGUE_LOGO", { fileSize: picked.logo.fileSize, mimeType: picked.logo.mimeType })
         logoAssetId = mediaAssetId
@@ -267,6 +264,7 @@ function LeagueFormContent({ leagueId, isEdit, league }: FormContentProps) {
         toast.error(e.message || "Error al guardar")
       }
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -652,6 +650,7 @@ export default function LeagueFormScreen() {
       <LeagueFormContent
         key={isEdit ? leagueId : "create"}
         leagueId={leagueId ?? null}
+        userId={userId}
         isEdit={isEdit}
         league={league!}
       />

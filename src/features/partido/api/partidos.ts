@@ -1,5 +1,6 @@
 import { api } from "@/infrastructure/api/client"
 import type { PartidoAnotacion, PartidoParticipacion, ParticipacionInput, ResultAnnotationInput, ScorerCandidate } from "../scoring"
+import { committed, notCommitted, withAmbiguousWriteRecovery } from "@/infrastructure/api/ambiguous-write"
 
 export interface PartidoResponse {
   id: string
@@ -41,6 +42,17 @@ export interface UpdateResultInput {
   allocations: ResultAnnotationInput[]
   participaciones?: ParticipacionInput[]
   notas?: string | null
+}
+
+export interface UpdatePartidoInput {
+  golesLocal?: number
+  golesVisitante?: number
+  penalesLocal?: number | null
+  penalesVisitante?: number | null
+  estado?: string
+  tipoPartido?: string
+  equipoLocalId?: string
+  equipoVisitanteId?: string
 }
 
 export interface JornadaPartidoTeamOption {
@@ -85,19 +97,63 @@ interface ApiRes<T> {
   message?: string
 }
 
+const getPartidoById = (id: string) =>
+  api.get<ApiRes<PartidoResponse>>(`/api/partidos/${id}`).then((response) => response.data.data!)
+
+function normalizedAllocations(allocations: { ladoMarcador: string; jugadorId: string | null; cantidad: number }[]): string {
+  return JSON.stringify(allocations
+    .filter((allocation) => allocation.jugadorId)
+    .map((allocation) => `${allocation.ladoMarcador}:${allocation.jugadorId}:${allocation.cantidad}`)
+    .sort())
+}
+
+function resultMatches(partido: PartidoResponse, input: UpdateResultInput): boolean {
+  if (partido.version <= input.expectedVersion || partido.estado !== input.estado) return false
+  if (input.estado === "SUSPENDIDO") return true
+  const golesLocal = input.estado === "PROGRAMADO" ? 0 : input.golesLocal
+  const golesVisitante = input.estado === "PROGRAMADO" ? 0 : input.golesVisitante
+  const penalesLocal = input.estado === "PROGRAMADO" ? null : input.penalesLocal ?? null
+  const penalesVisitante = input.estado === "PROGRAMADO" ? null : input.penalesVisitante ?? null
+  if (partido.golesLocal !== golesLocal || partido.golesVisitante !== golesVisitante) return false
+  if ((partido.penalesLocal ?? null) !== penalesLocal || (partido.penalesVisitante ?? null) !== penalesVisitante) return false
+  if (input.notas !== undefined && (partido.notas ?? null) !== input.notas) return false
+  if (input.estado === "FINALIZADO" && normalizedAllocations(partido.anotaciones ?? []) !== normalizedAllocations(input.allocations)) return false
+  return true
+}
+
+function updateMatches(partido: PartidoResponse, data: UpdatePartidoInput): boolean {
+  return (data.equipoLocalId === undefined || partido.equipoLocalId === data.equipoLocalId)
+    && (data.equipoVisitanteId === undefined || partido.equipoVisitanteId === data.equipoVisitanteId)
+    && (data.tipoPartido === undefined || partido.tipoPartido === data.tipoPartido)
+    && (data.estado === undefined || partido.estado === data.estado)
+    && (data.golesLocal === undefined || partido.golesLocal === data.golesLocal)
+    && (data.golesVisitante === undefined || partido.golesVisitante === data.golesVisitante)
+}
+
 export const partidoApi = {
-  getById: (id: string) =>
-    api.get<ApiRes<PartidoResponse>>(`/api/partidos/${id}`).then((r) => r.data.data!),
+  getById: getPartidoById,
   findByRondaPlayoff: (rondaPlayoffId: string) =>
     api.get<ApiRes<PartidoResponse[]>>(`/api/partidos/ronda-playoff/${rondaPlayoffId}`).then((r) => r.data.data!),
   getJornadaCreationOptions: (jornadaId: string) =>
     api.get<ApiRes<JornadaPartidoOptions>>(`/api/partidos/jornada/${jornadaId}/creation-options`).then((r) => r.data.data!),
   createInJornada: (jornadaId: string, data: CreateJornadaPartidoInput, idempotencyKey: string) =>
     api.post<ApiRes<PartidoResponse>>(`/api/partidos/jornada/${jornadaId}`, data, { headers: { "Idempotency-Key": idempotencyKey } }).then((r) => r.data.data!),
-  update: (id: string, data: { golesLocal?: number; golesVisitante?: number; penalesLocal?: number | null; penalesVisitante?: number | null; estado?: string; tipoPartido?: string; equipoLocalId?: string; equipoVisitanteId?: string }) =>
-    api.patch<ApiRes<PartidoResponse>>(`/api/partidos/${id}`, data).then((r) => r.data.data!),
+  update: (id: string, data: UpdatePartidoInput) =>
+    withAmbiguousWriteRecovery(
+      () => api.patch<ApiRes<PartidoResponse>>(`/api/partidos/${id}`, data).then((response) => response.data.data!),
+      async () => {
+        const partido = await getPartidoById(id)
+        return updateMatches(partido, data) ? committed(partido) : notCommitted()
+      },
+    ),
   updateResult: (id: string, data: UpdateResultInput) =>
-    api.patch<ApiRes<PartidoResponse>>(`/api/partidos/${id}/resultado`, data).then((r) => r.data.data!),
+    withAmbiguousWriteRecovery(
+      () => api.patch<ApiRes<PartidoResponse>>(`/api/partidos/${id}/resultado`, data).then((response) => response.data.data!),
+      async () => {
+        const partido = await getPartidoById(id)
+        return resultMatches(partido, data) ? committed(partido) : notCommitted()
+      },
+    ),
   createRefereeLink: (partidoId: string) =>
     api.post<ApiRes<{ token: string; url: string; expiresAt: string }>>(`/api/partidos/${partidoId}/referee-link`).then((r) => r.data.data!),
   revokeRefereeLink: (partidoId: string) =>

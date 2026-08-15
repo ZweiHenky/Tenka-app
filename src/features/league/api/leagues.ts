@@ -21,6 +21,26 @@ export interface LigaFilterParams {
   estadoLigaId?: string
 }
 
+export interface PublicLeagueListDto {
+  id: string
+  nombre: string
+  descripcion: string
+  logo: string | null
+  cancha: string | null
+  ubicacionId: string
+  divisiones: {
+    id: string
+    nombre: string
+    maxEquipos: number
+    arbitraje: number
+    diasPartido: string | null
+    horarioPartido: string | null
+    categoria: { id: string; nombre: string }
+    tipo: { id: string; nombre: string }
+    estadoLiga: { id: string; nombre: string }
+  }[]
+}
+
 export interface ProgramacionRecientePartidoDto {
   id: string
   fecha: string | null
@@ -62,13 +82,11 @@ function buildQuery(p: LigaFilterParams): string {
 }
 
 export const leagueApi = {
-  list: (userId?: string) =>
-    userId
-      ? api.get<ApiRes<League[]>>(`/api/ligas?userId=${userId}`).then((r) => r.data.data!)
-      : api.get<ApiRes<PaginatedResponse<League>>>("/api/ligas?page=1&limit=100").then((r) => r.data.data!.rows),
+  listByUser: (userId: string) =>
+    api.get<ApiRes<Pick<League, "id" | "nombre" | "logo">[]>>(`/api/ligas?userId=${userId}`).then((r) => r.data.data!),
 
   listPaginated: (params: LigaFilterParams) =>
-    api.get<ApiRes<PaginatedResponse<League>>>(`/api/ligas?${buildQuery(params)}`).then((r) => ({ ...r.data.data!, page: params.page, limit: params.limit })),
+    api.get<ApiRes<PaginatedResponse<PublicLeagueListDto>>>(`/api/ligas?${buildQuery(params)}`).then((r) => ({ ...r.data.data!, page: params.page, limit: params.limit })),
 
   getById: (id: string) => api.get<ApiRes<League>>(`/api/ligas/${id}`).then((r) => r.data.data!),
 

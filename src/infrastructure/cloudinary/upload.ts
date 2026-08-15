@@ -1,5 +1,6 @@
 import axios from "axios"
 import { api } from "@/infrastructure/api/client"
+import { enrichRateLimitError, isRateLimitError } from "@/infrastructure/api/rate-limit"
 
 export type MediaKind = "LEAGUE_LOGO" | "LEAGUE_COVER" | "TEAM_LOGO" | "ACCOUNT_AVATAR" | "PLAYER_PHOTO"
 
@@ -48,7 +49,10 @@ export async function uploadToCloudinary(uri: string, kind: MediaKind, source: U
     })
     return completion.data.data
   } catch (error) {
-    await api.post(`/api/media/${intent.intentId}/abandon`).catch(() => undefined)
+    enrichRateLimitError(error)
+    if (!isRateLimitError(error)) {
+      await api.post(`/api/media/${intent.intentId}/abandon`).catch(() => undefined)
+    }
     throw error
   }
 }

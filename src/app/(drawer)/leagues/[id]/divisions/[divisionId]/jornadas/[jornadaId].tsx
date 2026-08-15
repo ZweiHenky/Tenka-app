@@ -328,7 +328,7 @@ export default function JornadaDetailScreen() {
           </View>
           </View>
         </PullToRefresh>
-        {canManage && addingPartido ? <AddJornadaPartidoSheet visible jornadaId={jornadaId!} divisionId={divisionId!} onClose={() => setAddingPartido(false)} /> : null}
+        {canManage && addingPartido ? <AddJornadaPartidoSheet visible jornadaId={jornadaId!} divisionId={divisionId!} leagueId={id!} onClose={() => setAddingPartido(false)} /> : null}
       </View>
     </AuthGate>
   )

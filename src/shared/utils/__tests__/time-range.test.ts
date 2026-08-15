@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   calculateTimeRangeCapacity,
+  generateTimeSlots,
+  isTimeSlotWithinRanges,
   parseTimeRanges,
   setTimeHour,
   setTimeMinute,
@@ -66,5 +68,15 @@ describe("time-range", () => {
       usedMinutes: 0,
       remainingMinutes: 50,
     })
+  })
+
+  it("allows a slot to end at the range limit but never start there or overflow it", () => {
+    expect(generateTimeSlots("13:00 - 15:00", 60, 0)).toEqual([
+      { horaInicio: "13:00", horaFin: "14:00" },
+      { horaInicio: "14:00", horaFin: "15:00" },
+    ])
+    expect(isTimeSlotWithinRanges("13:00 - 15:00", "14:00", "15:00")).toBe(true)
+    expect(isTimeSlotWithinRanges("13:00 - 15:00", "15:00", "16:00")).toBe(false)
+    expect(isTimeSlotWithinRanges("13:00 - 15:00", "14:01", "15:01")).toBe(false)
   })
 })

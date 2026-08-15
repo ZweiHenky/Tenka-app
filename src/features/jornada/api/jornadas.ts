@@ -55,10 +55,12 @@ export interface SlotInput {
   partidoId?: string
 }
 
-interface PaginatedResponse<T> {
+export interface PaginatedResponse<T> {
   rows: T[]
   total: number
 }
+
+export type JornadaPage = PaginatedResponse<JornadaResponse> & { page: number; limit: number }
 
 export const jornadaApi = {
   listByDivision: (divisionId: string) =>

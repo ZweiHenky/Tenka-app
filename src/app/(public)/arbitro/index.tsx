@@ -15,6 +15,7 @@ import { getPlayoffFinalizationError } from "@/shared/utils/playoff-finalization
 import ScorerAllocationEditor from "@/features/partido/components/ScorerAllocationEditor"
 import { allocationsFromAnnotations, buildResultPayload, buildScorerCandidates, hasValidAllocations, participacionesFromResponse, type ParticipacionInput, type ScorerAllocation } from "@/features/partido/scoring"
 import ParticipacionEditor from "@/features/partido/components/ParticipacionEditor"
+import { getRetryAfterSeconds, isRateLimitError } from "@/infrastructure/api/rate-limit"
 
 const TIPO_INFO = {
   REGULAR: { label: "Regular", color: Palette.cyan, background: Palette.cyan10 },
@@ -41,7 +42,10 @@ export default function ArbitroScreen() {
 
   const [partido, setPartido] = useState<RefereePartidoResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [retryCountdown, setRetryCountdown] = useState(0)
+  const [submitRetryCountdown, setSubmitRetryCountdown] = useState(0)
   const [golesLocal, setGolesLocal] = useState("")
   const [golesVisitante, setGolesVisitante] = useState("")
   const [penalesLocal, setPenalesLocal] = useState("")
@@ -68,6 +72,8 @@ export default function ArbitroScreen() {
       try {
         const data = await client.getPartido()
         if (!cancelled) {
+          setError(null)
+          setRetryCountdown(0)
           setPartido(data)
           setGolesLocal(data.estado === "PROGRAMADO" ? "" : String(data.golesLocal))
           setGolesVisitante(data.estado === "PROGRAMADO" ? "" : String(data.golesVisitante))
@@ -79,14 +85,26 @@ export default function ArbitroScreen() {
           setExpandedSection(data.registrarParticipaciones || (data.participaciones ?? []).length > 0 ? "participantes" : "goleadores")
         }
       } catch (requestError: any) {
-        if (!cancelled) setError(requestError.message)
+        if (!cancelled) {
+          setError(requestError)
+          if (isRateLimitError(requestError)) setRetryCountdown(getRetryAfterSeconds(requestError) ?? 60)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
     loadPartido()
     return () => { cancelled = true }
-  }, [client])
+  }, [client, loadAttempt])
+
+  useEffect(() => {
+    if (retryCountdown <= 0 && submitRetryCountdown <= 0) return
+    const timeout = setTimeout(() => {
+      setRetryCountdown((current) => Math.max(0, current - 1))
+      setSubmitRetryCountdown((current) => Math.max(0, current - 1))
+    }, 1000)
+    return () => clearTimeout(timeout)
+  }, [retryCountdown, submitRetryCountdown])
 
   const finalized = partido?.estado === "FINALIZADO"
   const localGoals = finalized ? String(partido.golesLocal) : golesLocal
@@ -97,7 +115,7 @@ export default function ArbitroScreen() {
     && (isPlayoff || (partido.tipoPartido !== "AMISTOSO" && partido.usarPenalesEnEmpates !== false))
 
   const handleSave = () => {
-    if (!partido || !client) return
+    if (!partido || !client || submitRetryCountdown > 0) return
     const schedulingError = getPlayoffFinalizationError(partido, partido.multiplesCanchas)
     if (schedulingError) {
       toast.error(schedulingError)
@@ -165,10 +183,19 @@ export default function ArbitroScreen() {
             setAllocations(allocationsFromAnnotations(fresh.anotaciones))
             setParticipaciones(participacionesFromResponse(fresh.participaciones))
             setNotas(fresh.notas ?? "")
-          } catch {}
+          } catch (refreshError) {
+            if (isRateLimitError(refreshError)) {
+              setSubmitRetryCountdown(getRetryAfterSeconds(refreshError) ?? 60)
+              toast.error((refreshError as Error).message)
+            } else {
+              toast.error("El partido cambió, pero no se pudo recargar el resultado.")
+            }
+            return
+          }
           toast.error("El partido cambió. Recargamos el resultado para que lo revises.")
           return
         }
+        if (isRateLimitError(requestError)) setSubmitRetryCountdown(getRetryAfterSeconds(requestError) ?? 60)
         toast.error(requestError.message)
       })
       .finally(() => setSubmitting(false))
@@ -195,15 +222,23 @@ export default function ArbitroScreen() {
   }
 
   if (error || !partido) {
+    const limited = isRateLimitError(error)
+    const message = error instanceof Error ? error.message : "No se pudo cargar el partido."
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black, justifyContent: "center", alignItems: "center", padding: Pad.xl }}>
         <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.xl, padding: Pad.xl, alignItems: "center", gap: Gap.md, maxWidth: 340, borderWidth: 1, borderColor: Palette.border }}>
-          <MaterialIcons name="link-off" size={48} color={Palette.textMuted} />
-          <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.semiBold, textAlign: "center" }}>Enlace no válido</Text>
-          <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, textAlign: "center" }}>Este enlace ha expirado, ya fue utilizado o no es válido.</Text>
-          <TouchableOpacity onPress={() => router.replace("/(drawer)")} style={{ paddingVertical: Pad.sm }}>
-            <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>Cerrar</Text>
-          </TouchableOpacity>
+          <MaterialIcons name={limited ? "schedule" : "link-off"} size={48} color={Palette.textMuted} />
+          <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.semiBold, textAlign: "center" }}>{limited ? "Demasiadas solicitudes" : "Enlace no válido"}</Text>
+          <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, textAlign: "center" }}>{limited ? message : "Este enlace ha expirado, ya fue utilizado o no es válido."}</Text>
+          {limited ? (
+            <TouchableOpacity disabled={retryCountdown > 0} onPress={() => setLoadAttempt((current) => current + 1)} style={{ paddingVertical: Pad.sm, opacity: retryCountdown > 0 ? 0.5 : 1 }}>
+              <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>{retryCountdown > 0 ? `Reintentar en ${retryCountdown}s` : "Reintentar"}</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={() => router.replace("/(drawer)")} style={{ paddingVertical: Pad.sm }}>
+              <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>Cerrar</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     )
@@ -347,9 +382,9 @@ export default function ArbitroScreen() {
               </View>
             </View>
           ) : (
-            <TouchableOpacity activeOpacity={0.7} onPress={handleSave} disabled={submitting} style={{ backgroundColor: Palette.cyan, borderRadius: Radius.lg, paddingVertical: Pad.md, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: Gap.sm, opacity: submitting ? 0.6 : 1 }}>
+            <TouchableOpacity activeOpacity={0.7} onPress={handleSave} disabled={submitting || submitRetryCountdown > 0} style={{ backgroundColor: Palette.cyan, borderRadius: Radius.lg, paddingVertical: Pad.md, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: Gap.sm, opacity: submitting || submitRetryCountdown > 0 ? 0.6 : 1 }}>
               {submitting ? <ActivityIndicator size="small" color={Palette.dark} /> : <MaterialIcons name="check-circle" size={20} color={Palette.dark} />}
-              <Text style={{ color: Palette.dark, fontSize: 15, fontFamily: Fonts.semiBold }}>Finalizar partido</Text>
+              <Text style={{ color: Palette.dark, fontSize: 15, fontFamily: Fonts.semiBold }}>{submitRetryCountdown > 0 ? `Reintentar en ${submitRetryCountdown}s` : "Finalizar partido"}</Text>
             </TouchableOpacity>
           )}
         </View>

@@ -9,6 +9,7 @@ import { planFromAvailability } from "@/features/court-availability/planner"
 
 interface UseJornadaGenerationOptions {
   divisionId: string
+  leagueId: string
   ligaCompletada: boolean
   playoffMode: boolean
   onGenerated: () => void
@@ -16,6 +17,7 @@ interface UseJornadaGenerationOptions {
 
 export function useJornadaGeneration({
   divisionId,
+  leagueId,
   ligaCompletada,
   playoffMode,
   onGenerated,
@@ -116,34 +118,35 @@ export function useJornadaGeneration({
     replaceSlots(divisionId, plannedSlots)
     setCheckingAvailability(false)
 
-    generateNext.mutate(
-      {
+    try {
+      const jornadaCreada = await generateNext.mutateAsync({
         divisionId,
+        leagueId,
         slots: slotsParaJornada,
         equipoIds: habilitados,
         descansoEquipoId,
         idempotencyKey: generationAttemptRef.current.key,
-      },
-      {
-        onSuccess: (jornadaCreada) => {
-          generationAttemptRef.current = null
-          guardarProgramacion(divisionId)
-          clearExtraSlots(divisionId)
-          clearEliminatoriaSlots(divisionId)
-          const jornadaFecha = jornadaCreada.fechaInicio ?? (() => {
-            const fechas = slotsParaJornada.map((slot) => slot.fecha).filter(Boolean) as string[]
-            return fechas.length > 0 ? [...fechas].sort()[0] : undefined
-          })()
-          advanceSchedule(divisionId, jornadaFecha)
-          setHabilitadosStore(divisionId, [])
-          onGenerated()
-          toast.success("Jornada generada")
-        },
-        onError: (error: Error) => toast.error(error.message),
-      },
-    )
+      })
+      generationAttemptRef.current = null
+      guardarProgramacion(divisionId)
+      clearExtraSlots(divisionId)
+      clearEliminatoriaSlots(divisionId, slotsParaJornada
+        .filter((slot) => slot.tipo === "eliminatoria" && slot.partidoId)
+        .map((slot) => slot.partidoId!))
+      const jornadaFecha = jornadaCreada.fechaInicio ?? (() => {
+        const fechas = slotsParaJornada.map((slot) => slot.fecha).filter(Boolean) as string[]
+        return fechas.length > 0 ? [...fechas].sort()[0] : undefined
+      })()
+      advanceSchedule(divisionId, jornadaFecha)
+      setHabilitadosStore(divisionId, [])
+      onGenerated()
+      toast.success("Jornada generada")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo generar la jornada")
+    }
   }, [
     divisionId,
+    leagueId,
     ligaCompletada,
     schedule,
     habilitados,

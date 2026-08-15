@@ -29,7 +29,7 @@ export default function TeamScreen() {
   const userId = session?.user?.id ?? ""
   const canCreate = canCreateTeam((session?.user as { rol?: UserRole } | undefined)?.rol)
   const { data: teams = [], isLoading, error, refetch } = useUserTeams(userId)
-  const deleteTeam = useDeleteTeam()
+  const deleteTeam = useDeleteTeam(userId)
   const [qrTeamId, setQrTeamId] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string; divisionCount: number } | null>(null)

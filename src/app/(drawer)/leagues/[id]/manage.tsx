@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react"
 import { View, Text, TouchableOpacity } from "react-native"
-import { useLocalSearchParams, router } from "expo-router"
+import { useIsFocused, useLocalSearchParams, router } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
 import { useLeague } from "@/features/league/hooks/useLeagues"
@@ -16,13 +16,15 @@ import { AuthGate } from "@/shared/components/AuthGate"
 import CustomHeader from "@/shared/components/CustomHeader"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { isRateLimitError } from "@/infrastructure/api/rate-limit"
 
 export default function ManageLeagueScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const guard = useNavGuard()
-  const { data: league, isLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!)
-  const lookups = useLookups()
-  const { data: divisions = [], error: divsError, refetch: refetchDivs } = useDivisions(id!)
+  const isFocused = useIsFocused()
+  const { data: league, isLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!, isFocused)
+  const lookups = useLookups({ categorias: isFocused, tipos: isFocused, estadosLiga: isFocused })
+  const { data: divisions = [], error: divsError, refetch: refetchDivs } = useDivisions(id!, isFocused)
   const deleteDivision = useDeleteDivision(id!)
   const toast = useToast()
   const [refreshing, setRefreshing] = useState(false)
@@ -51,12 +53,12 @@ export default function ManageLeagueScreen() {
       },
       onError: (e) => {
         toast.error(e.message || "Error al eliminar")
-        setDeleteTarget(null)
+        if (!isRateLimitError(e)) setDeleteTarget(null)
       },
     })
   }
 
-  if (isLoading) {
+  if (isLoading || lookups.isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="" />

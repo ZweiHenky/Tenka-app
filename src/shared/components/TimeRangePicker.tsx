@@ -68,7 +68,7 @@ function TimeSelector({ label, value, onChange }: TimeSelectorProps) {
 }
 
 function capacityLabel(matchCount: number, remainingMinutes: number): string {
-  const matches = `${matchCount} ${matchCount === 1 ? "partido" : "partidos"}`
+  const matches = `${matchCount} ${matchCount === 1 ? "partido" : "partidos"} por día`
   return remainingMinutes > 0 ? `${matches} · ${remainingMinutes} min libres` : `${matches} · sin tiempo sobrante`
 }
 

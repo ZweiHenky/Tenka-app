@@ -4,7 +4,6 @@ import type { TourStep } from "@wrack/react-native-tour-guide"
 import { useIsFocused, useLocalSearchParams, router } from "expo-router"
 import { Palette, Pad, Gap, Fonts, Radius } from "@/constants/theme"
 import { useDivisionEquipos, useRemoveTeam } from "@/features/division-equipo/hooks/useDivisionEquipo"
-import { useTeams } from "@/features/team/hooks/useTeams"
 import { useJornadas, useDeleteJornada } from "@/features/jornada/hooks/useJornadas"
 import { useLookups } from "@/features/league/hooks/useLookups"
 import { useLeague } from "@/features/league/hooks/useLeagues"
@@ -48,25 +47,34 @@ export default function DivisionDetailScreen() {
   const guard = useNavGuard()
   const { id: ligaId, divisionId } = useLocalSearchParams<{ id: string; divisionId: string }>()
   const [tab, setTab] = useState("equipos")
+  const isFocused = useIsFocused()
+  const [modalRondas, setModalRondas] = useState(false)
+  const [infoSheetOpen, setInfoSheetOpen] = useState(false)
+  const [actionSheetOpen, setActionSheetOpen] = useState(false)
 
   const { data: division, isLoading: loadDiv, error: divError, refetch: refetchDiv } = useQuery({
     queryKey: ["division", divisionId],
     queryFn: () => divisionApi.getById(divisionId!),
     enabled: !!divisionId,
   })
-  const lookups = useLookups()
-  const { data: league } = useLeague(ligaId!)
+  const lookups = useLookups({
+    estadosLiga: isFocused && (infoSheetOpen || actionSheetOpen),
+    tiposCompetencia: isFocused,
+    categorias: isFocused && infoSheetOpen,
+    tipos: isFocused && infoSheetOpen,
+  })
+  const { data: league, isLoading: leagueOptionsLoading } = useLeague(ligaId!, isFocused && actionSheetOpen)
   const { data: links = [], isLoading: linksLoading, error: linksError, refetch: refetchLinks } = useDivisionEquipos(divisionId!)
-  const { data: allTeams = [], isLoading: teamsLoading, error: teamsError } = useTeams()
   const removeTeam = useRemoveTeam()
-  const { data: jornadas = [], isLoading: jornadasLoading, error: jornadasError, refetch: refetchJornadas } = useJornadas(divisionId!, tab === "jornadas" || tab === "programacion")
+  const { data: jornadas = [], isLoading: jornadasLoading, error: jornadasError, refetch: refetchJornadas } = useJornadas(divisionId!, isFocused && (tab === "jornadas" || tab === "programacion"))
   const deleteJornada = useDeleteJornada()
   const setHabilitados = useDivisionScheduleStore((s) => s.setHabilitados)
   const habilitados = useDivisionScheduleStore((s) => (divisionId ? s.habilitados[divisionId] : undefined))
   const schedules = useDivisionScheduleStore((s) => s.schedules)
-  const { data: rondas = [], isLoading: rondasLoading, error: rondasError } = useRondasPlayoff(divisionId!)
-  const { data: standings = [], isLoading: standingsLoading, error: standingsError } = useTablaPosiciones(divisionId!, tab === "posiciones")
-  const goleadores = useGoleadores(divisionId, tab === "goleo")
+  const roundsEnabled = isFocused && (tab === "eliminatorias" || tab === "programacion" || actionSheetOpen || modalRondas)
+  const { data: rondas = [], isLoading: rondasLoading, error: rondasError } = useRondasPlayoff(divisionId!, roundsEnabled)
+  const { data: standings = [], isLoading: standingsLoading, error: standingsError } = useTablaPosiciones(divisionId!, isFocused && tab === "posiciones")
+  const goleadores = useGoleadores(divisionId, isFocused && tab === "goleo")
   const playoffMode = rondas.length > 0
   const generateRondas = useGenerateRondas()
   const deleteRondas = useDeleteRondasByDivision()
@@ -75,16 +83,12 @@ export default function DivisionDetailScreen() {
   const generatingLlaves = useRef(false)
   const clearEliminatoriaSlots = useDivisionScheduleStore((s) => s.clearEliminatoriaSlots)
   const setPlayoffMode = useDivisionScheduleStore((s) => s.setPlayoffMode)
-  const resetSchedule = useDivisionScheduleStore((s) => s.resetSchedule)
   const qc = useQueryClient()
-  const [modalRondas, setModalRondas] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [showDeletePlayoffsConfirm, setShowDeletePlayoffsConfirm] = useState(false)
   const [pendingTeamRemoval, setPendingTeamRemoval] = useState<{ nombre: string; equipoId: string } | null>(null)
   const [pendingJornadaDelete, setPendingJornadaDelete] = useState<{ jornadaId: string; numero: number } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [infoSheetOpen, setInfoSheetOpen] = useState(false)
-  const [actionSheetOpen, setActionSheetOpen] = useState(false)
   const infoActionRef = useRef<any>(null)
   const optionsActionRef = useRef<any>(null)
   const tabBarRef = useRef<any>(null)
@@ -99,7 +103,6 @@ export default function DivisionDetailScreen() {
   const [optionsActionReady, setOptionsActionReady] = useState(false)
   const [tabBarReady, setTabBarReady] = useState(false)
   const [teamsSectionReady, setTeamsSectionReady] = useState(false)
-  const isFocused = useIsFocused()
   const { data: session } = authClient.useSession()
   const tipoCompNombre = resolveNombre(lookups.tiposCompetencia, division?.tipoCompetenciaId ?? "")
   const tieneEliminatorias = tipoCompNombre.includes("Eliminatorias")
@@ -117,10 +120,14 @@ export default function DivisionDetailScreen() {
   const isEnCurso = estadoNombre === "En Curso"
   const cambioEstadoMutation = useMutation({
     mutationFn: (nuevoEstadoId: string) => divisionApi.update(divisionId!, { estadoLigaId: nuevoEstadoId }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["division", divisionId] })
-      qc.invalidateQueries({ queryKey: ["divisions"] })
-      qc.invalidateQueries({ queryKey: ["ligas-infinitas"] })
+    onSuccess: (updated) => {
+      qc.setQueryData(["division", divisionId], updated)
+      qc.setQueryData(["leagues", ligaId], (current: typeof league) => current ? {
+        ...current,
+        divisiones: current.divisiones?.map((item) => item.id === updated.id ? { ...item, ...updated } : item),
+      } : current)
+      qc.invalidateQueries({ queryKey: ["divisions", ligaId], exact: true })
+      qc.invalidateQueries({ queryKey: ["ligas-infinitas"], refetchType: "none" })
       toast.success(isBorrador ? "División publicada" : "División regresada a borrador")
     },
     onError: (e: any) => toast.error(e.message),
@@ -132,7 +139,6 @@ export default function DivisionDetailScreen() {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["division", divisionId] }),
         qc.invalidateQueries({ queryKey: ["division-equipos", divisionId] }),
-        qc.invalidateQueries({ queryKey: ["teams"] }),
         qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] }),
         tab === "jornadas" || tab === "programacion" ? qc.invalidateQueries({ queryKey: ["jornadas", divisionId] }) : Promise.resolve(),
         tab === "programacion" ? qc.invalidateQueries({ queryKey: ["last-jornada", divisionId] }) : Promise.resolve(),
@@ -152,14 +158,11 @@ export default function DivisionDetailScreen() {
     handleScannerRetry,
     handleScannerClose,
     handleScannerOpen,
-  } = useDivisionScanner(divisionId!, allTeams, links)
+  } = useDivisionScanner(divisionId!, links)
 
   const assignedTeams = useMemo(
-    () => allTeams.flatMap((team) => {
-      const link = links.find((item) => item.equipoId === team.id)
-      return link ? [{ ...team, saldoPendiente: link.saldoPendiente }] : []
-    }),
-    [allTeams, links],
+    () => links.map((link) => ({ ...link.equipo, saldoPendiente: link.saldoPendiente })),
+    [links],
   )
   const opcionesEquipos = useMemo(
     () => getPlayoffTeamOptions(assignedTeams.length),
@@ -168,14 +171,15 @@ export default function DivisionDetailScreen() {
 
   const { handleGenerateJornada, isGeneratingJornada } = useJornadaGeneration({
     divisionId: divisionId!,
+    leagueId: ligaId!,
     ligaCompletada,
     playoffMode,
     onGenerated: () => setTab("jornadas"),
   })
 
   const tourBlocked = refreshing || scannerOpen || modalRondas || infoSheetOpen || actionSheetOpen || pendingTeamRemoval !== null || pendingJornadaDelete !== null || showDeletePlayoffsConfirm || showResetConfirm || assignTeamIsPending || removeTeam.isPending || isGeneratingJornada || deleteJornada.isPending || generateRondas.isPending || deleteRondas.isPending || resetDivision.isPending || cambioEstadoMutation.isPending
-  const tourDataLoading = loadDiv || linksLoading || teamsLoading || jornadasLoading || rondasLoading || standingsLoading || lookups.isLoading
-  const tourDataError = divError || linksError || teamsError || jornadasError || rondasError || standingsError
+  const tourDataLoading = loadDiv || linksLoading || jornadasLoading || rondasLoading || standingsLoading || lookups.isLoading
+  const tourDataError = divError || linksError || jornadasError || rondasError || standingsError
 
   const switchTourTab = useCallback((nextTab: string) => {
     setTab(nextTab)
@@ -276,11 +280,9 @@ export default function DivisionDetailScreen() {
     if (generatingLlaves.current || !division) return
     generatingLlaves.current = true
     setModalRondas(false)
-    generateRondas.mutate({ divisionId: divisionId!, cantidadEquipos: n }, {
-      onSuccess: async () => {
+    generateRondas.mutate({ divisionId: divisionId!, leagueId: ligaId, cantidadEquipos: n }, {
+      onSuccess: (rondasData) => {
         try {
-          await qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] })
-          const rondasData = qc.getQueryData<typeof rondas>(["rondas-playoff", divisionId]) ?? []
           const eliminados: { id: string; nombre: string; llave: number }[] = []
           for (const r of rondasData) {
             for (const p of r.partidos) {
@@ -309,7 +311,7 @@ export default function DivisionDetailScreen() {
         toast.error(e.message)
       },
     })
-  }, [divisionId, division, schedules, generateRondas, qc, setTab, toast])
+  }, [divisionId, ligaId, division, schedules, generateRondas, setTab, toast])
 
 
   const handleConfirmRemoveTeam = useCallback(() => {
@@ -329,7 +331,7 @@ export default function DivisionDetailScreen() {
   const handleConfirmDeleteJornada = useCallback(() => {
     if (!pendingJornadaDelete) return
     deleteJornada.mutate(
-      { id: pendingJornadaDelete.jornadaId, divisionId: divisionId! },
+      { id: pendingJornadaDelete.jornadaId, divisionId: divisionId!, leagueId: ligaId },
       {
         onSuccess: () => {
           setPendingJornadaDelete(null)
@@ -337,10 +339,10 @@ export default function DivisionDetailScreen() {
         onError: (error: Error) => toast.error(error.message),
       },
     )
-  }, [divisionId, pendingJornadaDelete, deleteJornada, toast])
+  }, [divisionId, ligaId, pendingJornadaDelete, deleteJornada, toast])
 
   const handleConfirmDeletePlayoffs = useCallback(() => {
-    deleteRondas.mutate(divisionId!, {
+    deleteRondas.mutate({ divisionId: divisionId!, leagueId: ligaId }, {
       onSuccess: () => {
         clearEliminatoriaSlots(divisionId!)
         setPlayoffMode(divisionId!, false)
@@ -349,17 +351,16 @@ export default function DivisionDetailScreen() {
       },
       onError: (error: Error) => toast.error(error.message),
     })
-  }, [divisionId, deleteRondas, clearEliminatoriaSlots, setPlayoffMode, setTab, toast])
+  }, [divisionId, ligaId, deleteRondas, clearEliminatoriaSlots, setPlayoffMode, setTab, toast])
 
   const handleConfirmReset = useCallback(() => {
-    resetDivision.mutate(divisionId!, {
+    resetDivision.mutate({ divisionId: divisionId!, leagueId: ligaId! }, {
       onSuccess: () => {
-        resetSchedule(divisionId!)
         setShowResetConfirm(false)
       },
       onError: (error: Error) => toast.error(error.message),
     })
-  }, [divisionId, resetDivision, resetSchedule, toast])
+  }, [divisionId, ligaId, resetDivision, toast])
 
   if (loadDiv) {
     return <LoadingScreen />
@@ -389,7 +390,7 @@ export default function DivisionDetailScreen() {
     { key: "jornadas", label: "Jornada" },
     { key: "posiciones", label: "Posiciones" },
     { key: "goleo", label: "Goleo" },
-    ...(tieneEliminatorias && rondas.length > 0
+    ...(tieneEliminatorias
       ? [{ key: "eliminatorias", label: "Eliminatoria" }]
       : []),
   ]
@@ -462,12 +463,20 @@ export default function DivisionDetailScreen() {
 
             {tab === "goleo" ? <GoleadoresTable data={goleadores.data} isLoading={goleadores.isLoading} error={goleadores.error} /> : null}
 
-            {tab === "eliminatorias" && tieneEliminatorias && rondas.length > 0 ? (
+            {tab === "eliminatorias" && tieneEliminatorias ? (
               <View ref={playoffsSectionRef} collapsable={false}>
-                <EliminatoriasTab
-                  rondas={rondas}
-                  onPartidoPress={(partido) => guard(() => router.push(`/(drawer)/leagues/${ligaId}/divisions/${divisionId}/partidos/${partido.id}`))}
-                />
+                {rondasLoading ? <LoadingScreen /> : rondasError ? (
+                  <ErrorState message={(rondasError as Error).message} />
+                ) : rondas.length > 0 ? (
+                  <EliminatoriasTab
+                    rondas={rondas}
+                    onPartidoPress={(partido) => guard(() => router.push(`/(drawer)/leagues/${ligaId}/divisions/${divisionId}/partidos/${partido.id}`))}
+                  />
+                ) : (
+                  <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.xl, alignItems: "center", borderWidth: 1, borderColor: Palette.border }}>
+                    <Text style={{ color: Palette.textMuted, fontSize: 14, fontFamily: Fonts.sans }}>Aún no se han generado eliminatorias.</Text>
+                  </View>
+                )}
               </View>
             ) : null}
 
@@ -476,8 +485,11 @@ export default function DivisionDetailScreen() {
                 <DivisionScheduleManager
                   divisionId={divisionId!}
                   embedded
+                  isFocused={isFocused}
                   isGeneratingJornada={isGeneratingJornada}
                   onGenerateJornada={handleGenerateJornada}
+                  scrollRef={scrollRef}
+                  scrollOffsetRef={scrollOffsetRef}
                 />
               </View>
             ) : null}
@@ -530,6 +542,7 @@ export default function DivisionDetailScreen() {
         horarioPartido={division.horarioPartido}
         duracionPartido={division.duracionPartido}
         descanso={division.descanso}
+        loading={infoSheetOpen && lookups.isLoading}
       />
 
       <DivisionActionSheet
@@ -540,11 +553,11 @@ export default function DivisionDetailScreen() {
         estadoNombre={estadoNombre}
         tieneEliminatorias={tieneEliminatorias}
         hasRondas={rondas.length > 0}
-        isPending={cambioEstadoMutation.isPending}
+        isPending={cambioEstadoMutation.isPending || leagueOptionsLoading || rondasLoading}
         multiplesCanchas={league?.multiplesCanchas === true}
         canchas={league?.canchas ?? []}
         canchaUnicaId={division.canchaUnicaId}
-        canchaUnicaPending={updateDivision.isPending}
+        canchaUnicaPending={updateDivision.isPending || leagueOptionsLoading}
         onSelectCanchaUnica={(canchaId) => handleCanchaUnica(canchaId)}
         onClearCanchaUnica={() => handleCanchaUnica(null)}
         registrarParticipaciones={division.registrarParticipaciones ?? false}
@@ -555,6 +568,7 @@ export default function DivisionDetailScreen() {
         onGeneratePlayoffs={handleGeneratePlayoffs}
         onDeletePlayoffs={handleDeletePlayoffs}
         onReset={handleReset}
+        dataLoading={actionSheetOpen && (leagueOptionsLoading || rondasLoading)}
       />
     </AuthGate>
   )

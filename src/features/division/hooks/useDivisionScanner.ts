@@ -2,11 +2,12 @@ import { useState, useRef } from "react"
 import type { BarcodeScanningResult } from "expo-camera"
 import { useAssignTeam } from "@/features/division-equipo/hooks/useDivisionEquipo"
 import { useToast } from "@/shared/components/Toast"
+import { teamApi } from "@/features/team/api/teams"
+import type { DivisionEquipoByDivision } from "@/features/division-equipo/api/division-equipo"
 
 export function useDivisionScanner(
   divisionId: string,
-  allTeams: { id: string; nombre: string }[],
-  links: { equipoId: string }[],
+  links: DivisionEquipoByDivision[],
 ) {
   const toast = useToast()
   const assignTeam = useAssignTeam()
@@ -24,20 +25,25 @@ export function useDivisionScanner(
     )
   }
 
-  const handleBarcodeScanned = ({ data }: BarcodeScanningResult) => {
+  const handleBarcodeScanned = async ({ data }: BarcodeScanningResult) => {
     if (scanningLocked.current) return
     scanningLocked.current = true
     const equipoId = data.trim()
-    const teamExists = allTeams.find((t) => t.id === equipoId)
-    if (teamExists) {
-      if (links.some((l) => l.equipoId === equipoId)) {
-        setScannerError(`"${teamExists.nombre}" ya está en esta división`)
-        return
-      }
+    if (!equipoId) {
+      setScannerError("El código QR no contiene un equipo válido")
+      return
+    }
+    const existing = links.find((link) => link.equipoId === equipoId)
+    if (existing) {
+      setScannerError(`"${existing.equipo.nombre}" ya está en esta división`)
+      return
+    }
+    try {
+      await teamApi.getById(equipoId)
       handleAssign(equipoId)
       handleScannerClose()
-    } else {
-      setScannerError("No se encontró ningún equipo con ese código")
+    } catch (error: any) {
+      setScannerError(error?.response?.status === 404 ? "No se encontró ningún equipo con ese código" : (error.message || "No se pudo validar el equipo"))
     }
   }
 

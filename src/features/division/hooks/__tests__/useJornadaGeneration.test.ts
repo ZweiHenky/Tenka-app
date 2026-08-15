@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useJornadaGeneration } from "../useJornadaGeneration"
 
 const mocks = vi.hoisted(() => ({
-  mutate: vi.fn(),
+  mutateAsync: vi.fn(),
   prepareJornadaSlots: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/features/jornada/hooks/useJornadas", () => ({
-  useGenerateNextJornada: () => ({ mutate: mocks.mutate, isPending: false }),
+  useGenerateNextJornada: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
 }))
 vi.mock("@/stores/divisionSchedule", () => ({
   useDivisionScheduleStore: (selector: (state: typeof mocks.store) => unknown) => selector(mocks.store),
@@ -48,6 +48,7 @@ function renderGeneration(options?: { ligaCompletada?: boolean; playoffMode?: bo
   const onGenerated = vi.fn()
   const hook = renderHook(() => useJornadaGeneration({
     divisionId,
+    leagueId: "league-1",
     ligaCompletada: options?.ligaCompletada ?? false,
     playoffMode: options?.playoffMode ?? false,
     onGenerated,
@@ -69,6 +70,7 @@ describe("useJornadaGeneration", () => {
     mocks.getDivision.mockResolvedValue({ ligaId: "league" })
     mocks.getAvailability.mockResolvedValue({ mode: "SINGLE", canchas: [], ocupaciones: [] })
     mocks.plan.mockImplementation((slots) => ({ slots, conflicts: [], unassignedSlotIds: [] }))
+    mocks.mutateAsync.mockResolvedValue({ fechaInicio: "2026-07-27" })
   })
 
   it("blocks generation when the season is completed", () => {
@@ -77,7 +79,7 @@ describe("useJornadaGeneration", () => {
     act(() => { result.current.handleGenerateJornada() })
 
     expect(mocks.info).toHaveBeenCalledWith("Temporada completada. Reinicia la división para continuar.")
-    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(mocks.mutateAsync).not.toHaveBeenCalled()
   })
 
   it("requires a configured schedule and at least two enabled teams", () => {
@@ -93,7 +95,7 @@ describe("useJornadaGeneration", () => {
     const second = renderGeneration()
     act(() => { second.result.current.handleGenerateJornada() })
     expect(mocks.error).toHaveBeenCalledWith("Marca al menos 2 equipos que pagaron arbitraje para generar una jornada")
-    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(mocks.mutateAsync).not.toHaveBeenCalled()
   })
 
   it("still requires a resting team when an odd schedule only has a friendly", () => {
@@ -106,7 +108,7 @@ describe("useJornadaGeneration", () => {
     act(() => { result.current.handleGenerateJornada() })
 
     expect(mocks.error).toHaveBeenCalledWith("Selecciona qué equipo descansa antes de generar la jornada")
-    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(mocks.mutateAsync).not.toHaveBeenCalled()
   })
 
   it("allows an odd schedule with a complemento slot", async () => {
@@ -118,9 +120,8 @@ describe("useJornadaGeneration", () => {
 
     await act(async () => { await result.current.handleGenerateJornada() })
 
-    expect(mocks.mutate).toHaveBeenCalledWith(
-      { divisionId, slots: preparedSlots, equipoIds: ["a", "b", "c"], descansoEquipoId: undefined, idempotencyKey: expect.stringMatching(/^jornada-/) },
-      expect.any(Object),
+    expect(mocks.mutateAsync).toHaveBeenCalledWith(
+      { divisionId, leagueId: "league-1", slots: preparedSlots, equipoIds: ["a", "b", "c"], descansoEquipoId: undefined, idempotencyKey: expect.stringMatching(/^jornada-/) },
     )
   })
 
@@ -134,7 +135,7 @@ describe("useJornadaGeneration", () => {
     act(() => { result.current.handleGenerateJornada() })
 
     expect(mocks.error).toHaveBeenCalledWith("Asigna el equipo que repetirá partido sin puntos en el complemento")
-    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(mocks.mutateAsync).not.toHaveBeenCalled()
   })
 
   it("normalizes every slot to the latest fixed court before planning", async () => {
@@ -157,31 +158,44 @@ describe("useJornadaGeneration", () => {
   })
 
   it("reuses the idempotency key while the generation payload is unchanged", async () => {
+    mocks.mutateAsync.mockRejectedValue(new Error("retry"))
     const { result } = renderGeneration()
 
     await act(async () => { await result.current.handleGenerateJornada() })
     await act(async () => { await result.current.handleGenerateJornada() })
 
-    expect(mocks.mutate).toHaveBeenCalledTimes(2)
-    expect(mocks.mutate.mock.calls[1][0].idempotencyKey).toBe(mocks.mutate.mock.calls[0][0].idempotencyKey)
+    expect(mocks.mutateAsync).toHaveBeenCalledTimes(2)
+    expect(mocks.mutateAsync.mock.calls[1][0].idempotencyKey).toBe(mocks.mutateAsync.mock.calls[0][0].idempotencyKey)
   })
 
   it("updates the schedule after a successful generation and reports errors", async () => {
     const { result, onGenerated } = renderGeneration()
     await act(async () => { await result.current.handleGenerateJornada() })
-    const callbacks = mocks.mutate.mock.calls[0][1]
-
-    act(() => { callbacks.onSuccess({ fechaInicio: "2026-07-27" }) })
 
     expect(mocks.store.guardarProgramacion).toHaveBeenCalledWith(divisionId)
     expect(mocks.store.clearExtraSlots).toHaveBeenCalledWith(divisionId)
-    expect(mocks.store.clearEliminatoriaSlots).toHaveBeenCalledWith(divisionId)
+    expect(mocks.store.clearEliminatoriaSlots).toHaveBeenCalledWith(divisionId, [])
     expect(mocks.store.advanceSchedule).toHaveBeenCalledWith(divisionId, "2026-07-27")
     expect(mocks.store.setHabilitados).toHaveBeenCalledWith(divisionId, [])
     expect(onGenerated).toHaveBeenCalledOnce()
     expect(mocks.success).toHaveBeenCalledWith("Jornada generada")
 
-    act(() => { callbacks.onError(new Error("falló")) })
+    mocks.mutateAsync.mockRejectedValueOnce(new Error("falló"))
+    await act(async () => { await result.current.handleGenerateJornada() })
     expect(mocks.error).toHaveBeenCalledWith("falló")
+  })
+
+  it("clears only the eliminatoria matches submitted in the generated jornada", async () => {
+    mocks.store.schedules[divisionId] = {
+      slots: [{ id: "elim-semi-1", fecha: "2026-07-27", horaInicio: "10:00", horaFin: "11:00", tipo: "eliminatoria", partidoId: "semi-1" }],
+    }
+    mocks.prepareJornadaSlots.mockReturnValue([
+      { fecha: "2026-07-27", horaInicio: "10:00", horaFin: "11:00", tipo: "eliminatoria", partidoId: "semi-1" },
+    ])
+    const { result } = renderGeneration({ playoffMode: true })
+
+    await act(async () => { await result.current.handleGenerateJornada() })
+
+    expect(mocks.store.clearEliminatoriaSlots).toHaveBeenCalledWith(divisionId, ["semi-1"])
   })
 })

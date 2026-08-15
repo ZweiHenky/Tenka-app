@@ -12,11 +12,11 @@ export function useRondasPlayoff(divisionId: string | null, enabled = true) {
 export function useGenerateRondas() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { divisionId: string; cantidadEquipos: number }) =>
+    mutationFn: ({ leagueId: _leagueId, ...data }: { divisionId: string; cantidadEquipos: number; leagueId?: string }) =>
       rondaPlayoffApi.generate(data),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["rondas-playoff", vars.divisionId] })
-      qc.invalidateQueries({ queryKey: ["referee-candidates"] })
+    onSuccess: (rounds, vars) => {
+      qc.setQueryData(["rondas-playoff", vars.divisionId], rounds)
+      if (vars.leagueId) qc.invalidateQueries({ queryKey: ["referee-candidates", vars.leagueId], exact: true, refetchType: "none" })
     },
   })
 }
@@ -24,11 +24,10 @@ export function useGenerateRondas() {
 export function useDeleteRondasByDivision() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (divisionId: string) => rondaPlayoffApi.deleteByDivision(divisionId),
-    onSuccess: (_data, divisionId) => {
-      qc.setQueryData(["rondas-playoff", divisionId], [])
-      qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId] })
-      qc.invalidateQueries({ queryKey: ["referee-candidates"] })
+    mutationFn: ({ divisionId }: { divisionId: string; leagueId?: string }) => rondaPlayoffApi.deleteByDivision(divisionId),
+    onSuccess: (_data, variables) => {
+      qc.setQueryData(["rondas-playoff", variables.divisionId], [])
+      if (variables.leagueId) qc.invalidateQueries({ queryKey: ["referee-candidates", variables.leagueId], exact: true, refetchType: "none" })
     },
   })
 }

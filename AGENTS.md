@@ -198,8 +198,8 @@ Root Stack
 ## Features
 
 ### league
-- **API**: list, listPaginated (filtros: search, categoriaId, tipoId, estadoLigaId), getById, create, update, delete
-- **Hooks**: `useLeagues`, `useUserLeagues`, `useLeague`, `useCreateLeague`, `useUpdateLeague`, `useDeleteLeague`, `useLigasInfinitas` (paginación infinita)
+- **API**: listByUser, listPaginated (filtros: search, categoriaId, tipoId, estadoLigaId), getById, create, update, delete
+- **Hooks**: `useUserLeagues`, `useLeague`, `useCreateLeague`, `useUpdateLeague`, `useDeleteLeague`, `useLigasInfinitas` (paginación infinita)
 - **Lookups**: `useLookups()` — 5 queries paralelas (categorias, tipos, ubicaciones, estadosLiga, tiposCompetencia) con 5min staleTime
 - **Utils**: `court-config.ts` (config de canchas/planner)
 
@@ -353,12 +353,12 @@ La store más compleja (~574 lines). Genera slots de horario desde la config de 
 
 **Queries** (`useQuery`):
 - `useLeague(id)`, `useDivisions(ligaId)`, `useDivisionEquipos(divisionId)`
-- `useTeams()`, `useUserTeams(userId)`
+- `useUserTeams(userId)`; los equipos de una división llegan enriquecidos desde `useDivisionEquipos`
 - `useJornadas(divisionId)`, `useTablaPosiciones(divisionId)`
 - `useRondasPlayoff(divisionId)`, `useMyProfile(enabled)`, `useJugadores(equipoId)`, `useGoleadores(divisionId)`
 
 **Infinite queries** (`useInfiniteQuery`):
-- `useLigasInfinitas(filters)` — 5 por página
+- `useLigasInfinitas(filters)` — 20 por página y termina usando el `total` del backend
 - `useJornadasInfinitas(divisionId)` — 2 por página
 
 **Mutations** (`useMutation`):

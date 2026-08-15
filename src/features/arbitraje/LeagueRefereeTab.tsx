@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
@@ -13,9 +13,9 @@ import { refereeApi } from "./api"
 import { useRefereeBatches, useRefereeCandidates, useRefereeMutations } from "./hooks"
 import { refereeBatchHtml } from "./pdf"
 import type { LeagueReferee, RefereeBatchDetail, RefereeCandidateDivision, RefereeMatch } from "./types"
-import { assignmentProgress, groupMatchesByDay, groupMatchesByDivision, scheduledMatches } from "./utils"
+import { allSelectionsLoaded, assignmentProgress, groupMatchesByDay, groupMatchesByDivision, scheduledMatches } from "./utils"
 
-interface Props { leagueId: string; referees: LeagueReferee[]; multiplesCanchas: boolean }
+interface Props { leagueId: string; referees: LeagueReferee[]; multiplesCanchas: boolean; enabled?: boolean }
 
 const card = { backgroundColor: Palette.surface, borderWidth: 1, borderColor: Palette.border, borderRadius: Radius.lg, padding: Pad.base, gap: Gap.md } as const
 
@@ -49,10 +49,10 @@ function RefereeDivisionDetail({ name, matches, assignments, referees, multiples
   </View>
 }
 
-export default function LeagueRefereeTab({ leagueId, referees, multiplesCanchas }: Props) {
+export default function LeagueRefereeTab({ leagueId, referees, multiplesCanchas, enabled = true }: Props) {
   const toast = useToast()
-  const candidates = useRefereeCandidates(leagueId)
-  const batches = useRefereeBatches(leagueId)
+  const candidates = useRefereeCandidates(leagueId, enabled)
+  const batches = useRefereeBatches(leagueId, enabled)
   const mutations = useRefereeMutations(leagueId)
   const draft = useRefereeAssignmentStore((state) => state.drafts[leagueId])
   const hydrate = useRefereeAssignmentStore((state) => state.hydrate)
@@ -73,31 +73,32 @@ export default function LeagueRefereeTab({ leagueId, referees, multiplesCanchas 
   const [openingSavedId, setOpeningSavedId] = useState<string | null>(null)
   const [deleteSavedOpen, setDeleteSavedOpen] = useState(false)
   const activeReferees = referees.filter((referee) => referee.activo)
+  const divisions = useMemo(() => candidates.data?.pages.flatMap((page) => page.rows) ?? [], [candidates.data])
 
   useEffect(() => {
     if (!candidates.data) return
     const activeIds = new Set(referees.filter((referee) => referee.activo).map((referee) => referee.id))
     const assignments: Record<string, string[]> = {}
     const divisionsWithAssignments: string[] = []
-    candidates.data.forEach((division) => {
+    divisions.forEach((division) => {
       const matches = divisionMatches(division)
       matches.forEach((match) => { assignments[match.id] = match.arbitros.map((referee) => referee.id).filter((id) => activeIds.has(id)) })
       if (matches.some((match) => match.arbitros.length)) divisionsWithAssignments.push(division.id)
     })
     hydrate(leagueId, divisionsWithAssignments, assignments)
-  }, [candidates.data, hydrate, leagueId, referees])
+  }, [candidates.data, divisions, hydrate, leagueId, referees])
 
   if (candidates.isLoading || batches.isLoading) return <ActivityIndicator color={Palette.cyan} style={{ marginVertical: 40 }} />
   if (candidates.error || batches.error) return <ErrorState message={(candidates.error ?? batches.error as Error).message} onRetry={() => { candidates.refetch(); batches.refetch() }} />
 
-  const divisions = candidates.data ?? []
   const availableDivisions = divisions.filter((division) => scheduledMatches(divisionMatches(division)).length > 0)
   const selectedIds = draft?.selectedDivisionIds ?? []
   const assignments = draft?.assignments ?? {}
+  const hasLoadedAllSelections = allSelectionsLoaded(selectedIds, divisions.map((division) => division.id))
   const selectedDivisions = availableDivisions.filter((division) => selectedIds.includes(division.id))
   const selectedMatches = selectedDivisions.flatMap(divisionMatches)
   const progress = assignmentProgress(selectedMatches, assignments)
-  const isComplete = progress.total > 0 && progress.assigned === progress.total
+  const isComplete = hasLoadedAllSelections && progress.total > 0 && progress.assigned === progress.total
   const activeDivision = divisions.find((division) => division.id === activeDivisionId) ?? null
   const openDivisionSelection = () => { setDivisionSelection(selectedIds); setSelectingDivisions(true) }
   const saveDivisionSelection = () => {
@@ -110,6 +111,7 @@ export default function LeagueRefereeTab({ leagueId, referees, multiplesCanchas 
     setActiveDivisionId(division.id)
   }
   const saveAll = () => {
+    if (!hasLoadedAllSelections) { toast.error("Carga las divisiones restantes antes de guardar"); return }
     if (!isComplete) { toast.error("Completa todos los partidos programados antes de guardar"); return }
     const matchesToSave = scheduledMatches(selectedMatches)
     mutations.saveLeagueAssignments.mutate({
@@ -148,9 +150,14 @@ export default function LeagueRefereeTab({ leagueId, referees, multiplesCanchas 
     const divisionIds = [...new Set(savedAssignment.partidos.flatMap((match) => match.jornada?.division.id ?? match.rondaPlayoff?.division.id ?? []))]
     mutations.saveLeagueAssignments.mutate({ asignacionId: savedAssignment.id, divisionIds, asignaciones: savedAssignment.partidos.map((match) => ({ partidoId: match.id, arbitroIds: savedAssignments[match.id] ?? [] })) }, {
       onSuccess: async () => {
-        const detail = await refereeApi.detail(leagueId, savedAssignment.id)
-        setSavedAssignment(detail); setSavedAssignments(Object.fromEntries(detail.partidos.map((match) => [match.id, match.arbitros.map((referee) => referee.id)]))); setSavedDirty(false)
+        setSavedDirty(false)
         toast.success("Corrección guardada")
+        try {
+          const detail = await refereeApi.detail(leagueId, savedAssignment.id)
+          setSavedAssignment(detail); setSavedAssignments(Object.fromEntries(detail.partidos.map((match) => [match.id, match.arbitros.map((referee) => referee.id)])))
+        } catch (error) {
+          toast.error((error as Error).message || "La corrección se guardó, pero no se pudo actualizar la vista")
+        }
       },
       onError: (error) => toast.error(error.message || "No se pudo guardar la corrección"),
     })
@@ -201,6 +208,8 @@ export default function LeagueRefereeTab({ leagueId, referees, multiplesCanchas 
 
   return <View style={{ gap: Gap.lg }}>
     {availableDivisions.length ? <View style={{ alignItems: "flex-end" }}><Button label="Asignar árbitros" icon="assignment-ind" onPress={openDivisionSelection} /></View> : <View style={{ alignItems: "center", gap: Gap.sm, paddingVertical: Pad.md }}><MaterialIcons name="event-busy" size={30} color={Palette.textMuted} /><Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>Se necesitan nuevas jornadas</Text><Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, fontSize: 13, textAlign: "center" }}>Genera una nueva jornada con partidos programados para crear otra asignación de árbitros.</Text></View>}
+    {candidates.hasNextPage ? <Button label={candidates.isFetchingNextPage ? "Cargando..." : "Cargar más divisiones"} icon="expand-more" secondary disabled={candidates.isFetchingNextPage} onPress={() => { void candidates.fetchNextPage() }} /> : null}
+    {!hasLoadedAllSelections ? <Text style={{ color: Palette.warning, fontFamily: Fonts.sans, textAlign: "center", fontSize: 12 }}>Carga las divisiones restantes para recuperar todo el borrador guardado.</Text> : null}
     {selectedDivisions.length ? <View style={{ gap: Gap.sm }}><View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}><Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 14 }}>Progreso general</Text><Text style={{ color: progress.percent === 100 ? Palette.success : Palette.cyan, fontFamily: Fonts.semiBold, fontSize: 12 }}>{progress.assigned} de {progress.total} · {progress.percent}%</Text></View><View style={{ height: 7, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight }}><View style={{ width: `${progress.percent}%` as `${number}%`, height: "100%", borderRadius: Radius.full, backgroundColor: progress.percent === 100 ? Palette.success : Palette.cyan }} /></View></View> : null}
     {selectedDivisions.length ? selectedDivisions.map((division) => {
       const matches = divisionMatches(division)
@@ -210,6 +219,7 @@ export default function LeagueRefereeTab({ leagueId, referees, multiplesCanchas 
     {batches.data?.length ? <View style={{ gap: Gap.sm }}><Text style={{ color: Palette.text, fontFamily: Fonts.display, fontSize: 18 }}>Asignaciones guardadas</Text>{batches.data.map((batch) => <View key={batch.id} style={card}><View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}><TouchableOpacity disabled={openingSavedId === batch.id} onPress={() => openSavedAssignment(batch.id)} style={{ flex: 1 }}><Text style={{ color: Palette.text, fontFamily: Fonts.semiBold }}>{batch.nombre}</Text><Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, fontSize: 12 }}>{batch._count.partidos} partidos</Text></TouchableOpacity><TouchableOpacity disabled={openingSavedId === batch.id} onPress={async () => { try { const detail = await refereeApi.detail(leagueId, batch.id); await downloadSavedAssignment(detail) } catch (error) { toast.error((error as Error).message) } }} style={{ padding: Pad.sm }}>{openingSavedId === batch.id ? <ActivityIndicator color={Palette.cyan} /> : <MaterialIcons name="picture-as-pdf" size={25} color={Palette.cyan} />}</TouchableOpacity><TouchableOpacity onPress={() => openSavedAssignment(batch.id)} style={{ padding: Pad.sm }}><MaterialIcons name="edit" size={23} color={Palette.textSecondary} /></TouchableOpacity></View></View>)}</View> : null}
     <AppBottomSheetModal visible={selectingDivisions} onClose={() => setSelectingDivisions(false)} title="Seleccionar divisiones" snapPoints={["70%"]}>
       {availableDivisions.map((division) => { const selected = divisionSelection.includes(division.id); return <TouchableOpacity key={division.id} onPress={() => setDivisionSelection((ids) => selected ? ids.filter((id) => id !== division.id) : [...ids, division.id])} style={{ ...card, flexDirection: "row", alignItems: "center" }}><MaterialIcons name={selected ? "check-box" : "check-box-outline-blank"} size={24} color={Palette.cyan} /><View><Text style={{ color: Palette.text, fontFamily: Fonts.medium }}>{division.nombre}</Text><Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, fontSize: 12 }}>{scheduledMatches(divisionMatches(division)).length} partidos nuevos programados</Text></View></TouchableOpacity> })}
+      {candidates.hasNextPage ? <Button label={candidates.isFetchingNextPage ? "Cargando..." : "Cargar más"} icon="expand-more" secondary disabled={candidates.isFetchingNextPage} onPress={() => { void candidates.fetchNextPage() }} /> : null}
       <Button label="Aceptar divisiones" onPress={saveDivisionSelection} />
     </AppBottomSheetModal>
     <ConfirmationModal visible={clearOpen} title="Limpiar asignaciones" message="Se eliminarán únicamente las asignaciones del borrador local. Lo guardado en el servidor no cambiará hasta que completes y guardes una nueva configuración." confirmLabel="Limpiar" variant="danger" onConfirm={clearLocalAssignments} onClose={() => setClearOpen(false)} />

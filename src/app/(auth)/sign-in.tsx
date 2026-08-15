@@ -6,10 +6,11 @@ import { styles } from "@/features/auth/screens/SignIn.styles"
 import { authClient } from "@/infrastructure/auth/client"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 import { useToast } from "@/shared/components/Toast"
+import ErrorState from "@/shared/components/ErrorState"
 
 export default function SignInScreen() {
   const [isSigningIn, setIsSigningIn] = useState(false)
-  const { data: session, isPending } = authClient.useSession()
+  const { data: session, error: sessionError, isPending, refetch: refetchSession } = authClient.useSession()
   const toast = useToast()
 
   useEffect(() => {
@@ -24,6 +25,10 @@ export default function SignInScreen() {
         <ActivityIndicator color={Palette.cyan} size="large" />
       </View>
     )
+  }
+
+  if (sessionError && !session) {
+    return <ErrorState message={getAuthErrorMessage(sessionError, "No se pudo verificar tu sesión.")} onRetry={() => { void refetchSession() }} fullScreen />
   }
 
   if (session) {

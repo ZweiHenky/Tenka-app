@@ -26,17 +26,22 @@ import { leagueApi } from "@/features/league/api/leagues"
 import { hasProgramacionReciente, programacionRecienteFilename, programacionRecienteHtml } from "@/features/league/utils/programacion-reciente-pdf"
 import { downloadPdf } from "@/shared/utils/print-pdf"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { isRateLimitError } from "@/infrastructure/api/rate-limit"
 
 export default function LeagueDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const guard = useNavGuard()
-  const { data: league, isLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!)
-  const lookups = useLookups()
+  const isFocused = useIsFocused()
+  const { data: league, isLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!, isFocused)
   const divisions = league?.divisiones ?? []
   const deleteDivision = useDeleteDivision(id!)
   const toast = useToast()
   const [refreshing, setRefreshing] = useState(false)
   const [tab, setTab] = useState("divisiones")
+  const lookups = useLookups({
+    categorias: isFocused && tab === "divisiones",
+    ubicaciones: isFocused && tab === "info" && !!league && !league.ubicacion?.nombreCompleto,
+  })
   const [downloadingSchedule, setDownloadingSchedule] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null)
   const addDivisionRef = useRef<any>(null)
@@ -53,7 +58,6 @@ export default function LeagueDetailScreen() {
   const [firstDivisionReady, setFirstDivisionReady] = useState(false)
   const [tabBarReady, setTabBarReady] = useState(false)
   const insets = useSafeAreaInsets()
-  const isFocused = useIsFocused()
   const { data: session } = authClient.useSession()
   const { startTour, endTour } = useTourGuide()
   const tourBlocked = refreshing || downloadingSchedule || deleteTarget !== null || deleteDivision.isPending
@@ -196,7 +200,7 @@ export default function LeagueDetailScreen() {
       },
       onError: (e) => {
         toast.error(e.message || "Error al eliminar")
-        setDeleteTarget(null)
+        if (!isRateLimitError(e)) setDeleteTarget(null)
       },
     })
   }
@@ -218,7 +222,7 @@ export default function LeagueDetailScreen() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading || (tab === "divisiones" && lookups.isLoading)) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="" />
@@ -246,7 +250,9 @@ export default function LeagueDetailScreen() {
     )
   }
 
-  const ubicacionTexto = league.ubicacion?.nombreCompleto ?? lookups.ubicaciones.find((u) => u.id === league.ubicacionId)?.nombreCompleto ?? "Ubicación no disponible"
+  const ubicacionTexto = league.ubicacion?.nombreCompleto
+    ?? lookups.ubicaciones.find((u) => u.id === league.ubicacionId)?.nombreCompleto
+    ?? (lookups.isLoading ? "Cargando ubicación..." : "Ubicación no disponible")
   const refereeLeague = league as typeof league & { usaArbitros?: boolean; arbitros?: LeagueReferee[] }
 
   return (
@@ -360,7 +366,7 @@ export default function LeagueDetailScreen() {
             ) : null}
 
             {tab === "arbitros" && refereeLeague.usaArbitros ? (
-              <LeagueRefereeTab leagueId={league.id} referees={refereeLeague.arbitros ?? []} multiplesCanchas={league.multiplesCanchas} />
+              <LeagueRefereeTab leagueId={league.id} referees={refereeLeague.arbitros ?? []} multiplesCanchas={league.multiplesCanchas} enabled={isFocused && tab === "arbitros"} />
             ) : null}
 
             {tab === "reglas" && league.reglas?.length ? (

@@ -1,11 +1,16 @@
 import { api } from "@/infrastructure/api/client"
 import type { Division } from "@/domain/interfaces/league"
+import type { EquipoResponse } from "@/features/team/api/teams"
 
 export interface DivisionEquipoLink {
   divisionId: string
   equipoId: string
   saldoPendiente?: string
   division?: Division
+}
+
+export interface DivisionEquipoByDivision extends DivisionEquipoLink {
+  equipo: EquipoResponse
 }
 
 interface ApiRes<T> {
@@ -16,7 +21,7 @@ interface ApiRes<T> {
 
 export const divisionEquipoApi = {
   findByDivision: (divisionId: string) =>
-    api.get<ApiRes<DivisionEquipoLink[]>>(`/api/divisiones-equipos/division/${divisionId}`).then((r) => r.data.data!),
+    api.get<ApiRes<DivisionEquipoByDivision[]>>(`/api/divisiones-equipos/division/${divisionId}`).then((r) => r.data.data!),
   findByEquipo: (equipoId: string) =>
     api.get<ApiRes<DivisionEquipoLink[]>>(`/api/divisiones-equipos/equipo/${equipoId}`).then((r) => r.data.data!),
   create: (data: { divisionId: string; equipoId: string }) =>

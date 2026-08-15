@@ -1,7 +1,13 @@
+import { isRateLimitError, rateLimitMessage } from "@/infrastructure/api/rate-limit"
+import { applyCapturedAuthRateLimit } from "@/infrastructure/auth/rate-limit"
+
 type AuthErrorLike = {
   code?: string
   message?: string
+  status?: number
+  statusCode?: number
   statusText?: string
+  retryAfterSeconds?: number
 }
 
 const AUTH_MESSAGES: Record<string, string> = {
@@ -18,6 +24,8 @@ export function getAuthErrorMessage(error: unknown, fallback: string): string {
   if (!error || typeof error !== "object") return fallback
 
   const authError = error as AuthErrorLike
+  applyCapturedAuthRateLimit(authError)
+  if (isRateLimitError(authError)) return rateLimitMessage(authError.retryAfterSeconds)
   if (authError.code && AUTH_MESSAGES[authError.code]) return AUTH_MESSAGES[authError.code]
 
   const message = authError.message || authError.statusText

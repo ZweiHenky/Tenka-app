@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react"
+import { useState, useMemo, useEffect, useCallback, useRef } from "react"
 import { Modal, View, Text, TextInput, TouchableOpacity, Image, ActivityIndicator, Alert } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { router } from "expo-router"
@@ -14,6 +14,7 @@ import { api } from "@/infrastructure/api/client"
 import { useToast } from "@/shared/components/Toast"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import CustomHeader from "@/shared/components/CustomHeader"
+import { getRetryAfterSeconds, isRateLimitError } from "@/infrastructure/api/rate-limit"
 
 const PAISES_COMUNES: CountryCode[] = [
   "MX", "US", "CA", "AR", "BO", "BR", "CL", "CO", "CR", "CU", "DO", "EC",
@@ -38,6 +39,7 @@ export default function AccountEditScreen() {
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   const [resendCountdown, setResendCountdown] = useState(0)
+  const [verifyCountdown, setVerifyCountdown] = useState(0)
   const insets = useSafeAreaInsets()
 
   const initialCountry = useMemo(() => {
@@ -54,16 +56,22 @@ export default function AccountEditScreen() {
   const [countryPickerOpen, setCountryPickerOpen] = useState(false)
   const [countryFilter, setCountryFilter] = useState("")
   const [allCountries, setAllCountries] = useState<Country[]>([])
-
-  useEffect(() => { getAllCountries(FlagType.EMOJI, "common", undefined, undefined, PAISES_COMUNES).then(setAllCountries) }, [])
+  const countryCatalogRequestedRef = useRef(false)
 
   useEffect(() => {
-    if (phoneStep !== "otp") return
+    if (!countryPickerOpen || countryCatalogRequestedRef.current) return
+    countryCatalogRequestedRef.current = true
+    void getAllCountries(FlagType.EMOJI, "common", undefined, undefined, PAISES_COMUNES).then(setAllCountries)
+  }, [countryPickerOpen])
+
+  useEffect(() => {
+    if (resendCountdown <= 0 && verifyCountdown <= 0) return
     const id = setInterval(() => {
       setResendCountdown((s) => (s > 1 ? s - 1 : 0))
+      setVerifyCountdown((s) => (s > 1 ? s - 1 : 0))
     }, 1000)
     return () => clearInterval(id)
-  }, [phoneStep])
+  }, [resendCountdown, verifyCountdown])
 
   const filteredCountries = useMemo(() => {
     if (!countryFilter) return allCountries
@@ -75,6 +83,16 @@ export default function AccountEditScreen() {
   }, [allCountries, countryFilter])
 
   const fullPhone = `+${callingCode}${phoneNumber}`
+
+  const showOtpError = (error: unknown, fallback: string, target: "send" | "verify") => {
+    const message = getAuthErrorMessage(error, fallback)
+    if (isRateLimitError(error)) {
+      const seconds = getRetryAfterSeconds(error) ?? 60
+      if (target === "send") setResendCountdown(seconds)
+      else setVerifyCountdown(seconds)
+    }
+    toast.error(message)
+  }
 
   const pickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -103,14 +121,14 @@ export default function AccountEditScreen() {
     try {
       const { error } = await authClient.phoneNumber.sendOtp({ phoneNumber: fullPhone })
       if (error) {
-        toast.error(getAuthErrorMessage(error, "No se pudo enviar el código"))
+        showOtpError(error, "No se pudo enviar el código", "send")
         return
       }
       setPhoneStep("otp")
       setResendCountdown(40)
       toast.success("Código enviado")
     } catch (error) {
-      toast.error(getAuthErrorMessage(error, "No se pudo enviar el código"))
+      showOtpError(error, "No se pudo enviar el código", "send")
     } finally {
       setSendingOtp(false)
     }
@@ -125,7 +143,7 @@ export default function AccountEditScreen() {
     try {
       const { error } = await authClient.phoneNumber.verify({ phoneNumber: fullPhone, code: otpCode.trim(), updatePhoneNumber: true })
       if (error) {
-        toast.error(getAuthErrorMessage(error, "Código incorrecto"))
+        showOtpError(error, "Código incorrecto", "verify")
         return
       }
       await refetchSession({ query: { disableCookieCache: true } })
@@ -133,7 +151,7 @@ export default function AccountEditScreen() {
       setOtpCode("")
       toast.success("El número se vinculó correctamente")
     } catch (error) {
-      toast.error(getAuthErrorMessage(error, "Código incorrecto"))
+      showOtpError(error, "Código incorrecto", "verify")
     } finally {
       setVerifyingOtp(false)
     }
@@ -248,13 +266,13 @@ export default function AccountEditScreen() {
                   </View>
                   <TouchableOpacity
                     onPress={handleSendOtp}
-                    disabled={sendingOtp}
-                    style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, alignItems: "center", opacity: sendingOtp ? 0.5 : 1 }}
+                    disabled={sendingOtp || resendCountdown > 0}
+                    style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, alignItems: "center", opacity: sendingOtp || resendCountdown > 0 ? 0.5 : 1 }}
                   >
                     {sendingOtp ? (
                       <ActivityIndicator size="small" color={Palette.black} />
                     ) : (
-                      <Text style={{ color: Palette.black, fontWeight: "700", fontSize: 15 }}>Enviar código</Text>
+                      <Text style={{ color: Palette.black, fontWeight: "700", fontSize: 15 }}>{resendCountdown > 0 ? `Enviar en ${resendCountdown}s` : "Enviar código"}</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -272,13 +290,13 @@ export default function AccountEditScreen() {
                     />
                     <TouchableOpacity
                       onPress={handleVerifyOtp}
-                      disabled={verifyingOtp}
-                      style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, paddingHorizontal: Pad.lg, alignItems: "center", opacity: verifyingOtp ? 0.5 : 1 }}
+                      disabled={verifyingOtp || verifyCountdown > 0}
+                      style={{ backgroundColor: Palette.cyan, borderRadius: Radius.md, paddingVertical: Pad.md, paddingHorizontal: Pad.lg, alignItems: "center", opacity: verifyingOtp || verifyCountdown > 0 ? 0.5 : 1 }}
                     >
                       {verifyingOtp ? (
                         <ActivityIndicator size="small" color={Palette.black} />
                       ) : (
-                        <Text style={{ color: Palette.black, fontWeight: "700", fontSize: 15 }}>Verificar</Text>
+                        <Text style={{ color: Palette.black, fontWeight: "700", fontSize: 15 }}>{verifyCountdown > 0 ? `${verifyCountdown}s` : "Verificar"}</Text>
                       )}
                     </TouchableOpacity>
                   </View>

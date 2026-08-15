@@ -192,14 +192,14 @@ export default function PublicLeagueScreen() {
     }
   }, [qc, id, currentDivisionId, tab])
 
-  const { data: links = [] } = useDivisionEquipos(currentDivision?.id ?? "", tab === "info")
+  const { data: links = [] } = useDivisionEquipos(currentDivision?.id ?? "", isFocused && tab === "info")
   const teamCount = links.length
 
-  const { data: standings = [], isLoading: standingsLoading } = useTablaPosiciones(currentDivision?.id ?? null, tab === "posiciones")
-  const goleadores = useGoleadores(currentDivision?.id, tab === "goleo")
-  const { data, isLoading: jornadasLoading, fetchNextPage, error: jornadasError, refetch: refetchJornadas } = useJornadasInfinitas(currentDivision?.id ?? null, tab === "horario")
+  const { data: standings = [], isLoading: standingsLoading } = useTablaPosiciones(currentDivision?.id ?? null, isFocused && tab === "posiciones")
+  const goleadores = useGoleadores(currentDivision?.id, isFocused && tab === "goleo")
+  const { data, isLoading: jornadasLoading, fetchNextPage, error: jornadasError, refetch: refetchJornadas } = useJornadasInfinitas(currentDivision?.id ?? null, isFocused && tab === "horario")
 
-  const { data: rondas = [] } = useRondasPlayoff(currentDivision?.id ?? null, tab === "posiciones")
+  const { data: rondas = [] } = useRondasPlayoff(currentDivision?.id ?? null, isFocused && tab === "posiciones")
 
   const jornadas = useMemo(() => data?.pages.flatMap((p) => p.rows) ?? [], [data])
   const totalJornadas = data?.pages[0]?.total ?? 0

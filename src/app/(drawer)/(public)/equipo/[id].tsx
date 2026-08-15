@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { ActivityIndicator, Image, Share, Text, TouchableOpacity, View } from "react-native"
-import { router, useLocalSearchParams } from "expo-router"
+import { router, useIsFocused, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { Fonts, Gap, Pad, Palette, Radius } from "@/constants/theme"
 import { POSICIONES_JUGADOR } from "@/domain/interfaces/player"
@@ -24,20 +24,25 @@ function formatPosicion(posicion: string) {
 export default function PublicTeamDivisionSelectorScreen() {
   const guard = useNavGuard()
   const { id } = useLocalSearchParams<{ id: string }>()
-  const { data: team, isLoading, error, refetch } = useTeam(id)
-  const { data: jugadores = [], isLoading: loadingPlayers, refetch: refetchPlayers } = useJugadores(id)
+  const [tab, setTab] = useState<"jugadores" | "divisiones">("jugadores")
+  const isFocused = useIsFocused()
+  const { data: team, isLoading, error, refetch } = useTeam(id, isFocused)
+  const { data: jugadores = [], isLoading: loadingPlayers, refetch: refetchPlayers } = useJugadores(id, isFocused && tab === "jugadores")
   const { data: divisionLinks = [], isLoading: loadingDivisions, error: divisionsError, refetch: refetchDivisions } = useQuery({
     queryKey: ["division-equipos", "equipo", id],
     queryFn: () => divisionEquipoApi.findByEquipo(id!),
-    enabled: !!id,
+    enabled: isFocused && tab === "divisiones" && !!id,
   })
   const [refreshing, setRefreshing] = useState(false)
-  const [tab, setTab] = useState<"jugadores" | "divisiones">("jugadores")
 
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
-      await Promise.all([refetch(), refetchPlayers(), refetchDivisions()])
+      await Promise.all([
+        refetch(),
+        tab === "jugadores" ? refetchPlayers() : Promise.resolve(),
+        tab === "divisiones" ? refetchDivisions() : Promise.resolve(),
+      ])
     } finally {
       setRefreshing(false)
     }

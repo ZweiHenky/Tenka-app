@@ -41,19 +41,20 @@ export default function TeamDetailScreen() {
   const toast = useToast()
   const guard = useNavGuard()
   const { id } = useLocalSearchParams<{ id: string }>()
-  const { data: team, isLoading, error, refetch } = useTeam(id)
-  const { data: jugadores = [], isLoading: loadingPlayers, refetch: refetchPlayers } = useJugadores(id)
+  const [tab, setTab] = useState<"jugadores" | "divisiones">("jugadores")
+  const isFocused = useIsFocused()
+  const { data: team, isLoading, error, refetch } = useTeam(id, isFocused)
+  const { data: jugadores = [], isLoading: loadingPlayers, refetch: refetchPlayers } = useJugadores(id, isFocused && tab === "jugadores")
   const { data: divisionLinks = [], isLoading: loadingDivisionLinks, refetch: refetchDivisionLinks } = useQuery({
     queryKey: ["division-equipos", "equipo", id],
     queryFn: () => divisionEquipoApi.findByEquipo(id!),
-    enabled: !!id,
+    enabled: isFocused && tab === "divisiones" && !!id,
   })
   const buscarJugador = useBuscarJugadorParaEquipo()
   const assignJugador = useAssignJugadorToTeam()
   const removeJugadorFromTeam = useRemoveJugadorFromTeam()
   const [refreshing, setRefreshing] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; jugadorId: string; nombre: string } | null>(null)
-  const [tab, setTab] = useState<"jugadores" | "divisiones">("jugadores")
   const [searchOpen, setSearchOpen] = useState(false)
   const [phoneNumber, setPhoneNumber] = useState("")
   const [dorsal, setDorsal] = useState("")
@@ -72,10 +73,10 @@ export default function TeamDetailScreen() {
   const scrollRef = useRef<any>(null)
   const scrollOffsetRef = useRef(0)
   const tourStartedRef = useRef(false)
+  const countryCatalogRequestedRef = useRef(false)
   const [firstPlayerReady, setFirstPlayerReady] = useState(false)
 
   const insets = useSafeAreaInsets()
-  const isFocused = useIsFocused()
   const { data: session } = authClient.useSession()
   const { startTour, endTour } = useTourGuide()
 
@@ -147,7 +148,11 @@ export default function TeamDetailScreen() {
     init()
   }, [isFocused, isLoading, error, team, session?.user, tab, blocked, jugadores.length, firstPlayerReady, startTour, endTour, insets.top, insets.bottom])
 
-  useEffect(() => { getAllCountries(FlagType.EMOJI, "common", undefined, undefined, PAISES_COMUNES).then(setAllCountries) }, [])
+  useEffect(() => {
+    if (!countryPickerOpen || countryCatalogRequestedRef.current) return
+    countryCatalogRequestedRef.current = true
+    void getAllCountries(FlagType.EMOJI, "common", undefined, undefined, PAISES_COMUNES).then(setAllCountries)
+  }, [countryPickerOpen])
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", (e) => setKeyboardH(e.endCoordinates.height))
@@ -167,7 +172,11 @@ export default function TeamDetailScreen() {
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
-      await Promise.all([refetch(), refetchPlayers(), refetchDivisionLinks()])
+      await Promise.all([
+        refetch(),
+        tab === "jugadores" ? refetchPlayers() : Promise.resolve(),
+        tab === "divisiones" ? refetchDivisionLinks() : Promise.resolve(),
+      ])
     } finally {
       setRefreshing(false)
     }

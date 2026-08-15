@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react"
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, BackHandler, Switch } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
-import { useLocalSearchParams, router, useNavigation } from "expo-router"
+import { useIsFocused, useLocalSearchParams, router, useNavigation } from "expo-router"
 import type { NavigationAction } from "expo-router/build/react-navigation"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { useToast } from "@/shared/components/Toast"
@@ -105,6 +105,7 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
   const navigation = useNavigation()
   const pendingActionRef = useRef<NavigationAction | null>(null)
   const allowLeaveRef = useRef(false)
+  const savingRef = useRef(false)
 
   const dirty = useMemo(() => {
     return JSON.stringify(normalizeForm(form)) !== JSON.stringify(normalizeForm(initialForm))
@@ -137,9 +138,11 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
   }
 
   const handleSave = async () => {
+    if (savingRef.current) return
     const error = validate()
     if (error) { toast.error(error); return }
 
+    savingRef.current = true
     setSaving(true)
     try {
       const payload = {
@@ -169,6 +172,7 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
     } catch (e: any) {
       toast.error(e.message || "Error al guardar")
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -365,10 +369,11 @@ export default function DivisionFormScreen() {
   const id = Array.isArray(raw.id) ? raw.id[0] : raw.id
   const divisionIdParam = Array.isArray(raw.divisionId) ? raw.divisionId[0] : raw.divisionId
   const isEdit = Boolean(divisionIdParam)
+  const isFocused = useIsFocused()
 
-  const { isLoading: leagueLoading, error: leagueError } = useLeague(id!)
-  const lookups = useLookups()
-  const { data: division, isLoading: divisionLoading, error: divisionError } = useDivision(divisionIdParam ?? "")
+  const { isLoading: leagueLoading, error: leagueError } = useLeague(id!, isFocused)
+  const lookups = useLookups({ categorias: isFocused, tipos: isFocused, tiposCompetencia: isFocused })
+  const { data: division, isLoading: divisionLoading, error: divisionError } = useDivision(divisionIdParam ?? "", isFocused)
 
   if (leagueLoading || (isEdit && divisionLoading) || lookups.isLoading) {
     return (
