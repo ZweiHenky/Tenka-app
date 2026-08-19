@@ -67,6 +67,7 @@ export function useJornadaGeneration({
 
     setCheckingAvailability(true)
     let plannedSlots = schedule.slots
+    let courtOrder: string[] = []
     try {
       const division = await divisionApi.getById(divisionId)
       const authoritativeSlots = division.canchaUnicaId
@@ -74,9 +75,10 @@ export function useJornadaGeneration({
         : schedule.canchaUnicaIdSnapshot
           ? schedule.slots.map((slot) => ({ ...slot, canchaId: undefined }))
           : schedule.slots
-      const activeSlots = getActiveSlots(authoritativeSlots, habilitados.length, playoffMode)
-      const starts = activeSlots.map((slot) => new Date(`${slot.fecha}T${slot.horaInicio}:00`).getTime()).filter(Number.isFinite)
-      const ends = activeSlots.map((slot) => {
+      // The window is derived from every slot (a superset of the active ones) so that the court
+      // order is known before trimming — the trim needs it to drop the last slot of the last court.
+      const starts = authoritativeSlots.map((slot) => new Date(`${slot.fecha}T${slot.horaInicio}:00`).getTime()).filter(Number.isFinite)
+      const ends = authoritativeSlots.map((slot) => {
         const start = new Date(`${slot.fecha}T${slot.horaInicio}:00`).getTime()
         let end = new Date(`${slot.fecha}T${slot.horaFin}:00`).getTime()
         if (end <= start) end += 86_400_000
@@ -94,6 +96,9 @@ export function useJornadaGeneration({
       if (division.canchaUnicaId && !availability.canchas.some((cancha) => cancha.id === division.canchaUnicaId)) {
         throw new Error("La cancha fija de la división no está activa")
       }
+      courtOrder = availability.canchas.map((cancha) => cancha.id)
+      const activeSlots = getActiveSlots(authoritativeSlots, habilitados.length, playoffMode, courtOrder)
+      if (activeSlots.length === 0) throw new Error("Los horarios de la jornada no son válidos")
       const plan = planFromAvailability(activeSlots, availability)
       if (plan.conflicts.length > 0 || plan.unassignedSlotIds.length > 0) {
         throw new Error("Hay conflictos de cancha. Corrígelos antes de generar la jornada")
@@ -106,7 +111,7 @@ export function useJornadaGeneration({
       return
     }
 
-    const slotsParaJornada = prepareJornadaSlots(plannedSlots, habilitados, playoffMode)
+    const slotsParaJornada = prepareJornadaSlots(plannedSlots, habilitados, playoffMode, courtOrder)
     const descansoEquipoId = hasComplementoSlot ? undefined : schedule.descansoEquipoId
     const fingerprint = JSON.stringify({ slots: slotsParaJornada, equipoIds: [...habilitados].sort(), descansoEquipoId: descansoEquipoId ?? null })
     if (generationAttemptRef.current?.fingerprint !== fingerprint) {

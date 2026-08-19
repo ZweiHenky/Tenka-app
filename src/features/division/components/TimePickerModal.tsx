@@ -2,7 +2,7 @@ import { Text, ScrollView, TouchableOpacity } from "react-native"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
 import type { TimeSlotConfig } from "@/stores/divisionSchedule"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
-import { isTimeOccupied } from "@/features/division/utils/time-occupancy"
+import { isTimeOccupied } from "@/shared/utils/time-occupancy"
 import { generateTimeSlots } from "@/shared/utils/time-range"
 
 function generateTimeOptions(

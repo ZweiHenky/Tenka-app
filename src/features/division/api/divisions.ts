@@ -16,6 +16,7 @@ export const divisionApi = {
     api.post<ApiRes<Division>>("/api/divisiones", data).then((r) => r.data.data!),
   update: (id: string, data: Partial<CreateDivisionInput>) =>
     api.patch<ApiRes<Division>>(`/api/divisiones/${id}`, data).then((r) => r.data.data!),
-  delete: (id: string) => api.delete(`/api/divisiones/${id}`),
+  delete: (id: string, confirmName?: string) =>
+    api.delete(`/api/divisiones/${id}`, confirmName ? { data: { confirmName } } : undefined),
   reset: (divisionId: string) => api.post<ApiRes<undefined>>(`/api/divisiones/${divisionId}/reset`).then((r) => r.data),
 }

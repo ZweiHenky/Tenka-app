@@ -8,10 +8,12 @@ import { Palette, Radius, Pad, Gap } from "@/constants/theme"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import CustomHeader from "@/shared/components/CustomHeader"
 import PullToRefresh from "@/shared/components/PullToRefresh"
+import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import { useToast } from "@/shared/components/Toast"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
 import { waitForIdle } from "@/shared/utils/wait-for-idle"
+import { isRateLimitError } from "@/infrastructure/api/rate-limit"
 import type { League } from "@/domain/interfaces/league"
 
 export default function ProfileScreen() {
@@ -23,6 +25,8 @@ export default function ProfileScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const [activatingRole, setActivatingRole] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const qc = useQueryClient()
   const toast = useToast()
 
@@ -44,6 +48,23 @@ export default function ProfileScreen() {
       setSigningOut(false)
     }
   }, [qc, toast])
+
+  const handleDeleteAccount = useCallback(async () => {
+    if (!user) return
+    setDeletingAccount(true)
+    try {
+      await userApi.deleteAccount(user.email)
+      qc.clear()
+      router.replace("/(auth)/sign-in")
+      await waitForIdle()
+      await authClient.signOut().catch(() => {})
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error, "No se pudo eliminar la cuenta."))
+      if (!isRateLimitError(error)) setDeleteModalOpen(false)
+    } finally {
+      setDeletingAccount(false)
+    }
+  }, [qc, toast, user])
 
   const handleActivateLeagueRole = async () => {
     setActivatingRole(true)
@@ -164,8 +185,30 @@ export default function ProfileScreen() {
           >
             {signingOut ? <ActivityIndicator color={Palette.danger} /> : <Text style={{ color: Palette.danger, fontSize: 16, fontWeight: "600" }}>Cerrar sesión</Text>}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setDeleteModalOpen(true)}
+            disabled={deletingAccount}
+            style={{ backgroundColor: Palette.danger10, borderWidth: 1, borderColor: Palette.danger, borderRadius: Radius.xl, paddingVertical: Pad.base, alignItems: "center", marginTop: Gap.base, opacity: deletingAccount ? 0.5 : 1 }}
+          >
+            {deletingAccount ? <ActivityIndicator color={Palette.danger} /> : <Text style={{ color: Palette.danger, fontSize: 16, fontWeight: "600" }}>Eliminar cuenta</Text>}
+          </TouchableOpacity>
         </View>
       </PullToRefresh>
+
+      <ConfirmationModal
+        visible={deleteModalOpen}
+        title="Eliminar cuenta"
+        message={
+          `Se eliminará tu cuenta y todos tus datos: ligas, equipos, divisiones, partidos, notificaciones y tu perfil deportivo (Mi perfil). Según los Términos y Condiciones (sección 7.3) y el Aviso de Privacidad, tus datos personales se eliminarán dentro de los 30 días posteriores a la cancelación. Esta acción no se puede deshacer. Escribe tu correo para confirmar.`
+        }
+        confirmLabel="Eliminar cuenta"
+        variant="danger"
+        loading={deletingAccount}
+        requireText={user.email}
+        onConfirm={handleDeleteAccount}
+        onClose={() => setDeleteModalOpen(false)}
+      />
     </View>
   )
 }

@@ -101,8 +101,8 @@ export function useUpdateLeague() {
 export function useDeleteLeague(userId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => leagueApi.delete(id),
-    onSuccess: (_data, id) => {
+    mutationFn: ({ id, confirmName }: { id: string; confirmName?: string }) => leagueApi.delete(id, confirmName),
+    onSuccess: (_data, { id }) => {
       qc.removeQueries({ queryKey: [KEY, id], exact: true })
       qc.setQueryData<UserLeagueListItem[]>([KEY, "user", userId], (current) => current?.filter((entry) => entry.id !== id))
       markPublicLeagueListsStale(qc)

@@ -141,7 +141,8 @@ src/
   shared/                 # Reusable components & utils
     components/           # PullToRefresh, CrudModal, Toast, CustomHeader, etc.
     hooks/                # useDebounce
-    utils/                # resolve-lookup, parse-dias-partido, playoff-finalization, time-range, print-pdf
+    utils/                # resolve-lookup, parse-dias-partido, playoff-finalization, time-range,
+                          # time-occupancy (única fuente de "¿hora libre?"), print-pdf
   constants/
     theme.ts              # Palette, Fonts, Pad, Gap, Radius, spacing
 ```
@@ -207,7 +208,7 @@ Root Stack
 - **API**: listByLiga, getById, create, update, delete, reset
 - **Hooks**: `useDivisions`, `useCreateDivision`, `useUpdateDivision`, `useDeleteDivision`, `useResetDivision`, `useJornadaGeneration`
 - **Components**: `DivisionListCard`, `DivisionInfoCard`, `DivisionActionSheet`, `DivisionScheduleManager` (horarios), `EquiposTab`, `PosicionesTab`, `TeamListCard`, `TimeSlotCard`, `TeamPickerModal`
-- **Utils**: `prepareJornadaSlots.ts` (genera slots de jornada desde horarios)
+- **Utils**: `prepareJornadaSlots.ts` (genera slots de jornada desde horarios), `slot-day-move.ts` y `slot-court-move.ts` (ver *Mover slots*)
 
 ### division-equipo
 - **API**: findByDivision, findByEquipo, create, remove
@@ -258,6 +259,9 @@ Root Stack
 
 ### court-availability
 - `planner.ts` (lógica de planeación de canchas), `api/courtAvailability.ts`, `hooks/useCourtAvailability.ts`
+- `planCourtAssignments` reparte los slots entre canchas balanceando carga, y **respeta la `canchaId` manual** — un slot con cancha activa asignada no se reubica; si choca, se reporta como conflicto (`conflictSlotIds`, borde rojo). Por eso mover un partido de cancha a mano no se deshace solo.
+- `isCourtOccupiedForSlot(slot, courtId, availability, draftSlots)` consulta las **reservas reales del backend** (`availability.ocupaciones` = partidos de otras divisiones de la liga). Es la que se inyecta como predicado en los utils de mover slots.
+- ⚠️ No confundir con el planner del backend: ese se eliminó por no tener llamadores. **El servidor no asigna canchas, solo valida** — la asignación se calcula aquí y se envía.
 
 ### player
 - `screens/PlayerDetailScreen.tsx` — detalle de jugador (privado y reutilizado en vistas públicas)
@@ -294,6 +298,29 @@ Root Stack
 | **`LocationPickerModal`** | Google Places input en bottom-sheet |
 | **`DatePicker`** | Selector día/mes/año + `DateRangePicker` |
 | **`TimeRangePicker`** | Lista editable de rangos horarios (inicio-fin) |
+
+## Shared Hooks
+
+| Hook | Descripción |
+|------|-------------|
+| **`useNavGuard(ms = 600)`** | Previene doble navegación (double-tap) en `router.push`. En `src/shared/hooks/useNavGuard.ts`. Se usa como `const guard = useNavGuard()` y se envuelve cada navegación: `guard(() => router.push(...))`. Aplicado a todas las pantallas con push: Home, ligas (CRUD + división + jornadas + partidos), equipos, públicas (liga/equipo/jugador), mi perfil y cuenta. Ignora taps si el último fue hace menos de `ms`. |
+| **`useDebounce`** | Debounce genérico (usado en el buscador del Home) |
+
+## Form Unsaved-Changes Pattern
+
+Los forms de creación/edición (`league-form.tsx`, `division-form.tsx`, `team-form.tsx`) protegen la salida con cambios sin guardar:
+
+- Listener `navigation.addListener("beforeRemove", ...)` intercepta la navegación si `dirty` es `true` y `allowLeaveRef.current` es `false`, guarda el action en `pendingActionRef` y abre el `ConfirmationModal` "Descartar cambios".
+- Al confirmar "Salir" se hace `allowLeaveRef.current = true` y se re-despacha el action.
+- `BackHandler` duplica la protección para el botón físico de Android.
+
+**Regla crítica:** tras un guardado exitoso hay que marcar `allowLeaveRef.current = true` **antes** de `router.back()`, para que el modal de descarte NO se muestre cuando el guardado ya se completó (bug corregido: el modal aparecía tras crear/guardar correctamente).
+
+## Liga: nombre único global + manejo de 409
+
+- El nombre de liga es **único global** (no por usuario): el backend lo normaliza (`trim + lowercase`) y valida contra la tabla `ligas`; si ya existe responde `ConflictError` 409 "Ya existe una liga con ese nombre".
+- En `league-form.tsx` el 409 se detecta en el `catch` de `handleSave` (`e?.response?.status === 409`): muestra el mensaje como **error inline bajo el input "Nombre"** (borde rojo vía `Palette.danger`) además del toast, y se limpia automáticamente al editar el nombre.
+- Los assets de Cloudinary subidos en un intento fallido se abandonan (`/api/media/:id/abandon`) antes de mostrar el error.
 
 ## Zustand Stores
 
@@ -332,6 +359,68 @@ La store más compleja (~574 lines). Genera slots de horario desde la config de 
 - Tipos de slot: regular, complemento (Puntos/Sin puntos), amistoso, eliminatoria
 - Detección de conflictos
 - Persistencia para evitar perder cambios no guardados
+
+## Horario por cancha
+
+Una división define **días y horario por cada cancha** donde juega; `duracionPartido` y `descanso` siguen siendo de la división. Una cancha **sin configurar** significa que esa división no juega ahí.
+
+**La regla de resolución vive en un solo lugar:** [`features/division/utils/division-schedule.ts`](src/features/division/utils/division-schedule.ts), espejo del backend (`utils/divisionSchedule.ts`):
+
+| Caso | Resultado |
+|---|---|
+| Sin canchas (liga de cancha única) | Una entrada `undefined` con los escalares |
+| Con filas (`division.canchaHorarios`) | Una entrada por cancha configurada y activa |
+| Sin filas | Fallback legacy: todas las canchas activas heredan los escalares, acotado por `canchaUnicaId` |
+
+- `resolveCourtSchedules(division, canchas)` — el mapa completo. **Es la única función que decide dónde juega una división.**
+- `scheduleForCourt(division, canchas, canchaId)` — el horario de una cancha; cae al resumen si esa cancha no está configurada.
+- `unionOfPlayDays(division)` — los días que juega en algún lado, para las pestañas de día.
+
+⚠️ `division.diasPartido`/`horarioPartido` son el **resumen (unión)** que mantiene el backend. Nunca los uses para decidir si un partido cabe en una cancha: son un superconjunto y colocarían partidos donde el backend los rechaza.
+
+**Formulario** (`division-form.tsx`): interruptor "mismo horario en todas las canchas" (encendido por defecto, se comporta como antes y guarda los escalares). Al apagarlo aparece una tarjeta por cancha con switch "juega aquí" + días + horario, y se guardan las filas en `horariosPorCancha`. En edición, volver a "mismo horario" manda `horariosPorCancha: []` para borrar las filas.
+
+**Validar días *y* horas por cancha.** `availableTimesForDay` recibe un `diasPartido?: DiasSource` opcional y devuelve `[]` si esa cancha no juega esa fecha. Como `preferredTimeForDay`, `placementForDay` y `timeForCourt` delegan en ella, **ese único chequeo cubre los tres**. Sin el parámetro no hay restricción, así que un caller que lo olvide puede colocar un partido en un día que la cancha no juega y la jornada falla al generar con `La división no juega ese día en la cancha "X"`.
+
+**Respetar el opt-out en la UI.** Todo lo que ofrezca canchas debe acotarse a `courtSchedules` (las que la división juega), no a `canchas` (las de la liga). Si no, el partido se coloca, se ve bien y **la jornada falla al generar** con `no está configurada para jugar en la cancha "X"`. Aplica a `courtOrder` (fallback de "Cambiar día" y agregar slot), a la cancha preferida de `handleAddSlot` y a la hoja "Seleccionar cancha" (ahí las no configuradas se muestran **deshabilitadas** con `· No configurada`, no ocultas, porque un slot que ya esté en una necesita poder salir). Las pestañas de cancha de arriba **sí** listan todas: son un filtro sobre los slots existentes y ocultarlas volvería invisible un slot heredado.
+
+**`canchaUnicaId` ya no se edita desde la app.** El switch "Usar una sola cancha" se retiró: configurar una sola cancha en el formulario lo sustituye, y con filas por cancha el campo quedaba ignorado por `resolveCourtSchedules`. La columna sigue existiendo y acota el fallback legacy de las divisiones sin filas, así que `syncCanchaUnica` y la validación del backend se conservan.
+
+**Al tocar este código:**
+- Las utilidades de mover slots aceptan `HorarioSource` = `string | ((canchaId?) => string)`. Pasa la función cuando el horario sea por cancha; el string sigue funcionando y es lo que usan los tests.
+- `generateSlots` acepta un `courtSchedules` opcional: con él genera la grilla de cada cancha y ordena por `(fecha, hora, orden de cancha)`, de modo que la semana se llena en paralelo. Eso además levanta el techo de capacidad a `días × horarios × canchas`.
+- `SLOT_DISTRIBUTION_VERSION` subió a **2** y `DivisionSchedule` guarda `courtSchedulesSnapshot`; cambiar el horario de una cancha invalida la distribución guardada.
+- `useUpdateDivision` compara `horariosPorCancha` de forma canónica en la recuperación de escritura ambigua — un `===` sobre un arreglo siempre fallaría, y omitirlo reportaría como guardado algo que no lo está.
+
+## Mover y ubicar slots (reglas de cancha)
+
+**Toda decisión de "¿este horario está libre?" pasa por `isTimeOccupied` en [`shared/utils/time-occupancy.ts`](src/shared/utils/time-occupancy.ts).** Vive en `shared/` (no en `features/`) porque el store también la usa, y está tipada estructuralmente para no depender de `TimeSlotConfig`. **No dupliques esta lógica**: antes había 4 copias divergentes.
+
+Su guard clave es `if (currentCanchaId && slot.canchaId !== currentCanchaId) return false`. Cuando el slot sondeado **no tiene cancha**, el chequeo es ciego a canchas y choca contra todos los slots — esa es la propiedad que mantiene intacto el comportamiento de las ligas de una sola cancha.
+
+### Las cuatro operaciones y su orden de preferencia
+
+| Operación | Dónde | Regla |
+|---|---|---|
+| **Cambiar hora** (mismo día) | `TimePickerModal` | Permite elegir una hora ocupada y **intercambia** los dos partidos (`moveSlotToTime`) |
+| **Cambiar día** | `placementForDay` en `slot-day-move.ts` | Su cancha primero (conservando la hora si puede); si esa cancha está llena ese día, otras canchas **a la hora más temprana libre** |
+| **Cambiar cancha** | `timeForCourt` en `slot-court-move.ts` | Su propio día primero (conserva la hora, si no la más temprana); si esa cancha está llena ese día, **el primer hueco en otro día** de `candidateDates` |
+| **Agregar slot** | `addSlot` en el store | Orden **cancha → día → horario**: agota todos los días de la cancha preferida antes de mirar otra cancha |
+
+La cancha preferida al agregar es **la que el usuario está viendo** (`activeCourtFilter`), no `canchas[0]`.
+
+### Reglas al tocar este código
+
+- **Usa `activeSlots`, no `slots`.** `getActiveSlots` recorta los slots sobrantes cuando bajan los equipos habilitados; esos slots "fantasma" siguen en el store y, si los pasas como ocupación, bloquean días que se ven vacíos.
+- **Respeta las reservas del backend.** `availability.ocupaciones` son partidos de *otras divisiones* de la liga. Se inyectan como predicado (`isBlocked` / `isCourtBlocked`) para no acoplar los utils puros al feature de canchas.
+- **Una sola cancha y cancha fija (`canchaUnicaId`) no reciben fallback**: `courtOrder` llega vacío vía `showCanchaPicker`. Con cancha fija es crítico — el efecto de sincronización reescribiría cualquier `canchaId` distinto.
+- **Si el slot cambia de cancha, llama `setSelectedCourtId`**, o desaparece detrás del filtro activo y parece borrado.
+
+### `getActiveSlots(slots, equipoCount, playoffMode?, courtOrder?)`
+
+Cuando sobran slots (bajaron los equipos habilitados) recorta **el último de la última cancha**: rankea por `(índice de cancha, fecha, hora)` sobre una *copia*, y filtra el arreglo original — así **el orden de salida no cambia**, solo cuáles sobreviven. Los slots sin cancha se descartan primero; sin `courtOrder` el desempate es cronológico.
+
+⚠️ No es solo cosmético: también decide qué slots se vuelven partidos reales, vía `prepareJornadaSlots` y `useJornadaGeneration`. **Los tres llamadores deben recibir el mismo `courtOrder`**, o se ocultaría un slot y se generaría otro. Por eso `useJornadaGeneration` calcula el rango de fechas desde *todos* los slots y pide `availability` **antes** de recortar.
 
 ## Push Notifications
 
@@ -483,6 +572,9 @@ Orden: Publicar (izquierda), Reiniciar (derecha). Condicional: Publicar solo vis
 - Pantalla de ayuda con FAQ acordeón
 - Bottom sheet consistente en toda la app
 - Notificaciones push para jornada generada: usuarios registrados vía external_id + seguidores anónimos vía tag OneSignal `division_{id}=true` desde botón "Notificarme de esta división"
+- Anti double-tap de navegación (`useNavGuard`) aplicado a todas las pantallas con `router.push`
+- Modal "Descartar cambios" ya no aparece tras un guardado exitoso en los forms de liga/división/equipo
+- Error 409 (nombre de liga duplicado global) mostrado inline bajo el input "Nombre" en `league-form.tsx`
 
 ### 🔴 Critical (must fix before launch)
 1. ✅ ~~**Backend env vars vacíos**~~ — Google y Apple configurados y funcionando (Apple usa JWT con `APPLE_TEAM_ID` / `APPLE_KEY_ID` / `APPLE_PRIVATE_KEY`; ya no existe `APPLE_CLIENT_SECRET`)

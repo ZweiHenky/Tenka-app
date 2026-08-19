@@ -1,4 +1,5 @@
-import { Modal, View, Text, TouchableOpacity, ActivityIndicator, Pressable } from "react-native"
+import { Modal, View, Text, TouchableOpacity, ActivityIndicator, Pressable, TextInput } from "react-native"
+import { useState } from "react"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 
 type Variant = "danger" | "warning" | "default"
@@ -12,6 +13,7 @@ interface Props {
   cancelLabel?: string
   variant?: Variant
   loading?: boolean
+  requireText?: string
   onConfirm: () => void
   onClose: () => void
 }
@@ -44,13 +46,22 @@ export default function ConfirmationModal({
   cancelLabel = "Cancelar",
   variant = "danger",
   loading = false,
+  requireText,
   onConfirm,
   onClose,
 }: Props) {
+  const [input, setInput] = useState("")
+  const confirmed = requireText === undefined || input.trim().toLowerCase() === requireText.toLowerCase()
+
+  const handleClose = () => {
+    setInput("")
+    onClose()
+  }
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={loading ? undefined : onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={loading ? undefined : handleClose}>
       <Pressable
-        onPress={loading ? undefined : onClose}
+        onPress={loading ? undefined : handleClose}
         style={{ flex: 1, backgroundColor: Palette.overlay, justifyContent: "center", alignItems: "center", padding: Pad.xl }}
       >
         <Pressable
@@ -70,9 +81,36 @@ export default function ConfirmationModal({
             {title}
           </Text>
           {renderMessage(message, highlightText)}
+          {requireText !== undefined ? (
+            <View>
+              <TextInput
+                value={input}
+                onChangeText={setInput}
+                editable={!loading}
+                autoCapitalize="sentences"
+                autoCorrect={false}
+                placeholder={`Escribe "${requireText}" para confirmar`}
+                placeholderTextColor={Palette.textMuted}
+                style={{
+                  backgroundColor: Palette.surfaceLight,
+                  borderWidth: 1,
+                  borderColor: confirmed ? Palette.cyan : Palette.border,
+                  borderRadius: Radius.md,
+                  paddingHorizontal: Pad.base,
+                  paddingVertical: Pad.md,
+                  color: Palette.text,
+                  fontFamily: Fonts.sans,
+                  fontSize: 15,
+                }}
+              />
+              <Text style={{ fontSize: 12, fontFamily: Fonts.sans, color: Palette.textMuted, marginTop: Gap.sm, textAlign: "center" }}>
+                Escribe el texto exacto para habilitar la eliminación.
+              </Text>
+            </View>
+          ) : null}
           <View style={{ flexDirection: "row", gap: Gap.sm, marginTop: Gap.sm }}>
             <TouchableOpacity
-              onPress={onClose}
+              onPress={handleClose}
               disabled={loading}
               style={{
                 flex: 1,
@@ -88,8 +126,8 @@ export default function ConfirmationModal({
               <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 15 }}>{cancelLabel}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={onConfirm}
-              disabled={loading}
+              onPress={() => { setInput(""); onConfirm() }}
+              disabled={loading || !confirmed}
               style={{
                 flex: 1,
                 paddingVertical: Pad.md,
@@ -98,7 +136,7 @@ export default function ConfirmationModal({
                 borderWidth: 1,
                 borderColor: confirmColor[variant],
                 alignItems: "center",
-                opacity: loading ? 0.5 : 1,
+                opacity: loading || !confirmed ? 0.45 : 1,
               }}
             >
               {loading ? (

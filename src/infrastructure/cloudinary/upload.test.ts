@@ -7,11 +7,11 @@ vi.mock("axios", () => ({ default: { post: mocks.cloudinaryPost } }))
 
 const intent = {
   intentId: "intent-1",
-  publicId: "myleague/local/user/team_logo/id",
+  publicId: "tenka/local/user/team_logo/id",
   signature: "sig",
   apiKey: "key",
   cloudName: "cloud",
-  uploadParams: { public_id: "myleague/local/user/team_logo/id", timestamp: 1, allowed_formats: "jpg,jpeg,png,webp,heic" },
+  uploadParams: { public_id: "tenka/local/user/team_logo/id", timestamp: 1, allowed_formats: "jpg,jpeg,png,webp,heic" },
 }
 
 const source = { fileSize: 1024, mimeType: "image/jpeg" }

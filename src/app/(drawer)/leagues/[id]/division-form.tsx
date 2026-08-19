@@ -8,7 +8,7 @@ import { useToast } from "@/shared/components/Toast"
 import { useLeague } from "@/features/league/hooks/useLeagues"
 import { useLookups, type Lookups } from "@/features/league/hooks/useLookups"
 import { useDivision, useCreateDivision, useUpdateDivision } from "@/features/division/hooks/useDivisions"
-import type { Division } from "@/domain/interfaces/league"
+import type { CourtScheduleRow, Division, LigaCanchaRef } from "@/domain/interfaces/league"
 import { SelectField } from "@/shared/components/SelectField"
 import { TimeRangePicker } from "@/shared/components/TimeRangePicker"
 import { calculateTimeRangeCapacity, parseTimeRanges, validateTimeRange } from "@/shared/utils/time-range"
@@ -31,7 +31,19 @@ interface FormState {
   diasPartido: string
   horarioPartido: string
   usarPenalesEnEmpates: boolean
+  /** Off = cada cancha define sus propios días y horario. */
+  mismoHorarioTodasLasCanchas: boolean
+  /** Config por cancha, solo se usa cuando el interruptor está apagado. */
+  porCancha: Record<string, CourtFormEntry>
 }
+
+interface CourtFormEntry {
+  juega: boolean
+  diasPartido: string
+  horarioPartido: string
+}
+
+const EMPTY_COURT_ENTRY: CourtFormEntry = { juega: false, diasPartido: "", horarioPartido: "" }
 
 function normalizeForm(form: FormState) {
   return {
@@ -46,6 +58,8 @@ function normalizeForm(form: FormState) {
     diasPartido: form.diasPartido,
     horarioPartido: form.horarioPartido,
     usarPenalesEnEmpates: form.usarPenalesEnEmpates,
+    mismoHorarioTodasLasCanchas: form.mismoHorarioTodasLasCanchas,
+    porCancha: form.porCancha,
   }
 }
 
@@ -61,6 +75,8 @@ const EMPTY_FORM: FormState = {
   diasPartido: "",
   horarioPartido: "",
   usarPenalesEnEmpates: true,
+  mismoHorarioTodasLasCanchas: true,
+  porCancha: {},
 }
 
 function hasValidRanges(value: string): boolean {
@@ -74,9 +90,10 @@ interface FormContentProps {
   isEdit: boolean
   division: Division | null
   lookups: Lookups
+  canchas: LigaCanchaRef[]
 }
 
-function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }: FormContentProps) {
+function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups, canchas }: FormContentProps) {
   const toast = useToast()
   const createDivision = useCreateDivision(id)
   const updateDivision = useUpdateDivision(id)
@@ -95,11 +112,38 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
         diasPartido: division.diasPartido || "",
         horarioPartido: division.horarioPartido || "",
         usarPenalesEnEmpates: division.usarPenalesEnEmpates !== false,
+        // Rows present = the division was configured court by court.
+        mismoHorarioTodasLasCanchas: (division.canchaHorarios ?? []).length === 0,
+        porCancha: Object.fromEntries(canchas.map((court) => {
+          const row = (division.canchaHorarios ?? []).find((entry) => entry.canchaId === court.id)
+          return [court.id, row
+            ? { juega: true, diasPartido: row.diasPartido, horarioPartido: row.horarioPartido }
+            : { ...EMPTY_COURT_ENTRY }]
+        })),
       }
     }
-    return EMPTY_FORM
+    return {
+      ...EMPTY_FORM,
+      porCancha: Object.fromEntries(canchas.map((court) => [court.id, { ...EMPTY_COURT_ENTRY }])),
+    }
   })
+
   const [form, setForm] = useState<FormState>(initialForm)
+
+  const perCourtRows = useMemo((): CourtScheduleRow[] => Object.entries(form.porCancha)
+    .filter(([, entry]) => entry.juega)
+    .map(([canchaId, entry]) => ({ canchaId, diasPartido: entry.diasPartido, horarioPartido: entry.horarioPartido })),
+    [form.porCancha])
+
+  const setCourt = useCallback((canchaId: string, patch: Partial<CourtFormEntry>) => {
+    setForm((prev) => ({
+      ...prev,
+      porCancha: {
+        ...prev.porCancha,
+        [canchaId]: { ...(prev.porCancha[canchaId] ?? EMPTY_COURT_ENTRY), ...patch },
+      },
+    }))
+  }, [])
   const [saving, setSaving] = useState(false)
   const [showDiscard, setShowDiscard] = useState(false)
   const navigation = useNavigation()
@@ -119,20 +163,35 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
     if (!form.categoriaId) return "Selecciona una categoría"
     if (!form.tipoId) return "Selecciona un tipo"
     if (!form.tipoCompetenciaId) return "Selecciona un tipo de competencia"
-    if (!form.diasPartido) return "Selecciona al menos un día de partido"
     const dur = form.duracionPartido
     if (!dur || !Number.isFinite(Number(dur)) || Number(dur) <= 0) return "Duración del partido es obligatoria y debe ser un número positivo"
     const desc = form.descanso
     if (desc && (!Number.isFinite(Number(desc)) || Number(desc) < 0)) return "Tiempo libre debe ser un número no negativo"
-    if (!hasValidRanges(form.horarioPartido)) return "Agrega al menos un rango de horario"
 
-    const ranges = parseTimeRanges(form.horarioPartido)
-    for (let index = 0; index < ranges.length; index++) {
-      const range = ranges[index]
-      const rangeError = validateTimeRange(range.start, range.end, ranges, index)
-      if (rangeError) return rangeError
-      const capacity = calculateTimeRangeCapacity(range.start, range.end, Number(dur), Number(desc) || 0)
-      if (capacity.matchCount === 0) return `El rango ${range.start} - ${range.end} no alcanza para un partido completo`
+    // Same ruleset either way; only the source of days/hours differs.
+    const checkSchedule = (dias: string, horario: string, label: string): string | null => {
+      if (!dias) return `Selecciona al menos un día de partido${label}`
+      if (!hasValidRanges(horario)) return `Agrega al menos un rango de horario${label}`
+      const ranges = parseTimeRanges(horario)
+      for (let index = 0; index < ranges.length; index++) {
+        const range = ranges[index]
+        const rangeError = validateTimeRange(range.start, range.end, ranges, index)
+        if (rangeError) return `${rangeError}${label}`
+        const capacity = calculateTimeRangeCapacity(range.start, range.end, Number(dur), Number(desc) || 0)
+        if (capacity.matchCount === 0) return `El rango ${range.start} - ${range.end} no alcanza para un partido completo${label}`
+      }
+      return null
+    }
+
+    if (form.mismoHorarioTodasLasCanchas) {
+      return checkSchedule(form.diasPartido, form.horarioPartido, "")
+    }
+
+    if (perCourtRows.length === 0) return "Activa al menos una cancha para esta división"
+    for (const row of perCourtRows) {
+      const nombre = canchas.find((court) => court.id === row.canchaId)?.nombre ?? "la cancha"
+      const error = checkSchedule(row.diasPartido, row.horarioPartido, ` en ${nombre}`)
+      if (error) return error
     }
     return null
   }
@@ -151,8 +210,11 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
         arbitraje: Number(form.arbitraje) || 0,
         duracionPartido: form.duracionPartido ? Number(form.duracionPartido) : undefined,
         descanso: form.descanso ? Number(form.descanso) : undefined,
-        diasPartido: form.diasPartido,
-        horarioPartido: form.horarioPartido,
+        // Con horario compartido se mandan los escalares; por cancha, las filas (el backend
+        // deriva el resumen). Un arreglo vacío en edición volvería a los escalares.
+        ...(form.mismoHorarioTodasLasCanchas
+          ? { diasPartido: form.diasPartido, horarioPartido: form.horarioPartido, ...(isEdit ? { horariosPorCancha: [] } : {}) }
+          : { horariosPorCancha: perCourtRows }),
         ligaId: id,
         categoriaId: form.categoriaId,
         tipoId: form.tipoId,
@@ -314,13 +376,76 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups }:
             <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.cyan }}>Horario de partido *</Text>
           </View>
           <View style={{ padding: Pad.base, gap: Gap.md }}>
-            <DivisionDaysPicker value={form.diasPartido} onChange={(v) => setForm((p) => ({ ...p, diasPartido: v }))} />
-            <TimeRangePicker
-              value={form.horarioPartido}
-              onChange={(v) => setForm((p) => ({ ...p, horarioPartido: v }))}
-              matchDuration={Number(form.duracionPartido) || undefined}
-              breakDuration={Number(form.descanso) || 0}
-            />
+            {canchas.length > 1 ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontFamily: Fonts.medium, color: Palette.text }}>Mismo horario en todas las canchas</Text>
+                  <Text style={{ fontSize: 12, fontFamily: Fonts.sans, color: Palette.textMuted, marginTop: 2 }}>
+                    Apágalo para definir días y horario por cancha, y elegir en cuáles juega esta división
+                  </Text>
+                </View>
+                <Switch
+                  accessibilityLabel="Mismo horario en todas las canchas"
+                  value={form.mismoHorarioTodasLasCanchas}
+                  onValueChange={(value) => setForm((p) => ({ ...p, mismoHorarioTodasLasCanchas: value }))}
+                  trackColor={{ false: Palette.dark60, true: Palette.cyan }}
+                  thumbColor={Palette.white}
+                />
+              </View>
+            ) : null}
+
+            {form.mismoHorarioTodasLasCanchas || canchas.length <= 1 ? (
+              <>
+                <DivisionDaysPicker value={form.diasPartido} onChange={(v) => setForm((p) => ({ ...p, diasPartido: v }))} />
+                <TimeRangePicker
+                  value={form.horarioPartido}
+                  onChange={(v) => setForm((p) => ({ ...p, horarioPartido: v }))}
+                  matchDuration={Number(form.duracionPartido) || undefined}
+                  breakDuration={Number(form.descanso) || 0}
+                />
+              </>
+            ) : (
+              canchas.map((court) => {
+                const entry = form.porCancha[court.id] ?? EMPTY_COURT_ENTRY
+                return (
+                  <View
+                    key={court.id}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: entry.juega ? Palette.cyan : Palette.border,
+                      borderRadius: Radius.lg,
+                      padding: Pad.md,
+                      gap: Gap.md,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+                      <Text style={{ flex: 1, fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.text }}>{court.nombre}</Text>
+                      <Text style={{ fontSize: 12, fontFamily: Fonts.sans, color: Palette.textMuted }}>
+                        {entry.juega ? "Juega aquí" : "No juega aquí"}
+                      </Text>
+                      <Switch
+                        accessibilityLabel={`Juega en ${court.nombre}`}
+                        value={entry.juega}
+                        onValueChange={(value) => setCourt(court.id, { juega: value })}
+                        trackColor={{ false: Palette.dark60, true: Palette.cyan }}
+                        thumbColor={Palette.white}
+                      />
+                    </View>
+                    {entry.juega ? (
+                      <>
+                        <DivisionDaysPicker value={entry.diasPartido} onChange={(v) => setCourt(court.id, { diasPartido: v })} />
+                        <TimeRangePicker
+                          value={entry.horarioPartido}
+                          onChange={(v) => setCourt(court.id, { horarioPartido: v })}
+                          matchDuration={Number(form.duracionPartido) || undefined}
+                          breakDuration={Number(form.descanso) || 0}
+                        />
+                      </>
+                    ) : null}
+                  </View>
+                )
+              })
+            )}
           </View>
         </View>
 
@@ -371,7 +496,7 @@ export default function DivisionFormScreen() {
   const isEdit = Boolean(divisionIdParam)
   const isFocused = useIsFocused()
 
-  const { isLoading: leagueLoading, error: leagueError } = useLeague(id!, isFocused)
+  const { data: league, isLoading: leagueLoading, error: leagueError } = useLeague(id!, isFocused)
   const lookups = useLookups({ categorias: isFocused, tipos: isFocused, tiposCompetencia: isFocused })
   const { data: division, isLoading: divisionLoading, error: divisionError } = useDivision(divisionIdParam ?? "", isFocused)
 
@@ -402,6 +527,7 @@ export default function DivisionFormScreen() {
         isEdit={isEdit}
         division={division ?? null}
         lookups={lookups}
+        canchas={(league?.canchas ?? []).filter((court) => court.activa)}
       />
     </AuthGate>
   )

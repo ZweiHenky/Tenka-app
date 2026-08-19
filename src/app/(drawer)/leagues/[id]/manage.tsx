@@ -46,7 +46,7 @@ export default function ManageLeagueScreen() {
   const confirmDelete = () => {
     if (!deleteTarget) return
     const target = deleteTarget
-    deleteDivision.mutate(target.id, {
+    deleteDivision.mutate({ id: target.id, confirmName: target.nombre }, {
       onSuccess: () => {
         toast.success("División eliminada")
         setDeleteTarget(null)
@@ -146,6 +146,7 @@ export default function ManageLeagueScreen() {
         confirmLabel="Eliminar"
         variant="danger"
         loading={deleteDivision.isPending}
+        requireText={deleteTarget?.nombre}
         onConfirm={confirmDelete}
         onClose={() => setDeleteTarget(null)}
       />

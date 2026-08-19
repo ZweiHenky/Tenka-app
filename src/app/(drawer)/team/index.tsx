@@ -72,7 +72,7 @@ export default function TeamScreen() {
 
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return
-    deleteTeam.mutate(deleteTarget.id, {
+    deleteTeam.mutate({ id: deleteTarget.id, confirmName: deleteTarget.nombre }, {
       onSuccess: () => {
         toast.success("Equipo eliminado")
         setDeleteTarget(null)
@@ -271,6 +271,7 @@ export default function TeamScreen() {
           confirmLabel="Eliminar"
           variant="danger"
           loading={deleteTeam.isPending}
+          requireText={deleteTarget?.nombre}
           onConfirm={handleDeleteConfirm}
           onClose={() => setDeleteTarget(null)}
         />

@@ -15,4 +15,6 @@ export const userApi = {
     api
       .patch<ApiRes<{ id: string; showPhoneInPublicLeague: boolean }>>("/api/users/me/phone-visibility", { showPhoneInPublicLeague })
       .then((r) => r.data.data!),
+  deleteAccount: (email: string) =>
+    api.delete<ApiRes<undefined>>("/api/users/me", { data: { email } }).then((r) => r.data),
 }

@@ -51,6 +51,13 @@ export interface LigaCanchaRef {
   activa: boolean
 }
 
+/** Días y horario que una división juega en UNA cancha. Sin fila = no juega ahí. */
+export interface CourtScheduleRow {
+  canchaId: string
+  diasPartido: string
+  horarioPartido: string
+}
+
 export interface LeagueCourtInput {
   id?: string
   nombre?: string
@@ -128,6 +135,11 @@ export interface Division {
   canchaUnicaId: string | null
   registrarParticipaciones: boolean
   usarPenalesEnEmpates: boolean
+  /**
+   * Configuración real por cancha. Cuando trae filas, diasPartido/horarioPartido son solo su
+   * resumen (unión) y no deben usarse para decidir dónde cabe un partido.
+   */
+  canchaHorarios?: CourtScheduleRow[]
   liga?: { id: string; nombre: string; logo: string | null }
   categoria?: CategoriaRef
   estadoLiga?: { id: string; nombre: string }
@@ -149,6 +161,8 @@ export interface CreateDivisionInput {
   tipoId: string
   tipoCompetenciaId: string
   canchaUnicaId?: string | null
+  /** Reemplaza por completo la configuración por cancha. Arreglo vacío = volver a los escalares. */
+  horariosPorCancha?: CourtScheduleRow[]
   registrarParticipaciones?: boolean
   usarPenalesEnEmpates?: boolean
 }

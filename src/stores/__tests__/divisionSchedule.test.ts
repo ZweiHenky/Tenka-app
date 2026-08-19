@@ -4,6 +4,7 @@ import {
   computeRefDateFromJornada,
   ensureUniqueSlotIds,
   generateSlots,
+  getActiveSlots,
   migrateDivisionScheduleState,
   reconcilePlayoffSlots,
   resolveCanchaConflicts,
@@ -357,6 +358,82 @@ describe('generateSlots', () => {
     expect(monday.map((slot) => `${slot.horaInicio}-${slot.horaFin}`)).toEqual([
       '17:00-17:50', '17:50-18:40', '18:40-19:30', '19:30-20:20', '20:20-21:10',
     ])
+  })
+})
+
+describe('getActiveSlots', () => {
+  const LUN = '2026-07-20'
+  const MAR = '2026-07-21'
+  const slot = (id: string, fecha: string, horaInicio: string, canchaId?: string) => ({
+    id,
+    fecha,
+    horaInicio,
+    horaFin: horaInicio === '18:00' ? '19:00' : '20:00',
+    tipo: 'regular' as const,
+    canchaId,
+  })
+
+  it('drops the last slot of the last court', () => {
+    const slots = [
+      slot('a1', LUN, '18:00', 'c1'),
+      slot('a2', LUN, '19:00', 'c1'),
+      slot('a3', MAR, '18:00', 'c1'),
+      slot('b1', LUN, '18:00', 'c2'),
+    ]
+    // 6 teams => 3 regular slots. The c2 one goes, all of c1 survives.
+    expect(getActiveSlots(slots, 6, false, ['c1', 'c2']).map((s) => s.id)).toEqual(['a1', 'a2', 'a3'])
+  })
+
+  it('drops the latest slot within the last court', () => {
+    const slots = [
+      slot('a1', LUN, '18:00', 'c1'),
+      slot('a2', MAR, '18:00', 'c1'),
+      slot('b1', LUN, '18:00', 'c2'),
+      slot('b2', LUN, '19:00', 'c2'),
+    ]
+    expect(getActiveSlots(slots, 6, false, ['c1', 'c2']).map((s) => s.id)).toEqual(['a1', 'a2', 'b1'])
+  })
+
+  it('drops the latest slot when there are no courts', () => {
+    const slots = [slot('s1', LUN, '18:00'), slot('s2', MAR, '18:00'), slot('s3', LUN, '19:00')]
+    expect(getActiveSlots(slots, 4, false).map((s) => s.id)).toEqual(['s1', 's3'])
+  })
+
+  it('drops unassigned slots before slots on a court', () => {
+    const slots = [slot('u1', LUN, '19:00'), slot('a1', MAR, '18:00', 'c1')]
+    expect(getActiveSlots(slots, 2, false, ['c1']).map((s) => s.id)).toEqual(['a1'])
+  })
+
+  it('does not drop a recently appended slot that sits early on the first court', () => {
+    // addSlot appends at the array end but places the slot in the earliest free gap:
+    // array position must not decide what gets trimmed.
+    const slots = [
+      slot('slot-0', MAR, '19:00', 'c1'),
+      slot('slot-1', MAR, '18:00', 'c1'),
+      slot('extra-2', LUN, '18:00', 'c1'),
+    ]
+    expect(getActiveSlots(slots, 4, false, ['c1']).map((s) => s.id)).toEqual(['slot-1', 'extra-2'])
+  })
+
+  it('keeps the original array order in the output', () => {
+    const slots = [
+      slot('a3', MAR, '18:00', 'c1'),
+      slot('a1', LUN, '18:00', 'c1'),
+      slot('a2', LUN, '19:00', 'c1'),
+    ]
+    expect(getActiveSlots(slots, 6, false, ['c1']).map((s) => s.id)).toEqual(['a3', 'a1', 'a2'])
+  })
+
+  it('never trims specials or eliminatorias', () => {
+    const slots = [
+      slot('a1', LUN, '18:00', 'c1'),
+      slot('a2', LUN, '19:00', 'c1'),
+      { ...slot('comp', MAR, '18:00', 'c1'), tipo: 'complemento' as const },
+      { ...slot('amis', MAR, '19:00', 'c1'), tipo: 'amistoso' as const },
+      { ...slot('elim', MAR, '19:00', 'c2'), tipo: 'eliminatoria' as const, partidoId: 'p1' },
+    ]
+    // 4 teams => 2 needed, minus 1 eliminatoria => 1 regular survives.
+    expect(getActiveSlots(slots, 4, false, ['c1', 'c2']).map((s) => s.id)).toEqual(['a1', 'comp', 'amis', 'elim'])
   })
 })
 
@@ -715,6 +792,104 @@ describe('useDivisionScheduleStore', () => {
         horaInicio: '18:00',
         horaFin: '19:00',
         canchaId: 'court-1',
+      })
+    })
+
+    // Court-aware placement: stay on the preferred court and the same day as long as possible.
+    describe('with multiple courts', () => {
+      const twoCourts = { courtOrder: ['c1', 'c2'] }
+      const seed = (divisionId: string, dias: string, occupied: { fecha: string; horaInicio: string; canchaId: string }[]) => {
+        const store = useDivisionScheduleStore
+        store.getState().initSchedule(divisionId, dias, '18:00 - 20:00', 60, 0, '2026-07-20', 1)
+        store.getState().replaceSlots(divisionId, occupied.map((entry, index) => ({
+          id: `seed-${index}`,
+          fecha: entry.fecha,
+          horaInicio: entry.horaInicio,
+          horaFin: entry.horaInicio === '18:00' ? '19:00' : '20:00',
+          tipo: 'amistoso' as const,
+          canchaId: entry.canchaId,
+        })))
+        return store
+      }
+
+      it('uses a later time on the same court before another court', () => {
+        const store = seed('div-court-a', 'L', [{ fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' }])
+        expect(store.getState().addSlot('div-court-a', 'amistoso', 'c1', twoCourts)).toMatchObject({
+          fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1',
+        })
+      })
+
+      it('advances to the next day on its own court before trying another court', () => {
+        const store = seed('div-court-day', 'L,M', [
+          { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' },
+          { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
+        ])
+        // c2 is wide open on Monday, but the preferred court wins: Tuesday on c1.
+        expect(store.getState().addSlot('div-court-day', 'amistoso', 'c1', twoCourts)).toMatchObject({
+          fecha: '2026-07-21', horaInicio: '18:00', canchaId: 'c1',
+        })
+      })
+
+      it('falls back to another court once its own court is full every day', () => {
+        const store = seed('div-court-b', 'L', [
+          { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' },
+          { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
+        ])
+        expect(store.getState().addSlot('div-court-b', 'amistoso', 'c1', twoCourts)).toMatchObject({
+          fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c2',
+        })
+      })
+
+      it('uses the next day on its own court when both courts are busy on day one', () => {
+        const store = seed('div-court-c', 'L,M', [
+          { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' },
+          { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
+          { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c2' },
+          { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c2' },
+        ])
+        expect(store.getState().addSlot('div-court-c', 'amistoso', 'c1', twoCourts)).toMatchObject({
+          fecha: '2026-07-21', horaInicio: '18:00', canchaId: 'c1',
+        })
+      })
+
+      it('returns null when every court is full on every day', () => {
+        const store = seed('div-court-d', 'L', [
+          { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' },
+          { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
+          { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c2' },
+          { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c2' },
+        ])
+        expect(store.getState().addSlot('div-court-d', 'amistoso', 'c1', twoCourts)).toBeNull()
+      })
+
+      it('never lands on a court missing from courtOrder', () => {
+        // c2 is active in the league but the division is not configured to play there, so the
+        // caller leaves it out of courtOrder; the slot must stay on c1 even when c1 is busy.
+        const store = seed('div-court-optout', 'L,M', [
+          { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' },
+          { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
+        ])
+
+        const slot = store.getState().addSlot('div-court-optout', 'amistoso', 'c1', { courtOrder: ['c1'] })
+
+        expect(slot).toMatchObject({ fecha: '2026-07-21', canchaId: 'c1' })
+      })
+
+      it('keeps the single-probe behavior when no courtOrder is given', () => {
+        const store = seed('div-court-e', 'L', [
+          { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' },
+          { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
+        ])
+        expect(store.getState().addSlot('div-court-e', 'amistoso', 'c1')).toBeNull()
+      })
+
+      it('skips a court the league already booked elsewhere', () => {
+        const store = seed('div-court-f', 'L', [{ fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' }])
+        const slot = store.getState().addSlot('div-court-f', 'amistoso', 'c1', {
+          courtOrder: ['c1', 'c2'],
+          isCourtBlocked: (canchaId, _fecha, horaInicio) => canchaId === 'c1' && horaInicio === '19:00',
+        })
+        expect(slot).toMatchObject({ fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c2' })
       })
     })
 

@@ -99,5 +99,6 @@ export const leagueApi = {
   update: (id: string, data: Partial<CreateLeagueInput>) =>
     api.patch<ApiRes<League>>(`/api/ligas/${id}`, data).then((r) => r.data.data!),
 
-  delete: (id: string) => api.delete(`/api/ligas/${id}`),
+  delete: (id: string, confirmName?: string) =>
+    api.delete(`/api/ligas/${id}`, confirmName ? { data: { confirmName } } : undefined),
 }

@@ -1,6 +1,5 @@
-import { useState } from "react"
+
 import { ActivityIndicator, Switch, Text, TouchableOpacity, View } from "react-native"
-import type { LigaCanchaRef } from "@/domain/interfaces/league"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
@@ -14,12 +13,6 @@ interface Props {
   tieneEliminatorias: boolean
   hasRondas: boolean
   isPending: boolean
-  multiplesCanchas: boolean
-  canchas: LigaCanchaRef[]
-  canchaUnicaId: string | null
-  canchaUnicaPending: boolean
-  onSelectCanchaUnica: (canchaId: string) => void
-  onClearCanchaUnica: () => void
   registrarParticipaciones: boolean
   registrarParticipacionesPending: boolean
   onToggleRegistrarParticipaciones: (value: boolean) => void
@@ -40,12 +33,6 @@ export default function DivisionActionSheet({
   tieneEliminatorias,
   hasRondas,
   isPending,
-  multiplesCanchas,
-  canchas,
-  canchaUnicaId,
-  canchaUnicaPending,
-  onSelectCanchaUnica,
-  onClearCanchaUnica,
   registrarParticipaciones,
   registrarParticipacionesPending,
   onToggleRegistrarParticipaciones,
@@ -56,10 +43,9 @@ export default function DivisionActionSheet({
   onReset,
   dataLoading,
 }: Props) {
-  const [selectingCourt, setSelectingCourt] = useState(false)
 
   return (
-    <AppBottomSheetModal visible={visible} onClose={() => { setSelectingCourt(false); onClose() }} title="Opciones de división" snapPoints={["80%"]} scrollable>
+    <AppBottomSheetModal visible={visible} onClose={onClose} title="Opciones de división" snapPoints={["80%"]} scrollable>
       <View style={{ gap: Gap.md }}>
         {dataLoading ? <ActivityIndicator color={Palette.cyan} /> : null}
         <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, paddingBottom: Pad.sm, borderBottomWidth: 1, borderBottomColor: Palette.border }}>
@@ -68,57 +54,6 @@ export default function DivisionActionSheet({
             <Text style={{ fontSize: 12, fontFamily: Fonts.semiBold, color: isBorrador ? Palette.warning : Palette.cyan }}>{estadoNombre}</Text>
           </View>
         </View>
-
-        {multiplesCanchas ? (
-          <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.base, borderWidth: 1, borderColor: Palette.border, gap: Gap.md }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
-              <View style={{ width: 40, height: 40, borderRadius: Radius.md, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-                <MaterialIcons name="stadium" size={22} color={Palette.cyan} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold }}>Usar una sola cancha</Text>
-                <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.sans, marginTop: 2 }}>Mantiene todas las jornadas nuevas en una cancha fija</Text>
-              </View>
-              {canchaUnicaPending ? <ActivityIndicator color={Palette.cyan} /> : (
-                <Switch
-                  value={!!canchaUnicaId}
-                  onValueChange={(enabled) => {
-                    if (enabled) setSelectingCourt(true)
-                    else onClearCanchaUnica()
-                  }}
-                  disabled={canchaUnicaPending}
-                  trackColor={{ false: Palette.dark60, true: Palette.cyan }}
-                  thumbColor={Palette.white}
-                />
-              )}
-            </View>
-
-            {!canchaUnicaId && selectingCourt ? (
-              <Text style={{ color: Palette.textMuted, fontSize: 12, fontFamily: Fonts.sans }}>Selecciona una cancha para activar la restricción.</Text>
-            ) : null}
-
-            {canchaUnicaId || selectingCourt ? <View style={{ gap: Gap.sm }}>
-              {canchas.filter((cancha) => cancha.activa || cancha.id === canchaUnicaId).map((cancha) => {
-                const selected = cancha.id === canchaUnicaId
-                return (
-                  <TouchableOpacity
-                    key={cancha.id}
-                    activeOpacity={0.7}
-                    disabled={!cancha.activa || canchaUnicaPending}
-                    onPress={() => { setSelectingCourt(false); onSelectCanchaUnica(cancha.id) }}
-                    style={{ flexDirection: "row", alignItems: "center", padding: Pad.md, borderRadius: Radius.md, borderWidth: 1, borderColor: selected ? Palette.cyan : Palette.border, opacity: cancha.activa ? 1 : 0.6 }}
-                  >
-                    <Text style={{ flex: 1, color: cancha.activa ? Palette.text : Palette.danger, fontSize: 13, fontFamily: Fonts.semiBold }}>{cancha.nombre}{cancha.activa ? "" : " · Inactiva"}</Text>
-                    {selected ? <MaterialIcons name="check-circle" size={20} color={cancha.activa ? Palette.cyan : Palette.danger} /> : null}
-                  </TouchableOpacity>
-                )
-              })}
-            </View> : null}
-            {canchaUnicaId && !canchas.some((cancha) => cancha.id === canchaUnicaId && cancha.activa) ? (
-              <Text style={{ color: Palette.danger, fontSize: 12, fontFamily: Fonts.sans }}>La cancha fija ya no está activa. Selecciona otra antes de generar una jornada.</Text>
-            ) : null}
-          </View>
-        ) : null}
 
         <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.base, borderWidth: 1, borderColor: Palette.border, gap: Gap.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>

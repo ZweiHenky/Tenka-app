@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { divisionApi } from "@/features/division/api/divisions"
-import type { CreateDivisionInput, Division } from "@/domain/interfaces/league"
+import type { CourtScheduleRow, CreateDivisionInput, Division } from "@/domain/interfaces/league"
 import type { InfiniteData } from "@tanstack/react-query"
 import type { JornadaPage, JornadaResponse } from "@/features/jornada/api/jornadas"
 import { emptyJornadasInfinite } from "@/features/jornada/jornadaCache"
@@ -67,7 +67,16 @@ export function useUpdateDivision(ligaId: string) {
         ]
         const matches = fields.every((field) => data[field] === undefined || division[field as keyof Division] === data[field])
         const dateMatches = data.fechaInicio === undefined || division.fechaInicio?.startsWith(data.fechaInicio) === true
-        return matches && dateMatches ? committed(division) : notCommitted()
+        // Array field: the scalar === above would always say "different", and leaving it out
+        // would wrongly report a per-court save as committed when only that field changed.
+        const canonical = (rows: CourtScheduleRow[] | undefined) => JSON.stringify(
+          [...(rows ?? [])]
+            .map((row) => ({ canchaId: row.canchaId, diasPartido: row.diasPartido, horarioPartido: row.horarioPartido }))
+            .sort((a, b) => a.canchaId.localeCompare(b.canchaId)),
+        )
+        const courtsMatch = data.horariosPorCancha === undefined
+          || canonical(data.horariosPorCancha) === canonical(division.canchaHorarios)
+        return matches && dateMatches && courtsMatch ? committed(division) : notCommitted()
       },
     ),
     onSuccess: (result, { id }) => {
@@ -81,7 +90,7 @@ export function useUpdateDivision(ligaId: string) {
 export function useDeleteDivision(ligaId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => divisionApi.delete(id),
+    mutationFn: ({ id, confirmName }: { id: string; confirmName?: string }) => divisionApi.delete(id, confirmName),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["divisions", ligaId] })
       qc.invalidateQueries({ queryKey: ["leagues", ligaId] })

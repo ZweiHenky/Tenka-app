@@ -1,14 +1,23 @@
-import type { TimeSlotConfig } from "@/stores/divisionSchedule"
+import { timeToMinutes } from "./time-range"
 
-function timeToMinutes(time: string): number {
-  const [hours, minutes] = time.split(":").map(Number)
-  return hours * 60 + (minutes || 0)
+/** Structural shape of a schedule slot — keeps this util free of store/feature imports. */
+export interface OccupiableSlot {
+  id: string
+  fecha: string
+  horaInicio: string
+  horaFin: string
+  canchaId?: string
 }
 
+/**
+ * Whether `time` collides with an existing slot on `fecha`.
+ * When `currentCanchaId` is undefined the probe is court-blind and every slot blocks,
+ * which is what keeps single-court divisions behaving as before.
+ */
 export function isTimeOccupied(
   time: { horaInicio: string; horaFin: string },
   currentSlotId: string,
-  slots: TimeSlotConfig[],
+  slots: OccupiableSlot[],
   fecha: string,
   currentCanchaId?: string,
 ): boolean {

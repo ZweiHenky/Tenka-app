@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { TimeSlotConfig } from "@/stores/divisionSchedule"
-import { isTimeOccupied } from "@/features/division/utils/time-occupancy"
+import { isTimeOccupied } from "@/shared/utils/time-occupancy"
 
 const time = { horaInicio: "14:00", horaFin: "15:00" }
 

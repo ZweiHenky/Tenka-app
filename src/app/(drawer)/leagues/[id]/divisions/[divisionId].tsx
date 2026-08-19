@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useCallback } from "react"
 import { View, Text } from "react-native"
 import type { TourStep } from "@wrack/react-native-tour-guide"
+import type { League } from "@/domain/interfaces/league"
 import { useIsFocused, useLocalSearchParams, router } from "expo-router"
 import { Palette, Pad, Gap, Fonts, Radius } from "@/constants/theme"
 import { useDivisionEquipos, useRemoveTeam } from "@/features/division-equipo/hooks/useDivisionEquipo"
@@ -63,7 +64,7 @@ export default function DivisionDetailScreen() {
     categorias: isFocused && infoSheetOpen,
     tipos: isFocused && infoSheetOpen,
   })
-  const { data: league, isLoading: leagueOptionsLoading } = useLeague(ligaId!, isFocused && actionSheetOpen)
+  const { isLoading: leagueOptionsLoading } = useLeague(ligaId!, isFocused && actionSheetOpen)
   const { data: links = [], isLoading: linksLoading, error: linksError, refetch: refetchLinks } = useDivisionEquipos(divisionId!)
   const removeTeam = useRemoveTeam()
   const { data: jornadas = [], isLoading: jornadasLoading, error: jornadasError, refetch: refetchJornadas } = useJornadas(divisionId!, isFocused && (tab === "jornadas" || tab === "programacion"))
@@ -122,7 +123,7 @@ export default function DivisionDetailScreen() {
     mutationFn: (nuevoEstadoId: string) => divisionApi.update(divisionId!, { estadoLigaId: nuevoEstadoId }),
     onSuccess: (updated) => {
       qc.setQueryData(["division", divisionId], updated)
-      qc.setQueryData(["leagues", ligaId], (current: typeof league) => current ? {
+      qc.setQueryData(["leagues", ligaId], (current: League | undefined) => current ? {
         ...current,
         divisiones: current.divisiones?.map((item) => item.id === updated.id ? { ...item, ...updated } : item),
       } : current)
@@ -256,15 +257,6 @@ export default function DivisionDetailScreen() {
     setShowResetConfirm(true)
   }, [])
 
-  const handleCanchaUnica = useCallback((canchaUnicaId: string | null) => {
-    updateDivision.mutate(
-      { id: divisionId!, data: { canchaUnicaId } },
-      {
-        onSuccess: () => toast.success(canchaUnicaId ? "Cancha fija actualizada" : "Cancha fija desactivada"),
-        onError: (error: Error) => toast.error(error.message),
-      },
-    )
-  }, [divisionId, toast, updateDivision])
 
   const handleToggleRegistrarParticipaciones = useCallback((value: boolean) => {
     updateDivision.mutate(
@@ -554,12 +546,6 @@ export default function DivisionDetailScreen() {
         tieneEliminatorias={tieneEliminatorias}
         hasRondas={rondas.length > 0}
         isPending={cambioEstadoMutation.isPending || leagueOptionsLoading || rondasLoading}
-        multiplesCanchas={league?.multiplesCanchas === true}
-        canchas={league?.canchas ?? []}
-        canchaUnicaId={division.canchaUnicaId}
-        canchaUnicaPending={updateDivision.isPending || leagueOptionsLoading}
-        onSelectCanchaUnica={(canchaId) => handleCanchaUnica(canchaId)}
-        onClearCanchaUnica={() => handleCanchaUnica(null)}
         registrarParticipaciones={division.registrarParticipaciones ?? false}
         registrarParticipacionesPending={updateDivision.isPending}
         onToggleRegistrarParticipaciones={handleToggleRegistrarParticipaciones}

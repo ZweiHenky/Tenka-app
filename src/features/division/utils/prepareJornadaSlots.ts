@@ -6,9 +6,10 @@ export function prepareJornadaSlots(
   slots: TimeSlotConfig[],
   habilitados: string[],
   playoffMode: boolean,
+  courtOrder: string[] = [],
 ): SlotInput[] {
   const habSet = new Set(habilitados)
-  const activeSlots = getActiveSlots(slots, habilitados.length, playoffMode)
+  const activeSlots = getActiveSlots(slots, habilitados.length, playoffMode, courtOrder)
 
   const eliminatoriaTeamIds = new Set<string>()
   for (const slot of slots) {

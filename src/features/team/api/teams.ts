@@ -23,5 +23,6 @@ export const teamApi = {
     api.post<ApiRes<EquipoResponse>>("/api/equipos", data).then((r) => r.data.data!),
   update: (id: string, data: { nombre?: string; logoAssetId?: string | null }) =>
     api.patch<ApiRes<EquipoResponse>>(`/api/equipos/${id}`, data).then((r) => r.data.data!),
-  delete: (id: string) => api.delete(`/api/equipos/${id}`),
+  delete: (id: string, confirmName?: string) =>
+    api.delete(`/api/equipos/${id}`, confirmName ? { data: { confirmName } } : undefined),
 }

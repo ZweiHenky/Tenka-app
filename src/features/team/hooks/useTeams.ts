@@ -72,8 +72,8 @@ export function useUpdateTeam(userId: string) {
 export function useDeleteTeam(userId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => teamApi.delete(id),
-    onSuccess: (_data, id) => {
+    mutationFn: ({ id, confirmName }: { id: string; confirmName?: string }) => teamApi.delete(id, confirmName),
+    onSuccess: (_data, { id }) => {
       qc.removeQueries({ queryKey: ["teams", id], exact: true })
       qc.setQueryData<EquipoResponse[]>(["teams", "user", userId], (current) => current?.filter((entry) => entry.id !== id))
     },

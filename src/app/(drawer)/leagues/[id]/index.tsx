@@ -193,7 +193,7 @@ export default function LeagueDetailScreen() {
   const confirmDelete = () => {
     if (!deleteTarget) return
     const target = deleteTarget
-    deleteDivision.mutate(target.id, {
+    deleteDivision.mutate({ id: target.id, confirmName: target.nombre }, {
       onSuccess: () => {
         toast.success("División eliminada")
         setDeleteTarget(null)
@@ -409,11 +409,12 @@ export default function LeagueDetailScreen() {
       <ConfirmationModal
         visible={deleteTarget !== null}
         title="Eliminar división"
-        message={`¿Estas seguro de eliminar la division: ${deleteTarget?.nombre}"?`}
+        message={`¿Seguro que quieres eliminar la división "${deleteTarget?.nombre}"?`}
         highlightText={deleteTarget?.nombre}
         confirmLabel="Eliminar"
         variant="danger"
         loading={deleteDivision.isPending}
+        requireText={deleteTarget?.nombre}
         onConfirm={confirmDelete}
         onClose={() => setDeleteTarget(null)}
       />
