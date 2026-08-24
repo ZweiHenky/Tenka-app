@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { removeDeletedQuery } from "@/shared/utils/query-cache"
 import { jornadaApi, type JornadaPage, type JornadaResponse, type SlotInput } from "@/features/jornada/api/jornadas"
 import { useDivisionScheduleStore } from "@/stores/divisionSchedule"
 import type { InfiniteData } from "@tanstack/react-query"
@@ -6,12 +7,6 @@ import type { RondaPlayoff } from "@/features/ronda-playoff/api/rondasPlayoff"
 import { insertGeneratedJornada, insertGeneratedJornadaInInfinite, removeJornadaFromInfinite } from "@/features/jornada/jornadaCache"
 
 const KEY = "jornadas"
-
-function removeDeletedQuery(qc: ReturnType<typeof useQueryClient>, queryKey: readonly unknown[]) {
-  const query = qc.getQueryCache().find({ queryKey, exact: true })
-  if (query?.isActive()) qc.invalidateQueries({ queryKey, exact: true })
-  else qc.removeQueries({ queryKey, exact: true })
-}
 
 function refetchMissingQueries(qc: ReturnType<typeof useQueryClient>, queryKeys: readonly (readonly unknown[])[]) {
   for (const queryKey of queryKeys) {
@@ -59,6 +54,12 @@ export function useGenerateNextJornada() {
             : partido),
         })))
         qc.invalidateQueries({ queryKey: ["rondas-playoff", divisionId], exact: true })
+        // La pantalla del partido lee `["partido", id]`, y con `staleTime` de 5 minutos volver a
+        // entrar servía el partido todavía sin fecha: seguía pidiendo generar la jornada recién
+        // generada. Van dirigidas, que son justo los que acaban de recibir horario.
+        for (const partidoId of generatedPlayoffIds) {
+          qc.invalidateQueries({ queryKey: ["partido", partidoId], exact: true })
+        }
       }
       if (leagueId) qc.invalidateQueries({ queryKey: ["court-availability", leagueId] })
       if (leagueId) qc.invalidateQueries({ queryKey: ["referee-candidates", leagueId], exact: true })
@@ -69,8 +70,8 @@ export function useGenerateNextJornada() {
 export function useDeleteJornada() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, divisionId }: { id: string; divisionId: string; leagueId?: string }) => jornadaApi.delete(id),
-    onSuccess: async (_, { id, divisionId, leagueId }) => {
+    mutationFn: ({ id, divisionId }: { id: string; divisionId: string; leagueId?: string; faseLiga?: boolean }) => jornadaApi.delete(id),
+    onSuccess: async (_, { id, divisionId, leagueId, faseLiga }) => {
       await Promise.all([
         qc.cancelQueries({ queryKey: [KEY, divisionId], exact: true }),
         qc.cancelQueries({ queryKey: ["jornadas-infinitas", divisionId], exact: true }),
@@ -106,7 +107,7 @@ export function useDeleteJornada() {
       const remaining = finiteRemaining?.[0] ?? infiniteRemaining?.pages.flatMap((page) => page.rows)[0]
       if (remaining || finite?.length === 1 || infinite?.pages[0]?.total === 1) {
         qc.setQueryData(["last-jornada", divisionId], remaining ?? null)
-        useDivisionScheduleStore.getState().syncSchedule(divisionId, remaining?.fechaInicio)
+        useDivisionScheduleStore.getState().syncSchedule(divisionId, remaining?.fechaInicio, { faseLiga })
       } else {
         qc.invalidateQueries({ queryKey: ["last-jornada", divisionId], exact: true })
       }

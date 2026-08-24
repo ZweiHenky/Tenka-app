@@ -1,5 +1,5 @@
 import type { RondaPlayoff } from "@/features/ronda-playoff/api/rondasPlayoff"
-import type { PlayoffSlotCandidate } from "@/stores/divisionSchedule"
+import { buildSlotCandidates, type CourtScheduleConfig, type PlayoffSlotCandidate } from "@/stores/divisionSchedule"
 import { formatTimeInTimeZone, toDateKeyInTimeZone } from "@/shared/utils/date-time"
 
 export function isSchedulablePlayoffMatch(match: { estado: string | null; jornadaId: string | null }): boolean {
@@ -42,4 +42,48 @@ export function inheritedPlayoffCandidates(
         canchaId: partido.canchaId ?? undefined,
       }
     })
+}
+
+/** Semanas hacia adelante que se ofrecen para colocar un partido del cuadro (~2 meses). */
+const SEMANAS_DE_HORIZONTE = 9
+
+/**
+ * Huecos donde puede caer un partido del cuadro, en orden cronológico y **con la cancha que los
+ * ofrece**.
+ *
+ * Reusa `buildSlotCandidates`, la misma grilla que usan la generación de slots, el relleno de
+ * `initSchedule` y `addSlot`: cada cancha aporta sus propios días y su propio rango. Antes esto
+ * se armaba con el resumen (la unión) de todas las canchas y sin `canchaId`, así que un partido
+ * podía quedar en una hora que su cancha no juega.
+ *
+ * `buildSlotCandidates` cubre una semana, así que se la llama para varias y se concatena; cada
+ * semana ya sale ordenada por (fecha, hora, cancha), y las semanas van en orden.
+ */
+export function bracketCandidates(
+  courtSchedules: Map<string, CourtScheduleConfig> | undefined,
+  diasPartido: string,
+  horarioPartido: string,
+  duracion: number,
+  descanso: number,
+  refDate: string,
+  courtIds: string[] = [],
+): PlayoffSlotCandidate[] {
+  const primerLunes = localDate(refDate)
+  const dia = primerLunes.getDay()
+  primerLunes.setDate(primerLunes.getDate() + (dia === 0 ? -6 : 1 - dia))
+
+  const candidatos: PlayoffSlotCandidate[] = []
+  for (let semana = 0; semana < SEMANAS_DE_HORIZONTE; semana += 1) {
+    const lunes = new Date(primerLunes)
+    lunes.setDate(lunes.getDate() + semana * 7)
+    for (const candidato of buildSlotCandidates(courtSchedules, diasPartido, horarioPartido, duracion, descanso, lunes, courtIds)) {
+      candidatos.push({
+        fecha: candidato.fecha,
+        horaInicio: candidato.horaInicio,
+        horaFin: candidato.horaFin,
+        canchaId: candidato.canchaId,
+      })
+    }
+  }
+  return candidatos
 }

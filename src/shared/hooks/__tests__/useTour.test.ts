@@ -61,7 +61,28 @@ describe("useTour", () => {
     expect(mocks.startTour).toHaveBeenCalledOnce()
     expect(mocks.startTour.mock.calls[0][1]).toMatchObject({
       tourId: "test-tour",
-      insets: { top: 10, bottom: 20 },
+    })
+  })
+
+  /**
+   * Android es edge-to-edge: `measureInWindow` ya devuelve coordenadas de pantalla
+   * completa. La librería asume lo contrario y le suma `insets.top` a cada medición, lo
+   * que dejaba el spotlight una barra de estado más abajo que el elemento. El offset se
+   * calcula solo con `insets` y el recorte del tooltip con `insets + extraInsets`, así
+   * que el área segura real viaja en el segundo.
+   *
+   * Devolver el valor a `insets` reintroduce el desplazamiento, y no lo atrapa ni `tsc`
+   * ni el lint: ambas formas compilan.
+   */
+  it("manda el área segura como extraInsets, no como insets", async () => {
+    renderHook(() => useTour(baseOptions))
+
+    await act(async () => { await Promise.resolve() })
+    act(() => { vi.advanceTimersByTime(600) })
+
+    expect(mocks.startTour.mock.calls[0][1]).toMatchObject({
+      insets: { top: 0, bottom: 0 },
+      extraInsets: { top: 10, bottom: 20 },
     })
   })
 

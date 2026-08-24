@@ -1,7 +1,8 @@
 import { useState } from "react"
-import { View, Text, TouchableOpacity, ScrollView } from "react-native"
+import { View, Text, TouchableOpacity } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
+import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
 import AppBottomSheetModal from "./AppBottomSheetModal"
 
 interface Props {
@@ -54,12 +55,14 @@ export function DatePicker({ value, onChange }: Props) {
         <MaterialIcons name="edit" size={18} color={Palette.textSecondary} />
       </TouchableOpacity>
 
-      <AppBottomSheetModal visible={open} onClose={() => setOpen(false)} title="Seleccionar fecha" snapPoints={["55%"]}>
+      {/* scrollable={false}: las tres columnas llevan su propio scroll y anidarlas dentro del
+          BottomSheetScrollView de la hoja haría que se peleen el gesto. */}
+      <AppBottomSheetModal visible={open} onClose={() => setOpen(false)} title="Seleccionar fecha" snapPoints={["55%"]} scrollable={false}>
 
             <View style={{ flexDirection: "row", gap: Gap.sm }}>
               <View style={{ flex: 1, gap: Gap.sm }}>
                 <Text style={{ fontSize: 13, fontWeight: "600", color: Palette.textSecondary, textAlign: "center" }}>Día</Text>
-                <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                <BottomSheetScrollView style={{ maxHeight: 180 }}>
                   {DAYS.map((d) => (
                     <TouchableOpacity
                       key={d}
@@ -69,12 +72,12 @@ export function DatePicker({ value, onChange }: Props) {
                       <Text style={{ fontSize: 14, fontWeight: "600", color: tempDay === d ? Palette.black : Palette.text, textAlign: "center" }}>{d}</Text>
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
+                </BottomSheetScrollView>
               </View>
 
               <View style={{ flex: 1, gap: Gap.sm }}>
                 <Text style={{ fontSize: 13, fontWeight: "600", color: Palette.textSecondary, textAlign: "center" }}>Mes</Text>
-                <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                <BottomSheetScrollView style={{ maxHeight: 180 }}>
                   {MONTHS.map((m, i) => (
                     <TouchableOpacity
                       key={m}
@@ -84,12 +87,12 @@ export function DatePicker({ value, onChange }: Props) {
                       <Text style={{ fontSize: 14, fontWeight: "600", color: tempMonth === i ? Palette.black : Palette.text, textAlign: "center" }}>{m}</Text>
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
+                </BottomSheetScrollView>
               </View>
 
               <View style={{ flex: 1, gap: Gap.sm }}>
                 <Text style={{ fontSize: 13, fontWeight: "600", color: Palette.textSecondary, textAlign: "center" }}>Año</Text>
-                <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                <BottomSheetScrollView style={{ maxHeight: 180 }}>
                   {YEARS.map((y) => (
                     <TouchableOpacity
                       key={y}
@@ -99,7 +102,7 @@ export function DatePicker({ value, onChange }: Props) {
                       <Text style={{ fontSize: 14, fontWeight: "600", color: tempYear === y ? Palette.black : Palette.text, textAlign: "center" }}>{y}</Text>
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
+                </BottomSheetScrollView>
               </View>
             </View>
 

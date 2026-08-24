@@ -1,7 +1,8 @@
 import { useState } from "react"
-import { FlatList, Image, Text, TouchableOpacity, View } from "react-native"
+import { Image, Text, TouchableOpacity, View } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Fonts, Gap, Pad, Palette, Radius } from "@/constants/theme"
+import { BottomSheetFlatList } from "@gorhom/bottom-sheet"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { isParticipant, toggleParticipacion, type ParticipacionInput, type ScoreSide, type ScorerCandidate } from "../scoring"
 
@@ -16,6 +17,13 @@ interface Props {
   readOnly?: boolean
   expanded: boolean
   onToggle: () => void
+  /**
+   * Partidos de liga por jugador y el mínimo que la división exige para alinear en eliminatorias.
+   * Se pasan **solo en partidos del cuadro**: sirven para ver quién no llega antes de intentar
+   * guardar, en vez de descubrirlo con el error del servidor.
+   */
+  partidosPorJugador?: Record<string, number>
+  minimoEliminatoria?: number
 }
 
 export default function ParticipacionEditor(props: Props) {
@@ -23,6 +31,10 @@ export default function ParticipacionEditor(props: Props) {
   const readOnly = props.readOnly ?? false
   const blocked = props.disabled ?? false
   const total = props.participaciones.length
+  const minimo = props.minimoEliminatoria ?? 0
+  /** `null` cuando la división no exige mínimo: ahí no hay nada que marcar. */
+  const partidosDe = (jugadorId: string): number | null =>
+    minimo > 0 ? (props.partidosPorJugador?.[jugadorId] ?? 0) : null
 
   const toggle = (side: ScoreSide, playerId: string) => {
     props.onChange(toggleParticipacion(props.participaciones, side, playerId))
@@ -52,6 +64,11 @@ export default function ParticipacionEditor(props: Props) {
                 {player?.foto ? <Image source={{ uri: player.foto }} style={{ width: 30, height: 30 }} /> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><MaterialIcons name="person" size={18} color={Palette.textMuted} /></View>}
               </View>
               <Text numberOfLines={1} style={{ flex: 1, color: Palette.text, fontFamily: Fonts.medium, fontSize: 12 }}>{player?.dorsal != null ? `#${player.dorsal} ` : ""}{player?.nombre ?? "Jugador"}</Text>
+              {(() => {
+                const jugados = partidosDe(row.jugadorId)
+                if (jugados == null || jugados >= minimo) return null
+                return <Text style={{ color: Palette.danger, fontFamily: Fonts.semiBold, fontSize: 11 }}>{jugados}/{minimo}</Text>
+              })()}
               {!readOnly ? (
                 <TouchableOpacity accessibilityLabel={`Quitar participación a ${player?.nombre ?? "jugador"}`} disabled={props.disabled} onPress={() => toggle(side, row.jugadorId)} style={{ width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: Radius.md, backgroundColor: Palette.surface }}><MaterialIcons name="remove" size={18} color={Palette.textSecondary} /></TouchableOpacity>
               ) : null}
@@ -90,11 +107,14 @@ export default function ParticipacionEditor(props: Props) {
         </View>
       ) : null}
       <AppBottomSheetModal visible={pickerSide !== null && props.expanded && !blocked && !readOnly} onClose={() => setPickerSide(null)} title="Seleccionar participante" snapPoints={["60%"]} scrollable={false} stackBehavior="push">
-        <FlatList
+        {/* BottomSheetFlatList, no FlatList: dentro de una hoja de @gorhom/bottom-sheet el gesto
+            de scroll se lo queda la hoja y la lista no se desplaza. */}
+        <BottomSheetFlatList
+          style={{ flex: 1 }}
           data={pickerPlayers.filter((player) => !isParticipant(props.participaciones, pickerSide!, player.id))}
           keyExtractor={(item) => item.id}
           ListEmptyComponent={<Text style={{ color: Palette.textMuted, textAlign: "center", padding: Pad.lg }}>No hay más jugadores disponibles.</Text>}
-          renderItem={({ item }) => <TouchableOpacity disabled={blocked || readOnly} onPress={() => { if (pickerSide && !blocked && !readOnly) { toggle(pickerSide, item.id); setPickerSide(null) } }} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, padding: Pad.md, borderBottomWidth: 1, borderBottomColor: Palette.border, opacity: blocked || readOnly ? 0.4 : 1 }}><View style={{ width: 38, height: 38, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight }}>{item.foto ? <Image source={{ uri: item.foto }} style={{ width: 38, height: 38 }} /> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><MaterialIcons name="person" size={21} color={Palette.textMuted} /></View>}</View><Text style={{ flex: 1, color: Palette.text, fontFamily: Fonts.medium }}>{item.dorsal != null ? `#${item.dorsal} ` : ""}{item.nombre}</Text><MaterialIcons name="add-circle-outline" size={21} color={Palette.cyan} /></TouchableOpacity>}
+          renderItem={({ item }) => <TouchableOpacity disabled={blocked || readOnly} onPress={() => { if (pickerSide && !blocked && !readOnly) { toggle(pickerSide, item.id); setPickerSide(null) } }} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, padding: Pad.md, borderBottomWidth: 1, borderBottomColor: Palette.border, opacity: blocked || readOnly ? 0.4 : 1 }}><View style={{ width: 38, height: 38, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight }}>{item.foto ? <Image source={{ uri: item.foto }} style={{ width: 38, height: 38 }} /> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><MaterialIcons name="person" size={21} color={Palette.textMuted} /></View>}</View><View style={{ flex: 1 }}><Text style={{ color: Palette.text, fontFamily: Fonts.medium }}>{item.dorsal != null ? `#${item.dorsal} ` : ""}{item.nombre}</Text>{(() => { const jugados = partidosDe(item.id); if (jugados == null) return null; const alcanza = jugados >= minimo; return <Text style={{ color: alcanza ? Palette.textMuted : Palette.danger, fontFamily: Fonts.sans, fontSize: 11, marginTop: 2 }}>{alcanza ? `${jugados} partidos` : `Solo ${jugados} de ${minimo} partidos`}</Text> })()}</View><MaterialIcons name="add-circle-outline" size={21} color={Palette.cyan} /></TouchableOpacity>}
         />
       </AppBottomSheetModal>
     </View>

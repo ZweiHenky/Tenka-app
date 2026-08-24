@@ -1,5 +1,6 @@
 import { api } from "@/infrastructure/api/client"
 import type { PartidoResponse } from "@/features/partido/api/partidos"
+import type { BracketPair, Siembra } from "@/features/division/utils/playoff"
 
 interface ApiRes<T> {
   success: boolean
@@ -40,7 +41,7 @@ export const rondaPlayoffApi = {
   listByDivision,
   create: (data: { nombre: string; orden: number; divisionId: string }) =>
     api.post<ApiRes<RondaPlayoff>>("/api/rondas-playoff", data).then((r) => r.data.data!),
-  generate: async (data: { divisionId: string; cantidadEquipos: number }) => {
+  generate: async (data: { divisionId: string; cantidadEquipos: number; siembra?: Siembra; llaves?: BracketPair[] }) => {
     let networkError: unknown
     try {
       await api.post<ApiRes<RondaPlayoff[]>>("/api/rondas-playoff/generate", data)

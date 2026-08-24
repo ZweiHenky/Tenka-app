@@ -11,9 +11,9 @@ import EmptyState from "@/shared/components/EmptyState"
 import LogoImage from "@/shared/components/LogoImage"
 import { TabBar } from "@/shared/components/TabBar"
 import { useLocalSearchParams, useRouter, useIsFocused } from "expo-router"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
-import { MaterialIcons } from "@expo/vector-icons"
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
+import { FontAwesome6, MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { useLeague } from "@/features/league/hooks/useLeagues"
 import { useDivisionEquipos } from "@/features/division-equipo/hooks/useDivisionEquipo"
@@ -22,6 +22,9 @@ import { useTablaPosiciones } from "@/features/tabla-posicion/hooks/useTablaPosi
 import StandingsTable from "@/features/tabla-posicion/components/StandingsTable"
 import CustomHeader from "@/shared/components/CustomHeader"
 import { useRondasPlayoff } from "@/features/ronda-playoff/hooks/useRondasPlayoff"
+import { useDivisionCampeon, useHistorialCampeones } from "@/features/division-campeon/hooks/useDivisionCampeon"
+import HistorialCampeonesList from "@/features/division-campeon/components/HistorialCampeonesList"
+import CampeonBanner from "@/features/division-campeon/components/CampeonBanner"
 import BracketView from "@/features/ronda-playoff/components/BracketView"
 import type { JornadaResponse } from "@/features/jornada/api/jornadas"
 import { useLigaFavoritaStore } from "@/stores/ligaFavoritaStore"
@@ -38,6 +41,12 @@ import { getPlayoffRoundMatchCounts } from "@/features/division/utils/playoff"
 import { useGoleadores } from "@/features/goleador/hooks/useGoleadores"
 import GoleadoresTable from "@/features/goleador/components/GoleadoresTable"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { parseTimeRanges } from "@/shared/utils/time-range"
+import { formatDiasCortos } from "@/features/division/utils/divisionDays"
+import CourtSchedulePicker from "@/features/division/components/CourtSchedulePicker"
+import { capabilitiesFor, formatFromCodigo, hayPartidosDeEliminatoria, publicDivisionTabs, type PublicDivisionTab } from "@/features/division/utils/competition-format"
+import { courtScheduleLines, selectedCourtSchedule } from "@/features/division/utils/court-schedule-selection"
+import { divisionLabel } from "@/features/division/utils/division-label"
 
 function toLocalDateDisplay(dateStr: string): string {
   const [y, m, d] = dateStr.split("T")[0].split("-").map(Number)
@@ -56,19 +65,6 @@ function fmtFechaConDia(f: string): string {
   const meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
   const dias = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
   return `${d} ${meses[m - 1]} - ${dias[new Date(y, m - 1, d).getDay()]}`
-}
-
-const DIA_ABREV: Record<string, string> = {
-  Lunes: "L", Martes: "M", Miércoles: "M",
-  Jueves: "J", Viernes: "V", Sábado: "S", Domingo: "D",
-}
-
-function abreviarDias(dias: string): string {
-  const partes = dias.split(/[,\s]+y\s+|[,\s]+|\s+y\s+/).filter(Boolean)
-  const iniciales = partes.map((p) => DIA_ABREV[p.trim()] ?? p.trim())
-  if (iniciales.length <= 1) return iniciales.join("")
-  if (iniciales.length === 2) return `${iniciales[0]} y ${iniciales[1]}`
-  return `${iniciales.slice(0, -1).join(", ")} y ${iniciales[iniciales.length - 1]}`
 }
 
 function estadoColor(nombre?: string): string {
@@ -91,7 +87,7 @@ export default function PublicLeagueScreen() {
   const { id, divisionId: initialDiv, tab: initialTab } = useLocalSearchParams<{
     id: string
     divisionId?: string
-    tab?: "info" | "posiciones" | "horario" | "goleo"
+    tab?: PublicDivisionTab
   }>()
   const router = useRouter()
   const toggleFav = useLigaFavoritaStore((s) => s.toggle)
@@ -116,11 +112,17 @@ export default function PublicLeagueScreen() {
 
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(initialDiv ?? null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [selectedCancha, setSelectedCancha] = useState<string | null>(null)
   const [rulesOpen, setRulesOpen] = useState(false)
-  const [tab, setTab] = useState<"info" | "posiciones" | "horario" | "goleo">(
-    initialTab === "posiciones" || initialTab === "horario" || initialTab === "goleo" || initialTab === "info"
-      ? initialTab
-      : "info"
+  const TAB_LABELS: Record<PublicDivisionTab, string> = {
+    info: "Info",
+    posiciones: "Posiciones",
+    eliminatoria: "Eliminatoria",
+    horario: "Horario",
+    goleo: "Goleo",
+  }
+  const [tab, setTab] = useState<PublicDivisionTab>(
+    initialTab && initialTab in TAB_LABELS ? initialTab : "info"
   )
 
   const rangePickerRef = useRef<BottomSheetModal>(null)
@@ -153,15 +155,10 @@ export default function PublicLeagueScreen() {
     ? subscriptions.some((x) => x.divisionId === currentDivision.id)
     : false
 
-  const ranges = currentDivision?.horarioPartido
-    ? currentDivision.horarioPartido.split(" / ").map((r) => {
-        const p = r.split(" - ").map((s) => s.trim())
-        if (p.length === 2) return { start: p[0], end: p[1] }
-        const p2 = r.split("-").map((s) => s.trim())
-        if (p2.length === 2) return { start: p2[0], end: p2[1] }
-        return null
-      }).filter(Boolean) as { start: string; end: string }[]
-    : []
+  // Los escalares de la división son la **unión** de sus canchas; el selector permite bajar a una.
+  const porCancha = courtScheduleLines(currentDivision?.canchaHorarios, league?.canchas)
+  const horario = selectedCourtSchedule(porCancha, currentDivision ?? { diasPartido: null, horarioPartido: null }, selectedCancha)
+  const ranges = parseTimeRanges(horario.horarioPartido ?? "")
 
   const renderRangeBackdrop = useCallback((props: any) => (
     <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.5} />
@@ -176,30 +173,40 @@ export default function PublicLeagueScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const currentDivisionId = currentDivision?.id
 
+  // No está atada a su pestaña: es lo que decide si esa pestaña existe.
+  const { data: rondas = [] } = useRondasPlayoff(currentDivisionId ?? null, isFocused)
+  const { data: campeon = null } = useDivisionCampeon(currentDivisionId, isFocused)
+  // Sin atar a la pestaña: junto con las rondas es lo que decide si la pestaña existe.
+  const { data: historialCampeones = [] } = useHistorialCampeones(currentDivisionId, isFocused)
+  const capabilities = capabilitiesFor(formatFromCodigo(currentDivision?.tipoCompetencia?.codigo))
+  // `!== false` a propósito: una respuesta vieja sin el campo no debe apagar la pestaña.
+  const tabKeys = publicDivisionTabs(capabilities.faseLiga, hayPartidosDeEliminatoria(rondas), currentDivision?.registrarGoleo !== false, historialCampeones.length > 0)
+  // Un enlace a ?tab=posiciones sobre un cuadro puro dejaría la pantalla en blanco.
+  const activeTab: PublicDivisionTab = tabKeys.includes(tab) ? tab : "info"
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["leagues", id] }),
-        currentDivisionId && tab === "info" ? qc.invalidateQueries({ queryKey: ["division-equipos", currentDivisionId] }) : Promise.resolve(),
-        currentDivisionId && tab === "posiciones" ? qc.invalidateQueries({ queryKey: ["tabla-posiciones", currentDivisionId] }) : Promise.resolve(),
-        currentDivisionId && tab === "posiciones" ? qc.invalidateQueries({ queryKey: ["rondas-playoff", currentDivisionId] }) : Promise.resolve(),
-        currentDivisionId && tab === "horario" ? qc.resetQueries({ queryKey: ["jornadas-infinitas", currentDivisionId], exact: true }) : Promise.resolve(),
-        currentDivisionId && tab === "goleo" ? qc.invalidateQueries({ queryKey: ["goleadores", currentDivisionId] }) : Promise.resolve(),
+        currentDivisionId && activeTab === "info" ? qc.invalidateQueries({ queryKey: ["division-equipos", currentDivisionId] }) : Promise.resolve(),
+        currentDivisionId && activeTab === "posiciones" ? qc.invalidateQueries({ queryKey: ["tabla-posiciones", currentDivisionId] }) : Promise.resolve(),
+        currentDivisionId ? qc.invalidateQueries({ queryKey: ["rondas-playoff", currentDivisionId] }) : Promise.resolve(),
+        currentDivisionId && activeTab === "horario" ? qc.resetQueries({ queryKey: ["jornadas-infinitas", currentDivisionId], exact: true }) : Promise.resolve(),
+        currentDivisionId && activeTab === "goleo" ? qc.invalidateQueries({ queryKey: ["goleadores", currentDivisionId] }) : Promise.resolve(),
       ])
     } finally {
       setRefreshing(false)
     }
-  }, [qc, id, currentDivisionId, tab])
+  }, [qc, id, currentDivisionId, activeTab])
 
-  const { data: links = [] } = useDivisionEquipos(currentDivision?.id ?? "", isFocused && tab === "info")
+  const { data: links = [] } = useDivisionEquipos(currentDivision?.id ?? "", isFocused && activeTab === "info")
   const teamCount = links.length
 
-  const { data: standings = [], isLoading: standingsLoading } = useTablaPosiciones(currentDivision?.id ?? null, isFocused && tab === "posiciones")
-  const goleadores = useGoleadores(currentDivision?.id, isFocused && tab === "goleo")
-  const { data, isLoading: jornadasLoading, fetchNextPage, error: jornadasError, refetch: refetchJornadas } = useJornadasInfinitas(currentDivision?.id ?? null, isFocused && tab === "horario")
+  const { data: standings = [], isLoading: standingsLoading } = useTablaPosiciones(currentDivision?.id ?? null, isFocused && activeTab === "posiciones")
+  const goleadores = useGoleadores(currentDivision?.id, isFocused && activeTab === "goleo")
+  const { data, isLoading: jornadasLoading, fetchNextPage, error: jornadasError, refetch: refetchJornadas } = useJornadasInfinitas(currentDivision?.id ?? null, isFocused && activeTab === "horario")
 
-  const { data: rondas = [] } = useRondasPlayoff(currentDivision?.id ?? null, isFocused && tab === "posiciones")
 
   const jornadas = useMemo(() => data?.pages.flatMap((p) => p.rows) ?? [], [data])
   const totalJornadas = data?.pages[0]?.total ?? 0
@@ -268,6 +275,12 @@ export default function PublicLeagueScreen() {
       })
     })
   }, [currentDivisionId, router, guard])
+
+  const goToPlayer = useCallback((jugadorId: string) => {
+    guard(() => {
+      router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: jugadorId } })
+    })
+  }, [router, guard])
 
   const rondaMap = useMemo(() => {
     const map: Record<string, string> = {}
@@ -455,9 +468,34 @@ export default function PublicLeagueScreen() {
 
   const divisionInfoContent = currentDivision ? (
     <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.md }}>
-      <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.sans }}>{currentDivision.categoria.nombre} · {currentDivision.tipo.nombre}</Text>
-
+      {/* La categoría no se pierde: sigue en el desplegable de divisiones, arriba. */}
       <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+        {currentDivision.tipo ? (
+          <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+              <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                <MaterialIcons name="sports-soccer" size={14} color={Palette.cyan} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Tipo</Text>
+                <Text numberOfLines={1} style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{currentDivision.tipo.nombre}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+        {currentDivision.tipoCompetencia ? (
+          <View style={{ width: "50%", paddingVertical: Pad.sm, paddingLeft: Pad.sm }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+              <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                <MaterialIcons name="emoji-events" size={14} color={Palette.cyan} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Competencia</Text>
+                <Text numberOfLines={1} style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{currentDivision.tipoCompetencia.nombre}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
         <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
             <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
@@ -480,6 +518,11 @@ export default function PublicLeagueScreen() {
             </View>
           </View>
         </View>
+      </View>
+
+      <CourtSchedulePicker lines={porCancha} selectedId={selectedCancha} onSelect={setSelectedCancha} />
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
         <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
             <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
@@ -487,7 +530,7 @@ export default function PublicLeagueScreen() {
             </View>
             <View>
               <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Días</Text>
-              <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{currentDivision.diasPartido ? abreviarDias(currentDivision.diasPartido) : "-"}</Text>
+              <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{horario.diasPartido ? formatDiasCortos(horario.diasPartido) : "-"}</Text>
             </View>
           </View>
         </View>
@@ -503,7 +546,7 @@ export default function PublicLeagueScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
-                <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }} numberOfLines={1}>{currentDivision.horarioPartido ?? "-"}</Text>
+                <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }} numberOfLines={1}>{horario.horarioPartido ?? "-"}</Text>
               </View>
               <MaterialIcons name="info-outline" size={18} color={Palette.textMuted} />
             </TouchableOpacity>
@@ -514,7 +557,7 @@ export default function PublicLeagueScreen() {
               </View>
               <View>
                 <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
-                <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{currentDivision.horarioPartido ?? "-"}</Text>
+                <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{horario.horarioPartido ?? "-"}</Text>
               </View>
             </View>
           )}
@@ -546,7 +589,7 @@ export default function PublicLeagueScreen() {
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
         />
         <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, padding: Pad.base, justifyContent: "flex-end" }}>
-          {currentDivision ? (
+          {currentDivision?.estadoLiga ? (
             <View style={{ position: "absolute", top: 12, left: 0 }}>
               <View style={{ backgroundColor: estadoColor(currentDivision.estadoLiga.nombre), paddingHorizontal: 14, paddingVertical: 5, borderTopRightRadius: 6, borderBottomRightRadius: 6, elevation: 4, shadowColor: "#000", shadowOffset: { width: 1, height: 1 }, shadowOpacity: 0.3, shadowRadius: 2 }}>
                 <Text style={{ fontSize: 11, fontFamily: Fonts.semiBold, color: Palette.black }}>{currentDivision.estadoLiga.nombre}</Text>
@@ -582,7 +625,7 @@ export default function PublicLeagueScreen() {
             onPress={() => setPickerOpen((prev) => !prev)}
             style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.borderActive, paddingHorizontal: Pad.base, paddingVertical: Pad.md }}
           >
-            <Text numberOfLines={1} style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.medium, flex: 1 }}>{currentDivision ? `${currentDivision.nombre} · ${currentDivision.categoria.nombre}` : "Seleccionar"}</Text>
+            <Text numberOfLines={1} style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.medium, flex: 1 }}>{currentDivision ? divisionLabel(currentDivision) : "Seleccionar"}</Text>
             <MaterialIcons name={pickerOpen ? "expand-less" : "expand-more"} size={22} color={Palette.cyan} />
           </TouchableOpacity>
 
@@ -592,10 +635,10 @@ export default function PublicLeagueScreen() {
                 <TouchableOpacity
                   key={d.id}
                   activeOpacity={0.7}
-                  onPress={() => { setSelectedDivisionId(d.id); setPickerOpen(false) }}
+                  onPress={() => { setSelectedDivisionId(d.id); setSelectedCancha(null); setPickerOpen(false) }}
                   style={{ paddingHorizontal: Pad.base, paddingVertical: Pad.lg, backgroundColor: currentDivision?.id === d.id ? Palette.cyan10 : "transparent" }}
                 >
-                  <Text numberOfLines={1} style={{ color: currentDivision?.id === d.id ? Palette.cyan : Palette.text, fontSize: 14, fontFamily: currentDivision?.id === d.id ? Fonts.semiBold : Fonts.medium }}>{d.nombre} · {d.categoria.nombre}</Text>
+                  <Text numberOfLines={1} style={{ color: currentDivision?.id === d.id ? Palette.cyan : Palette.text, fontSize: 14, fontFamily: currentDivision?.id === d.id ? Fonts.semiBold : Fonts.medium }}>{divisionLabel(d)}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -693,14 +736,9 @@ export default function PublicLeagueScreen() {
 
         <View ref={tabBarRef} collapsable={false} onLayout={() => setTabBarReady(true)}>
           <TabBar
-            tabs={[
-              { key: "info", label: "Info" },
-              { key: "posiciones", label: "Posiciones" },
-              { key: "horario", label: "Horario" },
-              { key: "goleo", label: "Goleo" },
-            ]}
-            activeTab={tab}
-            onTabChange={(k) => setTab(k as "info" | "posiciones" | "horario" | "goleo")}
+            tabs={tabKeys.map((key) => ({ key, label: TAB_LABELS[key] }))}
+            activeTab={activeTab}
+            onTabChange={(k) => setTab(k as PublicDivisionTab)}
             stretch
           />
         </View>
@@ -739,14 +777,41 @@ export default function PublicLeagueScreen() {
     </View>
   )
 
+  const socialLinks = [
+    ...(league?.facebook ? [{ key: "facebook", label: "Facebook", icon: "facebook-f", color: "#1877F2", url: league.facebook }] : []),
+    ...(league?.x ? [{ key: "x", label: "X", icon: "x-twitter", color: Palette.text, url: league.x }] : []),
+    ...(league?.instagram ? [{ key: "instagram", label: "Instagram", icon: "instagram", color: "#E1306C", url: league.instagram }] : []),
+    ...(league?.tiktok ? [{ key: "tiktok", label: "TikTok", icon: "tiktok", color: Palette.text, url: league.tiktok }] : []),
+  ]
+
+  const socialContent = socialLinks.length > 0 ? (
+    <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.md }}>
+      <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.display }}>Redes sociales</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+        {socialLinks.map((social) => (
+          <TouchableOpacity
+            key={social.key}
+            accessibilityRole="link"
+            accessibilityLabel={`Abrir ${social.label}`}
+            activeOpacity={0.7}
+            onPress={() => Linking.openURL(social.url)}
+            style={{ width: 44, height: 44, borderRadius: Radius.full, backgroundColor: Palette.surfaceLight, borderWidth: 1, borderColor: Palette.border, alignItems: "center", justifyContent: "center" }}
+          >
+            <FontAwesome6 name={social.icon} size={20} color={social.color} />
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  ) : null
+
   useEffect(() => {
     if (tourStartedRef.current) return
     if (!isFocused || !league || !currentDivision || !followReady || !tabBarReady) return
     if (!heroStarRef.current || !divisionRef.current || !followRef.current || !tabBarRef.current) return
 
     const initTour = async () => {
-      const seen = await AsyncStorage.getItem("@tour_guide:public-league-v1")
-      if (seen === "completed") {
+      const seen = await tourYaCompletado("public-league-v1")
+      if (seen) {
         tourStartedRef.current = true
         return
       }
@@ -781,41 +846,23 @@ export default function PublicLeagueScreen() {
             id: "league-tabs",
             targetRef: tabBarRef,
             title: "Consulta la competencia",
-            description: "Alterna entre la tabla de posiciones y los partidos programados.",
+            description: "Alterna entre las distintas vistas de la división.",
             spotlightPadding: 8,
             tooltipPosition: "top",
           },
         ],
-        {
+        tourConfig({
           tourId: "public-league-v1",
-          insets: { top: insets.top, bottom: insets.bottom },
-          nextButtonText: "Siguiente",
-          prevButtonText: "Atrás",
-          skipButtonText: "Saltar",
-          doneButtonText: "Entendido",
-          onTourEnd: () => { AsyncStorage.setItem("@tour_guide:public-league-v1", "completed") },
-          tooltipStyles: {
-            backgroundColor: Palette.surface,
-            titleColor: Palette.text,
-            descriptionColor: Palette.textSecondary,
-            buttonTextColor: Palette.black,
-            primaryButtonColor: Palette.cyan,
-            skipButtonColor: Palette.textMuted,
-            borderRadius: Radius.lg,
-          },
-          spotlightStyles: {
-            overlayColor: Palette.black,
-            overlayOpacity: 0.7,
-          },
+          insets,
           scrollRef: scrollViewRef,
           getCurrentScrollOffset: () => scrollOffsetRef.current,
-        }
+        })
       )
       tourStartedRef.current = true
     }
 
     initTour()
-  }, [isFocused, league, currentDivision, followReady, tabBarReady, startTour, insets.top, insets.bottom])
+  }, [isFocused, league, currentDivision, followReady, tabBarReady, startTour, insets])
 
   if (isLoading) {
     return (
@@ -849,7 +896,7 @@ export default function PublicLeagueScreen() {
       <PullToRefresh scrollRef={scrollViewRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
         <View style={{ paddingBottom: 48 }}>
           {headerContent}
-          {tab === "info" ? (
+          {activeTab === "info" ? (
             <View style={{ paddingHorizontal: Pad.base, gap: Gap.md }}>
               {direccionContent}
               {divisionInfoContent}
@@ -894,22 +941,29 @@ export default function PublicLeagueScreen() {
                   ) : null}
                 </TouchableOpacity>
               ) : null}
+              {socialContent}
               {contactContent}
             </View>
           ) : null}
-          {tab === "posiciones" ? (
-            <View style={{ gap: Gap.md }}>
-              {standingsLoading ? (
-                <ActivityIndicator size="large" color={Palette.cyan} />
-              ) : (
-                <View style={{ width: "95%", alignSelf: "center", backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
-                  <StandingsTable rows={standings} isLoading={false} onTeamPress={goToTeam} />
-                </View>
-              )}
-              {bracketRounds.length > 0 ? <BracketView rounds={bracketRounds} /> : null}
+          {activeTab === "posiciones" ? (
+            standingsLoading ? (
+              <ActivityIndicator size="large" color={Palette.cyan} />
+            ) : (
+              <View style={{ width: "95%", alignSelf: "center", backgroundColor: Palette.surface, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
+                <StandingsTable rows={standings} isLoading={false} onTeamPress={goToTeam} />
+              </View>
+            )
+          ) : null}
+          {activeTab === "eliminatoria" ? (
+            <View style={{ gap: Gap.lg }}>
+              {campeon ? <View style={{ marginHorizontal: Pad.base }}><CampeonBanner campeon={campeon} /></View> : null}
+              {historialCampeones.length > 0 ? (
+                <View style={{ marginHorizontal: Pad.base }}><HistorialCampeonesList titulos={historialCampeones} /></View>
+              ) : null}
+              <BracketView rounds={bracketRounds} />
             </View>
           ) : null}
-          {tab === "horario" ? (
+          {activeTab === "horario" ? (
             <View style={{ gap: Gap.md }}>
               {jornadasLoading ? (
                 <ActivityIndicator size="large" color={Palette.cyan} />
@@ -965,7 +1019,7 @@ export default function PublicLeagueScreen() {
               )}
             </View>
           ) : null}
-          {tab === "goleo" ? <View style={{ marginHorizontal: Pad.base }}><GoleadoresTable data={goleadores.data} isLoading={goleadores.isLoading} error={goleadores.error} /></View> : null}
+          {activeTab === "goleo" ? <View style={{ marginHorizontal: Pad.base }}><GoleadoresTable data={goleadores.data} isLoading={goleadores.isLoading} error={goleadores.error} onPlayerPress={goToPlayer} /></View> : null}
         </View>
       </PullToRefresh>
       <BottomSheetModal

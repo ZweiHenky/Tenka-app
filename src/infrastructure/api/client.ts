@@ -61,33 +61,48 @@ async function logTransportError(error: any) {
   console.warn("[API transport]", diagnostic)
 }
 
-export const api = create({
-  baseURL: env.API_URL,
-  headers: { "Content-Type": "application/json" },
-})
+function createClient({ withSession }: { withSession: boolean }) {
+  const instance = create({
+    baseURL: env.API_URL,
+    headers: { "Content-Type": "application/json" },
+  })
 
-api.interceptors.request.use((config) => {
-  const id = requestId()
-  config.transportMetadata = { requestId: id, startedAt: Date.now() }
-  config.headers.set("X-Request-ID", id)
-  if (typeof navigator !== "undefined" && navigator.product === "ReactNative") {
-    config.headers.set("Accept-Encoding", "identity")
-    config.withCredentials = false
-  }
-  const cookies = authClient.getCookie()
-  if (cookies) {
-    config.headers.Cookie = cookies
-  }
-  return config
-})
+  instance.interceptors.request.use((config) => {
+    const id = requestId()
+    config.transportMetadata = { requestId: id, startedAt: Date.now() }
+    config.headers.set("X-Request-ID", id)
+    if (typeof navigator !== "undefined" && navigator.product === "ReactNative") {
+      config.headers.set("Accept-Encoding", "identity")
+      config.withCredentials = false
+    }
+    if (withSession) {
+      const cookies = authClient.getCookie()
+      if (cookies) {
+        config.headers.Cookie = cookies
+      }
+    }
+    return config
+  })
 
-api.interceptors.response.use(
-  (res) => res,
-  async (error) => {
-    enrichRateLimitError(error, error.response?.status, error.response?.headers)
-    const message = error.response?.data?.error || error.response?.data?.message
-    if (message && error.response?.status !== 429) error.message = message
-    if (!error.response) await logTransportError(error)
-    return Promise.reject(error)
-  },
-)
+  instance.interceptors.response.use(
+    (res) => res,
+    async (error) => {
+      enrichRateLimitError(error, error.response?.status, error.response?.headers)
+      const message = error.response?.data?.error || error.response?.data?.message
+      if (message && error.response?.status !== 429) error.message = message
+      if (!error.response) await logTransportError(error)
+      return Promise.reject(error)
+    },
+  )
+
+  return instance
+}
+
+export const api = createClient({ withSession: true })
+
+/**
+ * Para endpoints que se autentican con su propio token y deben ser anónimos, como el acceso
+ * de árbitro. Manda la cookie de sesión ahí haría que la petición lleve dos identidades a la
+ * vez, y el partido podría quedar atribuido a quien tenga la sesión abierta en el teléfono.
+ */
+export const anonymousApi = createClient({ withSession: false })

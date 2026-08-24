@@ -15,7 +15,6 @@ const canchas: LigaCanchaRef[] = [
 const base: DivisionScheduleSource = {
   diasPartido: "lun, jue",
   horarioPartido: "18:00 - 20:00",
-  canchaUnicaId: null,
   canchaHorarios: [],
 }
 
@@ -64,11 +63,6 @@ describe("resolveCourtSchedules", () => {
   it("sin filas replica los escalares en todas las canchas activas", () => {
     const resolved = resolveCourtSchedules(base, canchas)
     expect([...resolved.keys()].sort()).toEqual(["c1", "c2"])
-  })
-
-  it("acota el fallback legacy a canchaUnicaId", () => {
-    const resolved = resolveCourtSchedules({ ...base, canchaUnicaId: "c2" }, canchas)
-    expect([...resolved.keys()]).toEqual(["c2"])
   })
 })
 

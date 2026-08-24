@@ -1,7 +1,8 @@
 import { useState } from "react"
-import { FlatList, Image, Text, TouchableOpacity, View } from "react-native"
+import { Image, Text, TouchableOpacity, View } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Fonts, Gap, Pad, Palette, Radius } from "@/constants/theme"
+import { BottomSheetFlatList } from "@gorhom/bottom-sheet"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { assignedGoals, canSetAllocation, filterScorerCandidatesByParticipants, type ParticipacionInput, type ScoreSide, type ScorerAllocation, type ScorerCandidate } from "../scoring"
 
@@ -98,7 +99,10 @@ export default function ScorerAllocationEditor(props: Props) {
         </View>
       ) : null}
       <AppBottomSheetModal visible={pickerSide !== null && props.expanded} onClose={() => setPickerSide(null)} title="Seleccionar goleador" snapPoints={["60%"]} scrollable={false} stackBehavior="push">
-        <FlatList
+        {/* BottomSheetFlatList, no FlatList: dentro de una hoja de @gorhom/bottom-sheet el gesto
+            de scroll se lo queda la hoja y la lista no se desplaza. */}
+        <BottomSheetFlatList
+          style={{ flex: 1 }}
           data={pickerPlayers.filter((player) => !selectedIds.has(player.id))}
           keyExtractor={(item) => item.id}
           ListEmptyComponent={<Text style={{ color: Palette.textMuted, textAlign: "center", padding: Pad.lg }}>{limitToParticipantes ? "Registra participantes antes de seleccionar goleadores." : "No hay más jugadores disponibles."}</Text>}

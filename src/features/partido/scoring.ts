@@ -83,6 +83,20 @@ export function allocationsFromAnnotations(annotations: PartidoAnotacion[] = [])
     .map(({ ladoMarcador, jugadorId, cantidad }) => ({ ladoMarcador, jugadorId, cantidad }))
 }
 
+/**
+ * ¿El partido tiene goleadores **con nombre** capturados?
+ *
+ * No sirve `anotaciones.length > 0`: el servidor escribe filas sin dueño (`jugadorId` nulo) para que
+ * la suma de anotaciones cuadre con el marcador, **también cuando el goleo está apagado**. Contarlas
+ * hacía aparecer el editor de goleadores en cada partido guardado con el interruptor en off.
+ *
+ * Es la pregunta que decide si se aplica la regla de "congelar, no esconder": el editor se sigue
+ * mostrando deshabilitado solo si hay algo capturado que quedaría invisible e incorregible.
+ */
+export function hayGoleadoresCapturados(anotaciones: PartidoAnotacion[] = []): boolean {
+  return allocationsFromAnnotations(anotaciones).length > 0
+}
+
 export function participacionesFromResponse(participaciones: PartidoParticipacion[] = []): ParticipacionInput[] {
   return participaciones
     .filter((item): item is PartidoParticipacion & { jugadorId: string } => !!item.jugadorId)

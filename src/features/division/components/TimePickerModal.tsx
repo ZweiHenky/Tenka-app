@@ -1,4 +1,4 @@
-import { Text, ScrollView, TouchableOpacity } from "react-native"
+import { Text, TouchableOpacity, View } from "react-native"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
 import type { TimeSlotConfig } from "@/stores/divisionSchedule"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
@@ -42,7 +42,8 @@ export default function TimePickerModal({
 
   return (
     <AppBottomSheetModal visible={visible} onClose={onClose} title="Elegir horario" snapPoints={["70%"]}>
-          <ScrollView>
+          {/* Sin ScrollView propio: la hoja ya trae el suyo y anidarlos rompe el gesto. */}
+          <View>
             {options.map((opt) => {
               const taken = isTimeOccupied(opt, currentSlotId, slots, fecha, currentCanchaId)
               return (
@@ -78,7 +79,7 @@ export default function TimePickerModal({
                 Cancelar
               </Text>
             </TouchableOpacity>
-          </ScrollView>
+          </View>
     </AppBottomSheetModal>
   )
 }

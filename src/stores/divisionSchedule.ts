@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { parseDiasPartido } from "@/shared/utils/parse-dias-partido"
 import { generateTimeSlots, isTimeSlotWithinRanges } from "@/shared/utils/time-range"
-import { isTimeOccupied } from "@/shared/utils/time-occupancy"
+import { isTimeOccupied, type OccupiableSlot } from "@/shared/utils/time-occupancy"
 
 export const SLOT_DISTRIBUTION_VERSION = 2
 
@@ -20,6 +20,29 @@ export interface TimeSlotConfig {
   rondaNombre?: string
   llave?: number
   prePlayoffTipo?: 'regular' | 'complemento'
+}
+
+/**
+ * Por qué no se pudo colocar un slot. Sin esto la pantalla traducía cualquier fallo a un único
+ * "no hay horarios disponibles", que es engañoso: la causa más común son las reservas de **otras**
+ * divisiones, que en Programación no se ven.
+ */
+export type AddSlotFailure = 'SIN_CONFIGURACION' | 'SEMANA_LLENA' | 'CANCHAS_OCUPADAS' | 'NO_PERMITIDO'
+
+export interface AddSlotResult {
+  slot: TimeSlotConfig | null
+  reason: AddSlotFailure | null
+}
+
+/**
+ * Mover la programación a la semana de la última jornada solo tiene sentido cuando es una
+ * **plantilla semanal**, o sea una liga. Un cuadro de eliminatorias son fechas concretas: mapear
+ * cada slot a su día de la semana amontonaría dos partidos de sábados distintos en la misma fecha
+ * y hora, y la app después rechaza ese solape.
+ */
+export interface WeeklySyncOptions {
+  /** Por omisión `true`: un llamador que no la pase conserva el comportamiento de siempre. */
+  faseLiga?: boolean
 }
 
 export interface PlantillaSlot {
@@ -41,7 +64,6 @@ export interface DivisionSchedule {
   descansoSnapshot?: number
   descansoEquipoId?: string
   playoffMode?: boolean
-  canchaUnicaIdSnapshot?: string | null
   courtSchedulesSnapshot?: string
   slotDistributionVersion?: number
 }
@@ -50,7 +72,7 @@ interface DivisionScheduleState {
   schedules: Record<string, DivisionSchedule>
   habilitados: Record<string, string[]>
   programacionGuardada: Record<string, boolean>
-  initSchedule: (divisionId: string, diasPartido: string, horarioPartido: string, duracionPartido: number, descanso: number, refDate?: string, maxSlots?: number, habilitados?: string[], courtIds?: string[], canchaUnicaId?: string | null, options?: { courtSchedules?: Map<string, CourtScheduleConfig> }) => void
+  initSchedule: (divisionId: string, diasPartido: string, horarioPartido: string, duracionPartido: number, descanso: number, refDate?: string, maxSlots?: number, habilitados?: string[], courtIds?: string[], options?: { courtSchedules?: Map<string, CourtScheduleConfig> }) => void
   getSchedule: (divisionId: string) => DivisionSchedule | undefined
   setSlotTeams: (divisionId: string, slotId: string, localId?: string, visitanteId?: string) => void
   setSlotTipo: (divisionId: string, slotId: string, tipo: 'regular' | 'complemento' | 'amistoso' | 'eliminatoria') => void
@@ -59,7 +81,6 @@ interface DivisionScheduleState {
   setSlotPartido: (divisionId: string, slotId: string, data: { partidoId?: string; equipoLocalId?: string; equipoVisitanteId?: string; rondaNombre?: string; llave?: number }) => void
   setScheduleTipoSlots: (divisionId: string, slots: TimeSlotConfig[]) => void
   replaceSlots: (divisionId: string, slots: TimeSlotConfig[]) => void
-  syncCanchaUnica: (divisionId: string, canchaUnicaId: string | null, slots: TimeSlotConfig[]) => void
   clearEliminatoriaSlots: (divisionId: string, partidoIds?: string[]) => void
   clearExtraSlots: (divisionId: string) => void
   resetSchedule: (divisionId: string) => void
@@ -72,15 +93,19 @@ interface DivisionScheduleState {
     options?: {
       courtOrder?: (string | undefined)[]
       isCourtBlocked?: (canchaId: string | undefined, fecha: string, horaInicio: string, horaFin: string) => boolean
+      /** Ocupación a respetar. Por omisión los slots de la store; la pantalla pasa los visibles. */
+      occupancy?: OccupiableSlot[]
+      /** Días y rango de cada cancha, para no ofrecer una hora que esa cancha no juega. */
+      courtSchedules?: Map<string, CourtScheduleConfig>
     },
-  ) => TimeSlotConfig | null
+  ) => AddSlotResult
   removeSlot: (divisionId: string, slotId: string) => void
   moveSlotToTime: (divisionId: string, slotId: string, newHoraInicio: string, newHoraFin: string) => boolean
   setPlayoffMode: (divisionId: string, active: boolean) => void
   setHabilitados: (divisionId: string, equipoIds: string[]) => void
   guardarProgramacion: (divisionId: string) => void
-  advanceSchedule: (divisionId: string, lastJornadaFechaInicio?: string | null) => void
-  syncSchedule: (divisionId: string, lastJornadaFechaInicio?: string | null) => void
+  advanceSchedule: (divisionId: string, lastJornadaFechaInicio?: string | null, options?: WeeklySyncOptions) => void
+  syncSchedule: (divisionId: string, lastJornadaFechaInicio?: string | null, options?: WeeklySyncOptions) => void
   rewindSchedule: (divisionId: string) => void
   clearScheduleTeams: (divisionId: string) => void
   hasUnsaved: boolean
@@ -156,6 +181,17 @@ export function isSlotAuto(sl: TimeSlotConfig): boolean {
 
 export function isSlotManual(sl: TimeSlotConfig): boolean {
   return sl.id.startsWith('extra-')
+}
+
+/**
+ * Un slot se puede borrar solo si no forma parte del cupo derivado de los equipos. Los
+ * regulares son `floor(equipos / 2)` y se ajustan habilitando o deshabilitando equipos, no
+ * borrándolos; los de eliminatoria los manda el bracket. Amistosos y complementos son los
+ * únicos que el usuario agrega y quita a mano.
+ */
+export function canDeleteSlot(slot: Pick<TimeSlotConfig, 'tipo'>): boolean {
+  const tipo = slot.tipo ?? 'regular'
+  return tipo === 'amistoso' || tipo === 'complemento'
 }
 
 export function normalizePlayoffSlotTypes(slots: TimeSlotConfig[]): TimeSlotConfig[] {
@@ -333,12 +369,6 @@ export function getActiveSlots(
   return [...regLike.filter((slot) => keep.has(slot.id)), ...specials, ...eliminatorias]
 }
 
-export function resolveCanchaConflicts(slots: TimeSlotConfig[], schedule: DivisionSchedule): TimeSlotConfig[] {
-  // Court conflicts are validation errors. Never hide them by moving a draft.
-  void schedule
-  return ensureUniqueSlotIds(slots)
-}
-
 export function computeRefDateFromJornada(fechaInicio: string | null | undefined): string | undefined {
   if (!fechaInicio) return undefined
   const datePart = fechaInicio.split("T")[0]
@@ -358,40 +388,61 @@ export interface CourtScheduleConfig {
   horarioPartido: string
 }
 
-function weekMondayFor(refDate?: string): Date {
-  let ref: Date
-  if (refDate && isValidDateStr(refDate)) {
-    ref = localDateFromString(refDate)
-  } else {
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    tomorrow.setHours(0, 0, 0, 0)
-    ref = nextMondayFrom(tomorrow)
-  }
+/**
+ * El lunes que ancla la programación: **la semana que viene**, o la semana del `refDate` guardado.
+ *
+ * Es la única definición. Estaba copiada en cuatro sitios y ya había divergido: tres le pasaban
+ * `mañana` a `nextMondayFrom` y uno le pasaba hoy.
+ *
+ * **No le sumes un día.** `nextMondayFrom` ya devuelve el lunes siguiente desde cualquier día de la
+ * semana, y con un lunes de entrada devuelve el *siguiente*, nunca el mismo. Adelantar la fecha a
+ * mañana no cambia nada de lunes a sábado, pero en **domingo** le entrega un lunes y el ancla se va
+ * una semana entera: una división de sábados creada en domingo proponía su primer partido 13 días
+ * después en vez de 6.
+ */
+export function weekMondayFor(refDate?: string): Date {
+  const ref = refDate && isValidDateStr(refDate)
+    ? localDateFromString(refDate)
+    : nextMondayFrom(new Date())
   return getMondayOfThisWeek(ref)
 }
 
+/** Un hueco posible de la semana: fecha, hora y la cancha que lo ofrece. */
+export interface SlotCandidate {
+  fecha: string
+  horaInicio: string
+  horaFin: string
+  canchaId?: string
+}
+
 /**
- * Slots for a division whose courts each have their own days and ranges. Candidates are ordered
- * by (fecha, hora, orden de cancha), so the week fills earliest-first across courts in parallel
- * instead of exhausting one court before starting the next.
+ * Dónde puede ir un slot, decidido en un solo lugar.
  *
- * This also lifts the old capacity ceiling: with a grid per court the week holds
- * `días × horarios × canchas` matches, not `días × horarios`.
+ * Con configuración por cancha arma una grilla por cancha usando **sus** días y **su** rango;
+ * sin ella cae al comportamiento legacy de días y horario únicos para toda la división. Los
+ * candidatos salen ordenados por (fecha, hora, orden de cancha), así la semana se llena en
+ * paralelo entre canchas en vez de agotar una antes de empezar la siguiente.
+ *
+ * Esto también levanta el techo de capacidad: con una grilla por cancha la semana admite
+ * `días × horarios × canchas` partidos, no `días × horarios`.
  */
-function generatePerCourtSlots(
-  courtSchedules: Map<string, CourtScheduleConfig>,
+export function buildSlotCandidates(
+  courtSchedules: Map<string, CourtScheduleConfig> | undefined,
+  diasPartido: string,
+  horarioPartido: string,
   duracion: number,
   descanso: number,
-  refDate: string | undefined,
-  maxSlots: number | undefined,
-): TimeSlotConfig[] {
-  const weekMonday = weekMondayFor(refDate)
-  const candidates: { fecha: string; horaInicio: string; horaFin: string; canchaId: string; courtIndex: number }[] = []
+  weekMonday: Date,
+  courtIds: string[] = [],
+): SlotCandidate[] {
+  const perCourt: [string | undefined, CourtScheduleConfig][] = courtSchedules && courtSchedules.size > 0
+    ? [...courtSchedules.entries()]
+    : [[courtIds.length === 1 ? courtIds[0] : undefined, { diasPartido, horarioPartido }]]
 
-  let courtIndex = 0
-  for (const [canchaId, config] of courtSchedules) {
+  const candidates: (SlotCandidate & { courtIndex: number })[] = []
+  perCourt.forEach(([canchaId, config], courtIndex) => {
     const dayTimeSlots = generateTimeSlots(config.horarioPartido, duracion, descanso)
+    if (dayTimeSlots.length === 0) return
     for (const day of sortValidDays(parseDiasPartido(config.diasPartido))) {
       const d = new Date(weekMonday)
       d.setDate(d.getDate() + (day === 0 ? 6 : day - 1))
@@ -400,21 +451,19 @@ function generatePerCourtSlots(
         candidates.push({ fecha, horaInicio: ts.horaInicio, horaFin: ts.horaFin, canchaId, courtIndex })
       }
     }
-    courtIndex += 1
-  }
+  })
 
   candidates.sort((a, b) => a.fecha.localeCompare(b.fecha)
     || timeToMinutes(a.horaInicio) - timeToMinutes(b.horaInicio)
     || a.courtIndex - b.courtIndex)
 
-  return candidates.slice(0, maxSlots ?? candidates.length).map((candidate, index) => ({
-    id: `slot-${index}`,
-    fecha: candidate.fecha,
-    horaInicio: candidate.horaInicio,
-    horaFin: candidate.horaFin,
-    tipo: 'regular' as const,
-    canchaId: candidate.canchaId,
-  }))
+  return candidates.map(({ courtIndex: _courtIndex, ...candidate }) => candidate)
+}
+
+/** Clave de ocupación de un hueco. Lleva la cancha: el mismo horario puede repetirse en canchas
+ *  distintas, y una cancha llena no debe bloquear a las demás. */
+export function slotOccupancyKey(candidate: { canchaId?: string; fecha: string; horaInicio: string }): string {
+  return `${candidate.canchaId ?? ''}|${candidate.fecha}|${candidate.horaInicio}`
 }
 
 export function generateSlots(
@@ -428,47 +477,25 @@ export function generateSlots(
   courtSchedules?: Map<string, CourtScheduleConfig>,
 ): TimeSlotConfig[] {
   if (maxSlots === 0) return []
-  if (courtSchedules && courtSchedules.size > 0) {
-    return generatePerCourtSlots(courtSchedules, duracion, descanso, refDate, maxSlots)
-  }
 
-  const validDays = parseDiasPartido(diasPartido)
-  if (validDays.length === 0) return []
+  const candidates = buildSlotCandidates(
+    courtSchedules,
+    diasPartido,
+    horarioPartido,
+    duracion,
+    descanso,
+    weekMondayFor(refDate),
+    courtIds,
+  )
 
-  const dayTimeSlots = generateTimeSlots(horarioPartido, duracion, descanso)
-  if (dayTimeSlots.length === 0) return []
-
-  let ref: Date
-  if (refDate && isValidDateStr(refDate)) {
-    ref = localDateFromString(refDate)
-  } else {
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    tomorrow.setHours(0, 0, 0, 0)
-    ref = nextMondayFrom(tomorrow)
-  }
-
-  const weekMonday = getMondayOfThisWeek(ref)
-  const slots: TimeSlotConfig[] = []
-  if (maxSlots === 0) return slots
-
-  const sortedDays = sortValidDays(validDays)
-
-  for (const day of sortedDays) {
-    if (slots.length >= (maxSlots ?? Infinity)) break
-    const d = new Date(weekMonday)
-    const offset = day === 0 ? 6 : day - 1
-    d.setDate(d.getDate() + offset)
-    const fecha = formatDate(d)
-
-    for (const ts of dayTimeSlots) {
-      if (slots.length >= (maxSlots ?? Infinity)) break
-      const canchaId = courtIds.length === 1 ? courtIds[0] : undefined
-      slots.push({ id: `slot-${slots.length}`, fecha, horaInicio: ts.horaInicio, horaFin: ts.horaFin, tipo: 'regular', canchaId })
-    }
-  }
-
-  return slots
+  return candidates.slice(0, maxSlots ?? candidates.length).map((candidate, index) => ({
+    id: `slot-${index}`,
+    fecha: candidate.fecha,
+    horaInicio: candidate.horaInicio,
+    horaFin: candidate.horaFin,
+    tipo: 'regular' as const,
+    canchaId: candidate.canchaId,
+  }))
 }
 
 export function migrateDivisionScheduleState(persisted: unknown) {
@@ -500,7 +527,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
   programacionGuardada: {},
   hasUnsaved: false,
 
-  initSchedule: (divisionId, diasPartido, horarioPartido, duracionPartido, descanso, refDate, maxSlots, habilitados, courtIds = [], canchaUnicaId = null, options) => {
+  initSchedule: (divisionId, diasPartido, horarioPartido, duracionPartido, descanso, refDate, maxSlots, habilitados, courtIds = [], options) => {
     const courtSchedules = options?.courtSchedules
     // Serialized so the "same config" guard below can spot a per-court change.
     const courtSchedulesSnapshot = courtSchedules && courtSchedules.size > 0
@@ -537,6 +564,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
         refDate ?? existing.refDate,
         existing.slots.length,
         courtIds,
+        courtSchedules,
       )
       existing = {
         ...existing,
@@ -554,16 +582,8 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     const currentEliminatoriaSlots = existing?.slots.filter((slot) => slot.tipo === 'eliminatoria') ?? []
     const eliminatoriaSlots = currentEliminatoriaSlots.length > 0 ? currentEliminatoriaSlots : retainedEliminatoriaSlots
 
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    tomorrow.setHours(0, 0, 0, 0)
-
     if (existing && existing.slotDistributionVersion === SLOT_DISTRIBUTION_VERSION && existing.horarioSnapshot === horarioPartido && existing.diasSnapshot === diasPartido && existing.duracionSnapshot === duracionPartido && existing.descansoSnapshot === descanso && existing.courtSchedulesSnapshot === courtSchedulesSnapshot) {
-      const validDays = parseDiasPartido(diasPartido)
-      const dayTimeSlots = generateTimeSlots(horarioPartido, duracionPartido, descanso)
-
-      const refLocal = refDate && isValidDateStr(refDate) ? localDateFromString(refDate) : nextMondayFrom(tomorrow)
-      const weekMonday = getMondayOfThisWeek(refLocal)
+      const weekMonday = weekMondayFor(refDate)
 
       const migratedPlantilla = existing.plantilla && existing.plantilla.length > 0
         ? existing.plantilla.map((sl) => {
@@ -614,11 +634,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
         slots = [...slotsWithHabilitados.slice(0, maxSlots ?? Infinity), ...eliminatoriaSlots]
       } else {
         const needed = (maxSlots ?? 0) - slotsWithHabilitados.length
-        const occupied = new Map<string, Set<string>>()
-        for (const sl of slotsWithHabilitados) {
-          if (!occupied.has(sl.fecha)) occupied.set(sl.fecha, new Set())
-          occupied.get(sl.fecha)!.add(sl.horaInicio)
-        }
+        const occupied = new Set(slotsWithHabilitados.map(slotOccupancyKey))
 
         const maxN = [...existing.slots, ...slotsWithHabilitados].reduce((m, sl) => {
           const n = parseInt(sl.id.replace('slot-', '').replace('extra-', ''), 10)
@@ -627,27 +643,28 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
         let idCounter = maxN + 1
         const usedIds = new Set([...existing.slots, ...slotsWithHabilitados].map((slot) => slot.id))
 
+        // Los huecos que faltan salen de la misma grilla que la generación inicial, así el
+        // relleno nunca inventa un slot en una cancha donde la división no juega.
         const newSlots: TimeSlotConfig[] = []
-        const sortedDays = sortValidDays(validDays)
+        const candidates = buildSlotCandidates(courtSchedules, diasPartido, horarioPartido, duracionPartido, descanso, weekMonday, courtIds)
 
-        for (const day of sortedDays) {
+        for (const candidate of candidates) {
           if (newSlots.length >= needed) break
-          const d = new Date(weekMonday)
-          const offset = day === 0 ? 6 : day - 1
-          d.setDate(d.getDate() + offset)
-          const fecha = formatDate(d)
-          const ocupados = occupied.get(fecha) ?? new Set()
-          for (const ts of dayTimeSlots) {
-            if (newSlots.length >= needed) break
-            if (!ocupados.has(ts.horaInicio)) {
-              ocupados.add(ts.horaInicio)
-              while (usedIds.has(`slot-${idCounter}`)) idCounter++
-              const id = `slot-${idCounter}`
-              usedIds.add(id)
-              newSlots.push({ id, fecha, horaInicio: ts.horaInicio, horaFin: ts.horaFin, tipo: existing?.playoffMode ? 'amistoso' : 'regular' })
-              idCounter++
-            }
-          }
+          const key = slotOccupancyKey(candidate)
+          if (occupied.has(key)) continue
+          occupied.add(key)
+          while (usedIds.has(`slot-${idCounter}`)) idCounter++
+          const id = `slot-${idCounter}`
+          usedIds.add(id)
+          newSlots.push({
+            id,
+            fecha: candidate.fecha,
+            horaInicio: candidate.horaInicio,
+            horaFin: candidate.horaFin,
+            tipo: existing?.playoffMode ? 'amistoso' : 'regular',
+            canchaId: candidate.canchaId,
+          })
+          idCounter++
         }
 
         slots = [...slotsWithHabilitados, ...newSlots, ...eliminatoriaSlots]
@@ -655,8 +672,8 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
 
       if (existing?.playoffMode) slots = normalizePlayoffSlotTypes(slots)
 
-      const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: migratedPlantilla, refDate: formatDate(weekMonday), horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, canchaUnicaIdSnapshot: canchaUnicaId, courtSchedulesSnapshot, slotDistributionVersion: SLOT_DISTRIBUTION_VERSION }
-      nextSchedule.slots = resolveCanchaConflicts(nextSchedule.slots, nextSchedule)
+      const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: migratedPlantilla, refDate: formatDate(weekMonday), horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, courtSchedulesSnapshot, slotDistributionVersion: SLOT_DISTRIBUTION_VERSION }
+      nextSchedule.slots = ensureUniqueSlotIds(nextSchedule.slots)
       set((s) => ({ schedules: { ...s.schedules, [divisionId]: nextSchedule }, hasUnsaved: false, programacionGuardada: { ...s.programacionGuardada, [divisionId]: false } }))
       return
     }
@@ -678,8 +695,8 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       : refDate && isValidDateStr(refDate)
         ? formatDate(getMondayOfThisWeek(localDateFromString(refDate)))
         : existing?.refDate
-    const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: undefined, refDate: refDateForStore, horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, canchaUnicaIdSnapshot: canchaUnicaId, courtSchedulesSnapshot, slotDistributionVersion: SLOT_DISTRIBUTION_VERSION }
-    nextSchedule.slots = resolveCanchaConflicts(nextSchedule.slots, nextSchedule)
+    const nextSchedule: DivisionSchedule = { divisionId, slots, plantilla: undefined, refDate: refDateForStore, horarioSnapshot: horarioPartido, diasSnapshot: diasPartido, duracionSnapshot: duracionPartido, descansoSnapshot: descanso, descansoEquipoId: existing?.descansoEquipoId, playoffMode: existing?.playoffMode ?? false, courtSchedulesSnapshot, slotDistributionVersion: SLOT_DISTRIBUTION_VERSION }
+    nextSchedule.slots = ensureUniqueSlotIds(nextSchedule.slots)
     set((s) => ({ schedules: { ...s.schedules, [divisionId]: nextSchedule }, hasUnsaved: false, programacionGuardada: { ...s.programacionGuardada, [divisionId]: false } }))
   },
 
@@ -772,27 +789,6 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     })
   },
 
-  syncCanchaUnica: (divisionId, canchaUnicaId, slots) => {
-    set((s) => {
-      const schedule = s.schedules[divisionId]
-      if (!schedule) return s
-      const normalizedSlots = schedule.playoffMode ? normalizePlayoffSlotTypes(slots) : slots
-      return {
-        schedules: {
-          ...s.schedules,
-          [divisionId]: {
-            ...schedule,
-            slots: normalizedSlots,
-            plantilla: undefined,
-            canchaUnicaIdSnapshot: canchaUnicaId,
-          },
-        },
-        hasUnsaved: true,
-        programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
-      }
-    })
-  },
-
   setScheduleTipoSlots: (divisionId, newSlots) => {
     set((s) => {
       const schedule = s.schedules[divisionId]
@@ -819,7 +815,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       })
       const activatingPlayoffs = normalized.some((slot) => slot.tipo === 'eliminatoria')
       const mergedSlots = [...regulars.slice(0, keepRegular), ...other, ...replacementSlots]
-      const slots = resolveCanchaConflicts(activatingPlayoffs ? normalizePlayoffSlotTypes(mergedSlots) : mergedSlots, schedule)
+      const slots = ensureUniqueSlotIds(activatingPlayoffs ? normalizePlayoffSlotTypes(mergedSlots) : mergedSlots)
       return {
         schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, plantilla: undefined, playoffMode: activatingPlayoffs || schedule.playoffMode } },
         hasUnsaved: true,
@@ -851,7 +847,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
         seenOther.add(sl.id)
         return true
       })
-      const deduped = resolveCanchaConflicts([...dedupedOthers, ...dedupedElim], schedule)
+      const deduped = ensureUniqueSlotIds([...dedupedOthers, ...dedupedElim])
       if (deduped.length === schedule.slots.length && deduped.every((d, i) => {
         const o = schedule.slots[i]
         return d.id === o.id && d.fecha === o.fecha && d.horaInicio === o.horaInicio && d.horaFin === o.horaFin && d.equipoLocalId === o.equipoLocalId && d.equipoVisitanteId === o.equipoVisitanteId && d.tipo === o.tipo && d.canchaId === o.canchaId && d.partidoId === o.partidoId && d.rondaNombre === o.rondaNombre
@@ -944,7 +940,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       if (active) {
         let slots = normalizePlayoffSlotTypes(schedule.slots)
         if (schedule.playoffMode && slots.every((slot, index) => slot === schedule.slots[index])) return s
-        slots = resolveCanchaConflicts(slots, schedule)
+        slots = ensureUniqueSlotIds(slots)
         return {
           schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, playoffMode: true } },
           hasUnsaved: true,
@@ -989,7 +985,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
           regularCount++
         }
       }
-      slots = resolveCanchaConflicts(slots, schedule)
+      slots = ensureUniqueSlotIds(slots)
       return {
         schedules: { ...s.schedules, [divisionId]: { ...schedule, slots, playoffMode: false } },
         hasUnsaved: true,
@@ -1034,8 +1030,8 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
 
   addSlot: (divisionId, tipo, canchaId, options) => {
     const schedule = get().schedules[divisionId]
-    if (!schedule) return null
-    if (schedule.playoffMode && (tipo === 'regular' || tipo === 'complemento')) return null
+    if (!schedule) return { slot: null, reason: 'SIN_CONFIGURACION' }
+    if (schedule.playoffMode && (tipo === 'regular' || tipo === 'complemento')) return { slot: null, reason: 'NO_PERMITIDO' }
 
     let diasStr = schedule.diasSnapshot ?? ''
     let horarioStr = schedule.horarioSnapshot ?? ''
@@ -1064,22 +1060,11 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       }
     }
 
-    const validDays = parseDiasPartido(diasStr)
-    if (validDays.length === 0 || !horarioStr || !duracion) return null
-
-    const dayTimeSlots = generateTimeSlots(horarioStr, duracion, descanso)
-    if (dayTimeSlots.length === 0) return null
-
-    let refDate: Date
-    if (schedule.refDate && isValidDateStr(schedule.refDate)) {
-      refDate = localDateFromString(schedule.refDate)
-    } else {
-      const tomorrow = new Date()
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      tomorrow.setHours(0, 0, 0, 0)
-      refDate = nextMondayFrom(tomorrow)
+    if (parseDiasPartido(diasStr).length === 0 || !horarioStr || !duracion) {
+      return { slot: null, reason: 'SIN_CONFIGURACION' }
     }
-    const weekMonday = getMondayOfThisWeek(refDate)
+
+    const weekMonday = weekMondayFor(schedule.refDate)
 
     // Court is the strongest preference: exhaust every day of the preferred court
     // before considering another court. Ordering is court → day → time.
@@ -1092,34 +1077,44 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       candidateCourts.push(court)
     }
 
-    const sortedDays = sortValidDays(validDays)
-    let foundFecha: string | null = null
-    let foundHoraInicio = ''
-    let foundHoraFin = ''
-    let foundCanchaId: string | undefined = canchaId
+    // Los slots recortados por `getActiveSlots` siguen en la store y bloquearían celdas que el
+    // usuario no ve, así que la pantalla pasa aquí lo que realmente muestra.
+    const occupancy = options?.occupancy ?? schedule.slots
+    // Un hueco propio que solo frenó `isCourtBlocked` significa que lo tomó otra división: es
+    // una causa distinta de "la semana ya está llena" y merece otro mensaje.
+    let blockedByOtherDivision = false
+    let found: SlotCandidate | null = null
 
     for (const court of candidateCourts) {
-      for (const day of sortedDays) {
-        const d = new Date(weekMonday)
-        const offset = day === 0 ? 6 : day - 1
-        d.setDate(d.getDate() + offset)
-        const fecha = formatDate(d)
+      const config = (court ? options?.courtSchedules?.get(court) : undefined)
+        ?? { diasPartido: diasStr, horarioPartido: horarioStr }
+      // Cada cancha se recorre con **su** grilla, en orden (fecha, hora). El barrido externo por
+      // cancha mantiene la preferencia: agotar la cancha preferida antes de pasar a la siguiente.
+      const candidates = buildSlotCandidates(
+        undefined,
+        config.diasPartido,
+        config.horarioPartido,
+        duracion,
+        descanso,
+        weekMonday,
+        court ? [court] : [],
+      )
 
-        for (const ts of dayTimeSlots) {
-          if (isTimeOccupied(ts, '', schedule.slots, fecha, court)) continue
-          if (options?.isCourtBlocked?.(court, fecha, ts.horaInicio, ts.horaFin)) continue
-          foundFecha = fecha
-          foundHoraInicio = ts.horaInicio
-          foundHoraFin = ts.horaFin
-          foundCanchaId = court
-          break
+      for (const candidate of candidates) {
+        if (isTimeOccupied(candidate, '', occupancy, candidate.fecha, court)) continue
+        if (options?.isCourtBlocked?.(court, candidate.fecha, candidate.horaInicio, candidate.horaFin)) {
+          blockedByOtherDivision = true
+          continue
         }
-        if (foundFecha) break
+        found = candidate
+        break
       }
-      if (foundFecha) break
+      if (found) break
     }
 
-    if (!foundFecha) return null
+    if (!found) {
+      return { slot: null, reason: blockedByOtherDivision ? 'CANCHAS_OCUPADAS' : 'SEMANA_LLENA' }
+    }
 
     const maxN = schedule.slots.reduce((m, sl) => {
       const n = parseInt(sl.id.replace('slot-', '').replace('extra-', ''), 10)
@@ -1128,11 +1123,11 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
 
     const newSlot: TimeSlotConfig = {
       id: `extra-${maxN + 1}`,
-      fecha: foundFecha,
-      horaInicio: foundHoraInicio,
-      horaFin: foundHoraFin,
+      fecha: found.fecha,
+      horaInicio: found.horaInicio,
+      horaFin: found.horaFin,
       tipo: schedule.playoffMode && (tipo === 'regular' || tipo === 'complemento') ? 'amistoso' : tipo,
-      canchaId: foundCanchaId,
+      canchaId: found.canchaId,
     }
 
     set((s) => {
@@ -1145,7 +1140,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       }
     })
 
-    return newSlot
+    return { slot: newSlot, reason: null }
   },
 
   removeSlot: (divisionId, slotId) => {
@@ -1153,7 +1148,7 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
       const schedule = s.schedules[divisionId]
       if (!schedule) return s
       const slot = schedule.slots.find((sl) => sl.id === slotId)
-      if (!slot || slot.tipo === 'eliminatoria') return s
+      if (!slot || !canDeleteSlot(slot)) return s
       return {
         schedules: { ...s.schedules, [divisionId]: { ...schedule, slots: schedule.slots.filter((sl) => sl.id !== slotId), plantilla: undefined } },
         hasUnsaved: true,
@@ -1222,18 +1217,17 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     })
   },
 
-  syncSchedule: (divisionId, lastJornadaFechaInicio) => {
+  syncSchedule: (divisionId, lastJornadaFechaInicio, options) => {
     const schedule = get().schedules[divisionId]
     if (!schedule) return
 
-    const weekMonday = lastJornadaFechaInicio
-      ? (() => {
-          const refDate = computeRefDateFromJornada(lastJornadaFechaInicio)
-          return refDate && isValidDateStr(refDate) ? localDateFromString(refDate) : nextMondayFrom(new Date())
-        })()
-      : nextMondayFrom(new Date())
+    const weekMonday = weekMondayFor(
+      lastJornadaFechaInicio ? computeRefDateFromJornada(lastJornadaFechaInicio) : undefined,
+    )
 
-    const slots = schedule.slots.map((sl) => {
+    // Sin fase de liga no hay plantilla que repetir: las fechas del cuadro son concretas y se
+    // quedan donde están. El ancla de la semana y las banderas sí se actualizan igual.
+    const slots = options?.faseLiga === false ? schedule.slots : schedule.slots.map((sl) => {
       if (!isValidDateStr(sl.fecha)) return sl
       const oldDate = localDateFromString(sl.fecha)
       const dayOfWeek = oldDate.getDay()
@@ -1258,8 +1252,8 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
     }))
   },
 
-  advanceSchedule: (divisionId, lastJornadaFechaInicio) => {
-    get().syncSchedule(divisionId, lastJornadaFechaInicio)
+  advanceSchedule: (divisionId, lastJornadaFechaInicio, options) => {
+    get().syncSchedule(divisionId, lastJornadaFechaInicio, options)
   },
 
   rewindSchedule: (divisionId) => {

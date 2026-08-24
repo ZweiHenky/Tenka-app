@@ -1,7 +1,8 @@
-import { Text, ScrollView, TouchableOpacity } from "react-native"
+import { Text, TouchableOpacity, View } from "react-native"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
 import type { TimeSlotConfig } from "@/stores/divisionSchedule"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
+import { permiteRepetirEquipo } from "@/features/division/utils/slot-repeticion"
 import { useToast } from "@/shared/components/Toast"
 
 interface TeamItem {
@@ -23,13 +24,12 @@ export default function TeamPickerModal({ visible, pickingSlot, slots, assignedT
   const toast = useToast()
   const currentSlot = pickingSlot ? slots.find((s) => s.id === pickingSlot.slotId) : undefined
   const slotTipo = currentSlot?.tipo || 'regular'
-  const isComplementoSinPuntos = slotTipo === 'complemento' && pickingSlot?.side === 'visitante'
-  const isAmistoso = slotTipo === 'amistoso'
+  const permiteRepetir = permiteRepetirEquipo(slotTipo)
 
   const teams = assignedTeams ?? []
   const usedTeamIds = new Set<string>()
   if (pickingSlot && currentSlot) {
-    if (!isComplementoSinPuntos && !isAmistoso) {
+    if (!permiteRepetir) {
       for (const sl of slots) {
         if (sl.id === pickingSlot.slotId) continue
         if (sl.equipoLocalId) usedTeamIds.add(sl.equipoLocalId)
@@ -44,7 +44,8 @@ export default function TeamPickerModal({ visible, pickingSlot, slots, assignedT
 
   return (
     <AppBottomSheetModal visible={visible} onClose={onClose} title={sideLabel} snapPoints={["70%"]}>
-          <ScrollView style={{ gap: Gap.sm }}>
+          {/* Sin ScrollView propio: la hoja ya trae el suyo y anidarlos rompe el gesto. */}
+          <View style={{ gap: Gap.sm }}>
             <TouchableOpacity
               onPress={() => {
                 if (!pickingSlot) return
@@ -71,7 +72,7 @@ export default function TeamPickerModal({ visible, pickingSlot, slots, assignedT
                       toast.error("Ese equipo ya está asignado al otro lado")
                       return
                     }
-                    if (!isAmistoso && !isComplementoSinPuntos) {
+                    if (!permiteRepetir) {
                       const alreadyUsed = slots.some(
                         (s) => s.id !== pickingSlot.slotId && (s.equipoLocalId === t.id || s.equipoVisitanteId === t.id)
                       )
@@ -95,7 +96,7 @@ export default function TeamPickerModal({ visible, pickingSlot, slots, assignedT
             <TouchableOpacity onPress={onClose} style={{ paddingVertical: Pad.md, alignItems: "center" }}>
               <Text style={{ color: Palette.textMuted, fontWeight: "600", fontSize: 14 }}>Cancelar</Text>
             </TouchableOpacity>
-          </ScrollView>
+          </View>
     </AppBottomSheetModal>
   )
 }

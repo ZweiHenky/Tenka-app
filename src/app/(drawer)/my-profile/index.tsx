@@ -7,8 +7,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router, useIsFocused } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTourGuide } from "@wrack/react-native-tour-guide";
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
 import type { TourStep } from "@wrack/react-native-tour-guide";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -17,6 +17,8 @@ import {
   useMyProfile,
   useUpdateMyProfile,
 } from "@/features/jugador/hooks/useJugadores";
+import { useCampeonatosJugador } from "@/features/division-campeon/hooks/useDivisionCampeon";
+import PlayerAchievementsCard from "@/features/player/components/PlayerAchievementsCard";
 import { authClient } from "@/infrastructure/auth/client";
 import type { Jugador } from "@/domain/interfaces/player";
 import { POSICIONES_JUGADOR } from "@/domain/interfaces/player";
@@ -215,6 +217,7 @@ export default function MyProfileScreen() {
     error,
     refetch: refetchMyProfile,
   } = useMyProfile(canQuery);
+  const { data: logros = [] } = useCampeonatosJugador(jugador?.id, canQuery);
   const updateProfile = useUpdateMyProfile();
   const [savingVisibility, setSavingVisibility] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -244,10 +247,8 @@ export default function MyProfileScreen() {
     if (!jugador) {
       if (createTourStartedRef.current) return;
       const init = async () => {
-        const seen = await AsyncStorage.getItem(
-          "@tour_guide:player-profile-create-v1",
-        );
-        if (seen === "completed") {
+        const seen = await tourYaCompletado("player-profile-create-v1");
+        if (seen) {
           createTourStartedRef.current = true;
           return;
         }
@@ -265,33 +266,7 @@ export default function MyProfileScreen() {
               tooltipPosition: "bottom",
             },
           ],
-          {
-            tourId: "player-profile-create-v1",
-            insets: { top: insets.top, bottom: insets.bottom },
-            nextButtonText: "Siguiente",
-            prevButtonText: "Atrás",
-            skipButtonText: "Saltar",
-            doneButtonText: "Entendido",
-            onTourEnd: () => {
-              AsyncStorage.setItem(
-                "@tour_guide:player-profile-create-v1",
-                "completed",
-              );
-            },
-            tooltipStyles: {
-              backgroundColor: Palette.surface,
-              titleColor: Palette.text,
-              descriptionColor: Palette.textSecondary,
-              buttonTextColor: Palette.black,
-              primaryButtonColor: Palette.cyan,
-              skipButtonColor: Palette.textMuted,
-              borderRadius: Radius.lg,
-            },
-            spotlightStyles: {
-              overlayColor: Palette.black,
-              overlayOpacity: 0.7,
-            },
-          },
+          tourConfig({ tourId: "player-profile-create-v1", insets }),
         );
       };
       init();
@@ -306,10 +281,8 @@ export default function MyProfileScreen() {
       )
         return;
       const init = async () => {
-        const seen = await AsyncStorage.getItem(
-          "@tour_guide:player-profile-management-v1",
-        );
-        if (seen === "completed") {
+        const seen = await tourYaCompletado("player-profile-management-v1");
+        if (seen) {
           manageTourStartedRef.current = true;
           return;
         }
@@ -365,35 +338,11 @@ export default function MyProfileScreen() {
             },
             teamStep,
           ],
-          {
+          tourConfig({
             tourId: "player-profile-management-v1",
-            insets: { top: insets.top, bottom: insets.bottom },
-            nextButtonText: "Siguiente",
-            prevButtonText: "Atrás",
-            skipButtonText: "Saltar",
-            doneButtonText: "Entendido",
-            onTourEnd: () => {
-              AsyncStorage.setItem(
-                "@tour_guide:player-profile-management-v1",
-                "completed",
-              );
-            },
-            tooltipStyles: {
-              backgroundColor: Palette.surface,
-              titleColor: Palette.text,
-              descriptionColor: Palette.textSecondary,
-              buttonTextColor: Palette.black,
-              primaryButtonColor: Palette.cyan,
-              skipButtonColor: Palette.textMuted,
-              borderRadius: Radius.lg,
-            },
-            spotlightStyles: {
-              overlayColor: Palette.black,
-              overlayOpacity: 0.7,
-            },
-            scrollRef,
+            insets,
             getCurrentScrollOffset: () => scrollOffsetRef.current,
-          },
+          }),
         );
       };
       init();
@@ -405,8 +354,7 @@ export default function MyProfileScreen() {
     error,
     jugador,
     startTour,
-    insets.top,
-    insets.bottom,
+    insets,
     managementTargetsReady,
   ]);
 
@@ -701,6 +649,8 @@ export default function MyProfileScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          <PlayerAchievementsCard logros={logros} />
 
           <View ref={teamsRef} onLayout={() => setTeamsReady(true)}>
             {jugador.equipos && jugador.equipos.length > 0 ? (

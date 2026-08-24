@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { View, Text, TouchableOpacity } from "react-native"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide, type TourStep } from "@wrack/react-native-tour-guide"
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useIsFocused, useLocalSearchParams, router } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
@@ -112,9 +112,9 @@ export default function JornadaDetailScreen() {
     let cancelled = false
     tourCheckingRef.current = true
     const initTour = async () => {
-      const seen = await AsyncStorage.getItem("@tour_guide:jornada-detail-v1")
+      const seen = await tourYaCompletado("jornada-detail-v1")
       if (cancelled) return
-      if (seen === "completed") {
+      if (seen) {
         tourStartedRef.current = true
         tourCheckingRef.current = false
         return
@@ -159,29 +159,11 @@ export default function JornadaDetailScreen() {
       tourTimerRef.current = setTimeout(() => {
         tourStartedRef.current = true
         tourCheckingRef.current = false
-        startTour(steps, {
+        startTour(steps, tourConfig({
           tourId: "jornada-detail-v1",
-          insets: { top: insets.top, bottom: insets.bottom },
-          nextButtonText: "Siguiente",
-          prevButtonText: "Atrás",
-          skipButtonText: "Saltar",
-          doneButtonText: "Entendido",
-          onTourEnd: () => {
-            AsyncStorage.setItem("@tour_guide:jornada-detail-v1", "completed")
-          },
-          tooltipStyles: {
-            backgroundColor: Palette.surface,
-            titleColor: Palette.text,
-            descriptionColor: Palette.textSecondary,
-            buttonTextColor: Palette.black,
-            primaryButtonColor: Palette.cyan,
-            skipButtonColor: Palette.textMuted,
-            borderRadius: Radius.lg,
-          },
-          spotlightStyles: { overlayColor: Palette.black, overlayOpacity: 0.7 },
-          scrollRef,
+          insets,
           getCurrentScrollOffset: () => scrollOffsetRef.current,
-        })
+        }))
       }, 600)
     }
 
@@ -194,7 +176,7 @@ export default function JornadaDetailScreen() {
       }
       if (!tourStartedRef.current) tourCheckingRef.current = false
     }
-  }, [isFocused, isTourActive, isLoading, error, jornada, session?.user, refreshing, summaryReady, dayHeaderReady, firstPartidoReady, legendReady, startTour, insets.top, insets.bottom])
+  }, [isFocused, isTourActive, isLoading, error, jornada, session?.user, refreshing, summaryReady, dayHeaderReady, firstPartidoReady, legendReady, startTour, insets])
 
   const handlePartidoPress = (partido: PartidoResponse) => {
     if (isTourActive && activeTourId === "jornada-detail-v1") endTour()

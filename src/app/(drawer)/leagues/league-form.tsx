@@ -19,6 +19,8 @@ import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import { canCreateLeague, type UserRole } from "@/domain/interfaces/user"
 import type { CreateLeagueInput } from "@/domain/interfaces/league"
 import { createCourtDrafts, toCourtPayload, validateCourtConfig, type CourtDraft } from "@/features/league/utils/court-config"
+import { FontAwesome6 } from "@expo/vector-icons"
+import { buildLeagueSocialPayload, type LeagueSocialField } from "@/features/league/utils/social-links"
 
 let nextCourtKey = 0
 
@@ -40,6 +42,19 @@ interface RuleDraft {
   detalle: string
 }
 
+const SOCIAL_NETWORKS: {
+  field: LeagueSocialField
+  label: string
+  icon: string
+  color: string
+  placeholder: string
+}[] = [
+  { field: "facebook", label: "Facebook", icon: "facebook-f", color: "#1877F2", placeholder: "https://facebook.com/tu-liga" },
+  { field: "x", label: "X", icon: "x-twitter", color: Palette.text, placeholder: "https://x.com/tu_liga" },
+  { field: "instagram", label: "Instagram", icon: "instagram", color: "#E1306C", placeholder: "https://instagram.com/tu_liga" },
+  { field: "tiktok", label: "TikTok", icon: "tiktok", color: Palette.text, placeholder: "https://tiktok.com/@tu_liga" },
+]
+
 interface FormState {
   nombre: string
   descripcion: string
@@ -52,6 +67,10 @@ interface FormState {
   usaArbitros: boolean
   arbitroNombres: string[]
   reglas: RuleDraft[]
+  facebook: string
+  x: string
+  instagram: string
+  tiktok: string
   ubicacionId: string
   ubicacionTexto: string
   ubicacionLat: string
@@ -74,6 +93,10 @@ function normalizeForm(form: FormState) {
     usaArbitros: form.usaArbitros,
     arbitroNombres: form.arbitroNombres,
     reglas: form.reglas.map(({ titulo, detalle }) => ({ titulo, detalle })),
+    facebook: form.facebook,
+    x: form.x,
+    instagram: form.instagram,
+    tiktok: form.tiktok,
     ubicacionId: form.ubicacionId,
     ubicacionTexto: form.ubicacionTexto,
     ubicacionLat: form.ubicacionLat,
@@ -96,6 +119,10 @@ const EMPTY_FORM: FormState = {
   usaArbitros: false,
   arbitroNombres: [""],
   reglas: [],
+  facebook: "",
+  x: "",
+  instagram: "",
+  tiktok: "",
   ubicacionId: "",
   ubicacionTexto: "",
   ubicacionLat: "",
@@ -137,6 +164,10 @@ function LeagueFormContent({ leagueId, userId, isEdit, league }: FormContentProp
           return nombres.length > 0 ? nombres : [""]
         })(),
         reglas: league.reglas?.map((regla) => ({ key: `rule-${nextRuleKey++}`, titulo: regla.titulo, detalle: regla.detalle })) ?? [],
+        facebook: league.facebook ?? "",
+        x: league.x ?? "",
+        instagram: league.instagram ?? "",
+        tiktok: league.tiktok ?? "",
         ubicacionId: league.ubicacionId,
         ubicacionTexto: league.ubicacion?.nombreCompleto ?? "",
         ubicacionLat: "",
@@ -202,6 +233,12 @@ function LeagueFormContent({ leagueId, userId, isEdit, league }: FormContentProp
       return
     }
 
+    const socialResult = buildLeagueSocialPayload(form, isEdit)
+    if (socialResult.error) {
+      toast.error(socialResult.error)
+      return
+    }
+
     let logoAssetId = form.logoAssetId
     let coverAssetId = form.coverAssetId
     const uploadedAssets: string[] = []
@@ -242,6 +279,7 @@ function LeagueFormContent({ leagueId, userId, isEdit, league }: FormContentProp
         usaArbitros: form.usaArbitros,
         arbitros: form.usaArbitros && arbitroNombres.length > 0 ? arbitroNombres.map((nombre) => ({ nombre })) : undefined,
         reglas: isEdit ? reglas : (reglas.length > 0 ? reglas : undefined),
+        ...socialResult.payload,
         ubicacionId,
       }
 
@@ -530,6 +568,35 @@ function LeagueFormContent({ leagueId, userId, isEdit, league }: FormContentProp
               <Text style={{ color: Palette.cyan, fontSize: 14, fontFamily: Fonts.medium }}>+ Agregar regla</Text>
             </TouchableOpacity>
             <Text style={{ color: Palette.textMuted, fontSize: 11 }}>Hasta 30 reglas o directivas. Los títulos deben ser únicos.</Text>
+          </View>
+        </View>
+
+        <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>
+          <View style={{ backgroundColor: Palette.cyan10, borderBottomWidth: 1, borderBottomColor: Palette.border, paddingHorizontal: Pad.base, paddingVertical: Pad.sm }}>
+            <Text style={{ fontSize: 13, fontFamily: Fonts.semiBold, color: Palette.cyan }}>Redes sociales</Text>
+          </View>
+          <View style={{ padding: Pad.base, gap: Gap.md }}>
+            {SOCIAL_NETWORKS.map((social) => (
+              <View key={social.field}>
+                <Text style={{ fontSize: 13, fontFamily: Fonts.medium, color: Palette.textSecondary, marginBottom: 4 }}>{social.label}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Pad.base }}>
+                  <FontAwesome6 name={social.icon} size={18} color={social.color} />
+                  <TextInput
+                    style={{ flex: 1, paddingVertical: Pad.md, fontSize: 15, color: Palette.text }}
+                    placeholder={social.placeholder}
+                    placeholderTextColor={Palette.textMuted}
+                    value={form[social.field]}
+                    onChangeText={(value) => setForm((previous) => ({ ...previous, [social.field]: value }))}
+                    keyboardType="url"
+                    textContentType="URL"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    maxLength={500}
+                  />
+                </View>
+              </View>
+            ))}
+            <Text style={{ color: Palette.textMuted, fontSize: 11 }}>Opcional. Usa la URL completa que comience con https://</Text>
           </View>
         </View>
 

@@ -52,6 +52,13 @@ export function planCourtAssignments(input: {
   canchas: { id: string }[]
   slots: TimeSlotConfig[]
   ocupaciones: CourtOccupancy[]
+  /**
+   * Canchas donde la división realmente juega. Restringe **solo** el reparto automático: la
+   * ocupación se sigue leyendo de todas las canchas, para que un slot puesto a mano en una
+   * cancha ajena siga reportando su choque en vez de volverse invisible. Vacío u omitido =
+   * todas (ligas sin configuración por cancha).
+   */
+  assignableCourtIds?: string[]
 }): CourtPlan {
   const courtIds = input.mode === "SINGLE"
     ? [VIRTUAL_COURT]
@@ -87,14 +94,21 @@ export function planCourtAssignments(input: {
     loads.set(manualCourt, loads.get(manualCourt)! + 1)
   }
 
+  // Sin este filtro un slot sin cancha se iba a la cancha menos cargada de la liga — que suele
+  // ser justamente una que la división no tiene configurada, por estar vacía. El backend después
+  // rechaza esa jornada, y el conflicto real nunca se le muestra a nadie.
+  const assignable = input.assignableCourtIds?.length
+    ? courtIds.filter((courtId) => courtId === VIRTUAL_COURT || input.assignableCourtIds!.includes(courtId))
+    : courtIds
+
   for (const draft of automatic) {
-    const available = courtIds
+    const available = assignable
       .filter((courtId) => !schedule.get(courtId)!.some((item) => halfOpenOverlaps(draft, item)))
       .sort((left, right) => loads.get(left)! - loads.get(right)! || left.localeCompare(right))
     const courtId = available[0]
     const slot = byId.get(draft.id)!
     if (!courtId) {
-      const blockerIds = courtIds.flatMap((id) => schedule.get(id)!.filter((item) => halfOpenOverlaps(draft, item)).map((item) => item.id))
+      const blockerIds = assignable.flatMap((id) => schedule.get(id)!.filter((item) => halfOpenOverlaps(draft, item)).map((item) => item.id))
       conflicts.push({ slotId: draft.id, canchaId: null, blockerIds: [...new Set(blockerIds)].sort(), reason: "NO_CAPACITY" })
       unassignedSlotIds.push(draft.id)
       slot.canchaId = undefined
@@ -117,8 +131,18 @@ export function planCourtAssignments(input: {
   }
 }
 
-export function planFromAvailability(slots: TimeSlotConfig[], availability: CourtAvailability): CourtPlan {
-  return planCourtAssignments({ mode: availability.mode, canchas: availability.canchas, slots, ocupaciones: availability.ocupaciones })
+export function planFromAvailability(
+  slots: TimeSlotConfig[],
+  availability: CourtAvailability,
+  assignableCourtIds?: string[],
+): CourtPlan {
+  return planCourtAssignments({
+    mode: availability.mode,
+    canchas: availability.canchas,
+    slots,
+    ocupaciones: availability.ocupaciones,
+    assignableCourtIds,
+  })
 }
 
 export function applyAutomaticCourtAssignments(
@@ -138,20 +162,27 @@ export function applyAutomaticCourtAssignments(
   })
 }
 
+/**
+ * En modo `SINGLE` la liga tiene una sola cancha compartida: los partidos se guardan con
+ * `canchaId: null` y no hay cancha que pasar, así que filtrar por id descartaba **todas** las
+ * reservas y se colocaba encima de otra división. Igual que `planCourtAssignments` con su cancha
+ * virtual, acá toda ocupación cuenta.
+ */
 export function isCourtOccupiedForSlot(
   slot: TimeSlotConfig,
-  courtId: string,
+  courtId: string | undefined,
   availability: CourtAvailability,
   draftSlots: TimeSlotConfig[],
 ): boolean {
   const target = slotInterval(slot)
   if (!target) return true
+  const canchaUnica = availability.mode === "SINGLE"
   const occupied = availability.ocupaciones
-    .filter((item) => item.canchaId === courtId)
+    .filter((item) => canchaUnica || item.canchaId === courtId)
     .map(occupancyInterval)
     .filter((item): item is Interval => !!item)
   const drafts = draftSlots
-    .filter((item) => item.id !== slot.id && item.canchaId === courtId)
+    .filter((item) => item.id !== slot.id && (canchaUnica || item.canchaId === courtId))
     .map(slotInterval)
     .filter((item): item is Interval => !!item)
   return [...occupied, ...drafts].some((item) => halfOpenOverlaps(target, item))

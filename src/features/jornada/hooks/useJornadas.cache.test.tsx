@@ -42,6 +42,30 @@ describe("jornada mutation caches", () => {
     expect(client.getQueryData(["last-jornada", "d1"])).toEqual(j2)
   })
 
+  // Con staleTime de 5 minutos, volver a entrar al partido servía el que todavía no tenía fecha:
+  // seguía pidiendo generar la jornada que se acababa de generar, hasta refrescar a mano.
+  it("invalida el partido de eliminatoria que acaba de recibir horario", async () => {
+    const { client, wrapper } = setup()
+    client.setQueryData(["partido", "elim-1"], { id: "elim-1", fecha: null })
+    client.setQueryData(["partido", "ajeno"], { id: "ajeno", fecha: null })
+    mocks.generate.mockResolvedValue({ ...j2, partidos: undefined })
+    mocks.detail.mockResolvedValue(j2)
+    const { result } = renderHook(() => useGenerateNextJornada(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        divisionId: "d1",
+        leagueId: "l1",
+        slots: [{ tipo: "eliminatoria", partidoId: "elim-1" } as any],
+        idempotencyKey: "key",
+      })
+    })
+
+    expect(client.getQueryState(["partido", "elim-1"])?.isInvalidated).toBe(true)
+    // Dirigida: un partido ajeno que estaba en caché no se toca.
+    expect(client.getQueryState(["partido", "ajeno"])?.isInvalidated).toBe(false)
+  })
+
   it("removes a complete latest jornada without requesting its predecessor", async () => {
     const { client, wrapper } = setup()
     client.setQueryData(["jornadas", "d1"], [j2, j1])
@@ -51,7 +75,7 @@ describe("jornada mutation caches", () => {
     mocks.remove.mockResolvedValue(undefined)
     const { result } = renderHook(() => useDeleteJornada(), { wrapper })
 
-    await act(async () => { await result.current.mutateAsync({ id: "j2", divisionId: "d1", leagueId: "l1" }) })
+    await act(async () => { await result.current.mutateAsync({ id: "j2", divisionId: "d1", leagueId: "l1", faseLiga: false }) })
 
     expect(mocks.detail).not.toHaveBeenCalled()
     expect(client.getQueryData<any[]>(["jornadas", "d1"])?.map((entry) => entry.id)).toEqual(["j1"])
@@ -59,6 +83,6 @@ describe("jornada mutation caches", () => {
     expect(client.getQueryData(["last-jornada", "d1"])).toEqual(j1)
     expect(client.getQueryData(["jornada", "j2"])).toBeUndefined()
     expect(client.getQueryData(["partido", "p2"])).toBeUndefined()
-    expect(mocks.syncSchedule).toHaveBeenCalledWith("d1", j1.fechaInicio)
+    expect(mocks.syncSchedule).toHaveBeenCalledWith("d1", j1.fechaInicio, { faseLiga: false })
   })
 })

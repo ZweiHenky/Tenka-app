@@ -1,4 +1,4 @@
-import { api } from "@/infrastructure/api/client"
+import { api, anonymousApi } from "@/infrastructure/api/client"
 import type { PartidoAnotacion, PartidoParticipacion, ParticipacionInput, ResultAnnotationInput, ScorerCandidate } from "../scoring"
 import { committed, notCommitted, withAmbiguousWriteRecovery } from "@/infrastructure/api/ambiguous-write"
 
@@ -186,6 +186,7 @@ export interface RefereePartidoResponse {
   anotaciones: PartidoAnotacion[]
   participaciones: PartidoParticipacion[]
   registrarParticipaciones: boolean
+  registrarGoleo: boolean
   usarPenalesEnEmpates: boolean
   jugadoresLocal: ScorerCandidate[]
   jugadoresVisitante: ScorerCandidate[]
@@ -193,11 +194,13 @@ export interface RefereePartidoResponse {
 
 function refereeApiClient(token: string) {
   const headers = { Authorization: `Bearer ${token}` }
+  // anonymousApi, no api: el flujo de árbitro se autentica solo con este token y no debe
+  // arrastrar la cookie de sesión de quien tenga la app abierta.
   return {
     getPartido: () =>
-      api.get<ApiRes<RefereePartidoResponse>>(`/api/referee/partido`, { headers }).then((r) => r.data.data!),
+      anonymousApi.get<ApiRes<RefereePartidoResponse>>(`/api/referee/partido`, { headers }).then((r) => r.data.data!),
     updateResult: (data: UpdateResultInput) =>
-      api.patch<ApiRes<{ id: string; golesLocal: number; golesVisitante: number; penalesLocal: number | null; penalesVisitante: number | null; estado: string; notas?: string | null }>>(`/api/referee/partido/result`, data, { headers }).then((r) => r.data.data!),
+      anonymousApi.patch<ApiRes<{ id: string; golesLocal: number; golesVisitante: number; penalesLocal: number | null; penalesVisitante: number | null; estado: string; notas?: string | null }>>(`/api/referee/partido/result`, data, { headers }).then((r) => r.data.data!),
   }
 }
 

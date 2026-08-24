@@ -9,23 +9,15 @@ import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import LogoImage from "@/shared/components/LogoImage"
 import type { PublicLeagueListDto } from "@/features/league/api/leagues"
 import { useLigaFavoritaStore } from "@/stores/ligaFavoritaStore"
+import { parseTimeRanges } from "@/shared/utils/time-range"
+import { formatDiasCortos } from "@/features/division/utils/divisionDays"
+import CourtSchedulePicker from "@/features/division/components/CourtSchedulePicker"
+import { courtScheduleLines, selectedCourtSchedule } from "@/features/division/utils/court-schedule-selection"
+import { divisionLabel } from "@/features/division/utils/division-label"
 
 interface Props {
   league: PublicLeagueListDto
   ubicacionTexto?: string
-}
-
-const DIA_ABREV: Record<string, string> = {
-  Lunes: "L", Martes: "M", Miércoles: "M",
-  Jueves: "J", Viernes: "V", Sábado: "S", Domingo: "D",
-}
-
-function abreviarDias(dias: string): string {
-  const partes = dias.split(/[,\s]+y\s+|[,\s]+|\s+y\s+/).filter(Boolean)
-  const iniciales = partes.map((p) => DIA_ABREV[p.trim()] ?? p.trim())
-  if (iniciales.length <= 1) return iniciales.join("")
-  if (iniciales.length === 2) return `${iniciales[0]} y ${iniciales[1]}`
-  return `${iniciales.slice(0, -1).join(", ")} y ${iniciales[iniciales.length - 1]}`
 }
 
 function colorEstado(nombre: string): string {
@@ -39,6 +31,7 @@ function colorEstado(nombre: string): string {
 
 export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
   const [selectedDivision, setSelectedDivision] = useState<string | null>(null)
+  const [selectedCancha, setSelectedCancha] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const rangePickerRef = useRef<BottomSheetModal>(null)
   const snapPoints = useMemo(() => ["50%"], [])
@@ -49,15 +42,10 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
     ? (selectedDivision ? l.divisiones.find((d) => d.id === selectedDivision) ?? l.divisiones[0] : l.divisiones[0])
     : null
 
-  const ranges = current?.horarioPartido
-    ? current.horarioPartido.split(" / ").map((r) => {
-        const p = r.split(" - ").map((s) => s.trim())
-        if (p.length === 2) return { start: p[0], end: p[1] }
-        const p2 = r.split("-").map((s) => s.trim())
-        if (p2.length === 2) return { start: p2[0], end: p2[1] }
-        return null
-      }).filter(Boolean) as { start: string; end: string }[]
-    : []
+  // Los escalares de la división son la **unión** de sus canchas; el selector permite bajar a una.
+  const porCancha = courtScheduleLines(current?.canchaHorarios)
+  const horario = selectedCourtSchedule(porCancha, current ?? { diasPartido: null, horarioPartido: null }, selectedCancha)
+  const ranges = parseTimeRanges(horario.horarioPartido ?? "")
 
   const insets = useSafeAreaInsets()
 
@@ -67,6 +55,8 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
 
   const selectDivision = (id: string) => {
     setSelectedDivision(id)
+    // Sin esto quedaría elegida una cancha de la división anterior.
+    setSelectedCancha(null)
     setPickerOpen(false)
   }
 
@@ -81,7 +71,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
         />
         <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, padding: Pad.base, justifyContent: "flex-end" }}>
-          {current ? (
+          {current?.estadoLiga ? (
             <View style={{ position: "absolute", top: 12, left: 0 }}>
               <View style={{ backgroundColor: colorEstado(current.estadoLiga.nombre.toUpperCase()), paddingHorizontal: 14, paddingVertical: 5, borderTopRightRadius: 6, borderBottomRightRadius: 6, elevation: 4, shadowColor: "#000", shadowOffset: { width: 1, height: 1 }, shadowOpacity: 0.3, shadowRadius: 2 }}>
                 <Text style={{ fontSize: 11, fontFamily: Fonts.semiBold, color: Palette.black }}>{current.estadoLiga.nombre}</Text>
@@ -117,7 +107,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
                 onPress={(e) => { e.stopPropagation(); setPickerOpen((prev) => !prev) }}
                 style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.borderActive, paddingHorizontal: Pad.base, paddingVertical: Pad.md }}
               >
-                <Text numberOfLines={1} style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.medium, flex: 1 }}>{current ? `${current.nombre} · ${current.categoria.nombre}` : "Seleccionar"}</Text>
+                <Text numberOfLines={1} style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.medium, flex: 1 }}>{current ? divisionLabel(current) : "Seleccionar"}</Text>
                 <MaterialIcons name={pickerOpen ? "expand-less" : "expand-more"} size={22} color={Palette.cyan} />
               </TouchableOpacity>
 
@@ -130,7 +120,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
                       onPress={(e) => { e.stopPropagation(); selectDivision(d.id) }}
                       style={{ paddingHorizontal: Pad.base, paddingVertical: Pad.lg, backgroundColor: current?.id === d.id ? Palette.cyan10 : "transparent" }}
                     >
-                      <Text numberOfLines={1} style={{ color: current?.id === d.id ? Palette.cyan : Palette.text, fontSize: 14, fontFamily: current?.id === d.id ? Fonts.semiBold : Fonts.medium }}>{d.nombre} · {d.categoria.nombre}</Text>
+                      <Text numberOfLines={1} style={{ color: current?.id === d.id ? Palette.cyan : Palette.text, fontSize: 14, fontFamily: current?.id === d.id ? Fonts.semiBold : Fonts.medium }}>{divisionLabel(d)}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -139,9 +129,34 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
 
             {current ? (
               <>
-                <Text style={{ fontSize: 13, color: Palette.textSecondary, fontFamily: Fonts.sans }}>{current.categoria.nombre} · {current.tipo.nombre}</Text>
-
+                {/* La categoría no se pierde: sigue en el desplegable de divisiones, arriba. */}
                 <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                  {current.tipo ? (
+                    <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+                        <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                          <MaterialIcons name="sports-soccer" size={14} color={Palette.cyan} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Tipo</Text>
+                          <Text numberOfLines={1} style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{current.tipo.nombre}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ) : null}
+                  {current.tipoCompetencia ? (
+                    <View style={{ width: "50%", paddingVertical: Pad.sm, paddingLeft: Pad.sm }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
+                        <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                          <MaterialIcons name="emoji-events" size={14} color={Palette.cyan} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Competencia</Text>
+                          <Text numberOfLines={1} style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{current.tipoCompetencia.nombre}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ) : null}
                   <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
                       <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
@@ -164,6 +179,11 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
                       </View>
                     </View>
                   </View>
+                </View>
+
+                <CourtSchedulePicker lines={porCancha} selectedId={selectedCancha} onSelect={setSelectedCancha} />
+
+                <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
                   <View style={{ width: "50%", paddingVertical: Pad.sm, paddingRight: Pad.sm }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>
                       <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
@@ -171,7 +191,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
                       </View>
                       <View>
                         <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Días</Text>
-                        <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{current.diasPartido ? abreviarDias(current.diasPartido) : "-"}</Text>
+                        <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{horario.diasPartido ? formatDiasCortos(horario.diasPartido) : "-"}</Text>
                       </View>
                     </View>
                   </View>
@@ -187,7 +207,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
-                          <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }} numberOfLines={1}>{current.horarioPartido ?? "-"}</Text>
+                          <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }} numberOfLines={1}>{horario.horarioPartido ?? "-"}</Text>
                         </View>
                         <MaterialIcons name="info-outline" size={18} color={Palette.textMuted} />
                       </TouchableOpacity>
@@ -198,7 +218,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
                         </View>
                         <View>
                           <Text style={{ fontSize: 10, color: Palette.textMuted, fontFamily: Fonts.sans, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
-                          <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{current.horarioPartido ?? "-"}</Text>
+                          <Text style={{ fontSize: 14, color: Palette.text, fontFamily: Fonts.semiBold }}>{horario.horarioPartido ?? "-"}</Text>
                         </View>
                       </View>
                     )}

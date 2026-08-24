@@ -1,3 +1,4 @@
+import { equiposDisponiblesParaRegulares } from "@/features/division/utils/descanso"
 import { getActiveSlots } from "@/stores/divisionSchedule"
 import type { TimeSlotConfig } from "@/stores/divisionSchedule"
 import type { SlotInput } from "@/features/jornada/api/jornadas"
@@ -9,7 +10,7 @@ export function prepareJornadaSlots(
   courtOrder: string[] = [],
 ): SlotInput[] {
   const habSet = new Set(habilitados)
-  const activeSlots = getActiveSlots(slots, habilitados.length, playoffMode, courtOrder)
+  const activeSlots = getActiveSlots(slots, equiposDisponiblesParaRegulares(habilitados, slots), playoffMode, courtOrder)
 
   const eliminatoriaTeamIds = new Set<string>()
   for (const slot of slots) {

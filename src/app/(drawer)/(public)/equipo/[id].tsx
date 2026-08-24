@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { ActivityIndicator, Image, Share, Text, TouchableOpacity, View } from "react-native"
+import { MaterialIcons } from "@expo/vector-icons"
 import { router, useIsFocused, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { Fonts, Gap, Pad, Palette, Radius } from "@/constants/theme"
@@ -7,6 +8,8 @@ import { POSICIONES_JUGADOR } from "@/domain/interfaces/player"
 import { divisionEquipoApi } from "@/features/division-equipo/api/division-equipo"
 import { useJugadores } from "@/features/jugador/hooks/useJugadores"
 import { useTeam } from "@/features/team/hooks/useTeams"
+import TeamAchievementsList from "@/features/team/components/TeamAchievementsList"
+import { useCampeonatosEquipo } from "@/features/division-campeon/hooks/useDivisionCampeon"
 import TeamDetailHeaderCard from "@/features/team/components/TeamDetailHeaderCard"
 import CustomHeader from "@/shared/components/CustomHeader"
 import EmptyState from "@/shared/components/EmptyState"
@@ -24,7 +27,7 @@ function formatPosicion(posicion: string) {
 export default function PublicTeamDivisionSelectorScreen() {
   const guard = useNavGuard()
   const { id } = useLocalSearchParams<{ id: string }>()
-  const [tab, setTab] = useState<"jugadores" | "divisiones">("jugadores")
+  const [tab, setTab] = useState<"jugadores" | "divisiones" | "logros">("jugadores")
   const isFocused = useIsFocused()
   const { data: team, isLoading, error, refetch } = useTeam(id, isFocused)
   const { data: jugadores = [], isLoading: loadingPlayers, refetch: refetchPlayers } = useJugadores(id, isFocused && tab === "jugadores")
@@ -33,6 +36,7 @@ export default function PublicTeamDivisionSelectorScreen() {
     queryFn: () => divisionEquipoApi.findByEquipo(id!),
     enabled: isFocused && tab === "divisiones" && !!id,
   })
+  const { data: logros = [], isLoading: loadingLogros, error: logrosError, refetch: refetchLogros } = useCampeonatosEquipo(id, isFocused && tab === "logros")
   const [refreshing, setRefreshing] = useState(false)
 
   const handleRefresh = async () => {
@@ -42,6 +46,7 @@ export default function PublicTeamDivisionSelectorScreen() {
         refetch(),
         tab === "jugadores" ? refetchPlayers() : Promise.resolve(),
         tab === "divisiones" ? refetchDivisions() : Promise.resolve(),
+        tab === "logros" ? refetchLogros() : Promise.resolve(),
       ])
     } finally {
       setRefreshing(false)
@@ -72,9 +77,9 @@ export default function PublicTeamDivisionSelectorScreen() {
           <TeamDetailHeaderCard nombre={team.nombre} logo={team.logo} codigo={team.codigo} />
 
           <TabBar
-            tabs={[{ key: "jugadores", label: "Jugadores" }, { key: "divisiones", label: "Divisiones" }]}
+            tabs={[{ key: "jugadores", label: "Jugadores" }, { key: "divisiones", label: "Divisiones" }, { key: "logros", label: "Logros" }]}
             activeTab={tab}
-            onTabChange={(nextTab) => setTab(nextTab as "jugadores" | "divisiones")}
+            onTabChange={(nextTab) => setTab(nextTab as "jugadores" | "divisiones" | "logros")}
           />
 
           {tab === "jugadores" ? (
@@ -107,6 +112,20 @@ export default function PublicTeamDivisionSelectorScreen() {
             </View>
           ) : null}
 
+          {tab === "logros" ? (
+            <View style={{ gap: Gap.sm }}>
+              <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.semiBold, textTransform: "uppercase", letterSpacing: 0.5 }}>Logros</Text>
+              <Text style={{ color: Palette.textMuted, fontSize: 12 }}>Divisiones que ha ganado el equipo</Text>
+              {loadingLogros ? (
+                <ActivityIndicator color={Palette.cyan} />
+              ) : logrosError ? (
+                <ErrorState message={(logrosError as Error).message} onRetry={() => refetchLogros()} />
+              ) : (
+                <TeamAchievementsList logros={logros} />
+              )}
+            </View>
+          ) : null}
+
           {tab === "divisiones" ? (
             <View style={{ gap: Gap.sm }}>
               <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.semiBold, textTransform: "uppercase", letterSpacing: 0.5 }}>Divisiones del equipo</Text>
@@ -132,7 +151,16 @@ export default function PublicTeamDivisionSelectorScreen() {
                   >
                     <LogoImage uri={division?.liga?.logo} size={46} backgroundColor={Palette.surfaceLight} />
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }} numberOfLines={1}>{division?.nombre ?? link.divisionId}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+                        <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15, flexShrink: 1 }} numberOfLines={1}>{division?.nombre ?? link.divisionId}</Text>
+                        {/* El palmarés: esta fila ya nombra la liga, así que el título se lee completo. */}
+                        {division?.campeones?.some((titulo) => titulo.equipoId === id) ? (
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: Palette.warning10, borderRadius: Radius.full, paddingHorizontal: Pad.sm, paddingVertical: Pad.micro }}>
+                            <MaterialIcons name="workspace-premium" size={12} color={Palette.warning} />
+                            <Text style={{ color: Palette.warning, fontSize: 10, fontFamily: Fonts.semiBold }}>Campeón</Text>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text style={{ color: Palette.textMuted, fontSize: 12 }} numberOfLines={1}>
                         {division?.liga?.nombre ?? "Liga"}{division?.categoria?.nombre ? ` · ${division.categoria.nombre}` : ""}
                       </Text>

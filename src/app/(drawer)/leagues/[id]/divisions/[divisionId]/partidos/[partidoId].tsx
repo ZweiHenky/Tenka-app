@@ -21,6 +21,9 @@ import { jornadaApi } from "@/features/jornada/api/jornadas"
 import { useLeague } from "@/features/league/hooks/useLeagues"
 import { useDivisionJugadores } from "@/features/jugador/hooks/useJugadores"
 import { useDivision } from "@/features/division/hooks/useDivisions"
+import { useElegibilidad } from "@/features/elegibilidad/hooks/useElegibilidad"
+import { useLookups } from "@/features/league/hooks/useLookups"
+import { codigoDeEstado } from "@/features/division/utils/estado-liga"
 import { buildResultPayload, buildScorerCandidates, type ParticipacionInput, type ScorerAllocation, type ScorerCandidate } from "@/features/partido/scoring"
 
 export default function PartidoDetailScreen() {
@@ -47,6 +50,19 @@ export default function PartidoDetailScreen() {
   const { data: localRoster = [] } = useDivisionJugadores(divisionId, partido?.equipoLocalId ?? undefined)
   const { data: visitorRoster = [] } = useDivisionJugadores(divisionId, partido?.equipoVisitanteId ?? undefined)
   const { data: division, isLoading: isDivisionLoading, error: divisionError, refetch: refetchDivision } = useDivision(divisionId!)
+  // Solo hace falta en partidos del cuadro y cuando la división exige un mínimo: en cualquier
+  // otro caso no hay nada que marcar y la consulta sobra.
+  const exigeMinimo = (division?.minPartidosEliminatoria ?? 0) > 0 && division?.registrarParticipaciones === true
+  const { data: elegibilidad } = useElegibilidad(divisionId, exigeMinimo && !!partido?.rondaPlayoffId)
+  const partidosPorJugador = React.useMemo(
+    () => Object.fromEntries((elegibilidad?.rows ?? []).map((fila) => [fila.jugadorId, fila.partidosJugados])),
+    [elegibilidad],
+  )
+  const lookups = useLookups({ estadosLiga: true })
+  const [cierreAvisoOpen, setCierreAvisoOpen] = React.useState(false)
+  const [inelegiblesAviso, setInelegiblesAviso] = React.useState<{ mensaje: string; reintentar: () => void } | null>(null)
+  // Una sola vez por pantalla: reguardar el mismo resultado no debe repetir el aviso.
+  const cerroLaFinalRef = React.useRef(false)
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -58,16 +74,35 @@ export default function PartidoDetailScreen() {
     }
   }, [refetch, refetchDivision])
 
-  const handleSave = (golesLocal: number, golesVisitante: number, estado: string, allocations: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number, _tipoPartido?: string, participaciones?: ParticipacionInput[], notas?: string | null) => {
+  const handleSave = (golesLocal: number, golesVisitante: number, estado: string, allocations: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number, _tipoPartido?: string, participaciones?: ParticipacionInput[], notas?: string | null, permitirInelegibles?: boolean) => {
     if (!partido || resultSubmissionRef.current) return
     resultSubmissionRef.current = true
     updateResult.mutate(
-      { id: partido.id, divisionId, leagueId: id, previous: { estado: partido.estado, tipoPartido: partido.tipoPartido, jornadaId: partido.jornadaId, rondaPlayoffId: partido.rondaPlayoffId }, ...buildResultPayload({ expectedVersion: partido.version, golesLocal, golesVisitante, penalesLocal, penalesVisitante, estado, allocations, participaciones, notas }) },
+      { id: partido.id, divisionId, leagueId: id, previous: { estado: partido.estado, tipoPartido: partido.tipoPartido, jornadaId: partido.jornadaId, rondaPlayoffId: partido.rondaPlayoffId }, ...buildResultPayload({ expectedVersion: partido.version, golesLocal, golesVisitante, penalesLocal, penalesVisitante, estado, allocations, participaciones, notas }), ...(permitirInelegibles ? { permitirInelegibles: true } : {}) },
       {
-        onSuccess: () => { resultSubmissionRef.current = false; toast.success("Resultado guardado") },
+        onSuccess: async () => {
+          resultSubmissionRef.current = false
+          toast.success("Resultado guardado")
+          // El servidor cierra la división al guardarse el resultado de la final. No se puede
+          // detectar con una bandera en la respuesta: `updateResult` va envuelto en
+          // `withAmbiguousWriteRecovery`, y su camino de recuperación la reconstruye con
+          // `getPartidoById`, que no la traería. La división sí es autoritativa.
+          if (!partido.rondaPlayoffId || estado !== "FINALIZADO" || cerroLaFinalRef.current) return
+          const { data: fresca } = await refetchDivision()
+          if (codigoDeEstado(lookups.estadosLiga, fresca?.estadoLigaId) === "FINALIZADA") {
+            cerroLaFinalRef.current = true
+            setCierreAvisoOpen(true)
+          }
+        },
         onError: (e: any) => {
           resultSubmissionRef.current = false
           if (e?.response?.status === 409) { refetch(); toast.error("El partido cambió en otro dispositivo. Actualizamos los datos; revisa el resultado e inténtalo de nuevo."); return }
+          // El mínimo de partidos para eliminatorias. Solo el dueño de la liga llega hasta acá
+          // —el árbitro captura por otra ruta—, así que se le puede ofrecer la excepción.
+          if (!permitirInelegibles && typeof e?.message === "string" && e.message.includes("partidos jugados para alinear")) {
+            setInelegiblesAviso({ mensaje: e.message, reintentar: () => handleSave(golesLocal, golesVisitante, estado, allocations, penalesLocal, penalesVisitante, _tipoPartido, participaciones, notas, true) })
+            return
+          }
           toast.error(e.message)
         },
       },
@@ -171,7 +206,7 @@ export default function PartidoDetailScreen() {
           contentContainerStyle={{ gap: Gap.lg, padding: Pad.base, paddingBottom: 48 }}
         >
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.lg }}>
-            <PartidoResultEditor partido={partido} isUpdating={updateResult.isPending} registrarParticipaciones={division?.registrarParticipaciones === true} usarPenalesEnEmpates={division?.usarPenalesEnEmpates !== false} onSave={handleSave} canReplaceTeams={canReplaceTeams} onReplaceTeam={setReplacementSide} multiplesCanchas={league?.multiplesCanchas === true} localPlayers={localScorers} visitorPlayers={visitorScorers} localParticipantPlayers={localParticipants} visitorParticipantPlayers={visitorParticipants} />
+            <PartidoResultEditor partido={partido} isUpdating={updateResult.isPending} registrarParticipaciones={division?.registrarParticipaciones === true} registrarGoleo={division?.registrarGoleo !== false} usarPenalesEnEmpates={division?.usarPenalesEnEmpates !== false} onSave={handleSave} canReplaceTeams={canReplaceTeams} onReplaceTeam={setReplacementSide} multiplesCanchas={league?.multiplesCanchas === true} localPlayers={localScorers} visitorPlayers={visitorScorers} localParticipantPlayers={localParticipants} visitorParticipantPlayers={visitorParticipants} partidosPorJugador={partidosPorJugador} minimoEliminatoria={elegibilidad?.minimo ?? 0} />
           </View>
 
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: refereeExpanded ? Palette.cyan : Palette.border, overflow: "hidden" }}>
@@ -251,6 +286,30 @@ export default function PartidoDetailScreen() {
           {replacementDataLoading ? <ActivityIndicator color={Palette.cyan} /> : replacementOptions.map((team) => <TouchableOpacity key={team.id} onPress={() => setReplacementTarget(team)} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.md }}><LogoImage uri={team.logo} size={38} backgroundColor={Palette.surface} iconFallback="shield" /><Text style={{ color: Palette.text, fontFamily: Fonts.medium, flex: 1 }}>{team.nombre}</Text><MaterialIcons name="swap-horiz" size={22} color={Palette.cyan} /></TouchableOpacity>)}
           {!replacementDataLoading && !replacementOptions.length ? <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, textAlign: "center" }}>No hay otro equipo con un partido programado disponible para intercambiar.</Text> : null}
         </AppBottomSheetModal>
+        {/* El cierre lo hizo el servidor al guardarse la final. El aviso solo informa y ofrece
+            volver: el banner de la pantalla de división es el que lleva al selector, y así cubre
+            también el caso de que la final la haya cerrado un árbitro. */}
+        <ConfirmationModal
+          visible={cierreAvisoOpen}
+          title="Terminó el torneo"
+          message="Se cerró la final, así que la división pasó a Finalizada y quedó de solo lectura. Falta asignar al campeón."
+          confirmLabel="Ir a la división"
+          cancelLabel="Después"
+          variant="warning"
+          onConfirm={() => { setCierreAvisoOpen(false); router.back() }}
+          onClose={() => setCierreAvisoOpen(false)}
+        />
+
+        <ConfirmationModal
+          visible={inelegiblesAviso !== null}
+          title="Jugadores sin el mínimo de partidos"
+          message={inelegiblesAviso?.mensaje ?? ""}
+          confirmLabel="Autorizar y guardar"
+          variant="warning"
+          loading={isUpdating}
+          onConfirm={() => { const reintentar = inelegiblesAviso?.reintentar; setInelegiblesAviso(null); reintentar?.() }}
+          onClose={() => setInelegiblesAviso(null)}
+        />
         <ConfirmationModal visible={replacementTarget !== null} title="Intercambiar equipos" message={`${currentTeam?.nombre ?? "El equipo actual"} y ${replacementTarget?.nombre ?? "el equipo seleccionado"} intercambiarán sus lugares. También se recalcularán los enfrentamientos regulares de las jornadas futuras para conservar el round-robin.`} highlightText={replacementTarget?.nombre} confirmLabel="Intercambiar" variant="warning" loading={isUpdating} onConfirm={confirmReplacement} onClose={closeReplacement} />
       </View>
     </AuthGate>

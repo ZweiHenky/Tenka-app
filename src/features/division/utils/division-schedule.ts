@@ -17,7 +17,6 @@ export const DEFAULT_DURACION = 60
 export interface DivisionScheduleSource {
   diasPartido?: string | null
   horarioPartido?: string | null
-  canchaUnicaId?: string | null
   canchaHorarios?: CourtScheduleRow[]
 }
 
@@ -32,7 +31,6 @@ export interface CourtSchedule {
  *  1. Sin canchas (liga de cancha única) → una entrada `undefined` con los escalares.
  *  2. Con filas → una entrada por cancha configurada **y activa**. Sin entrada = no juega ahí.
  *  3. Sin filas → fallback legacy: todas las canchas activas heredan los escalares,
- *     restringido a `canchaUnicaId` cuando está puesto.
  *
  * Es la única función que decide dónde juega una división: `division.horarioPartido` es solo
  * un resumen (unión) cuando hay filas, y usarlo directo permitiría colocar un partido en una
@@ -66,7 +64,6 @@ export function resolveCourtSchedules(
   }
 
   for (const courtId of activeIds) {
-    if (division?.canchaUnicaId && courtId !== division.canchaUnicaId) continue
     resolved.set(courtId, scalar)
   }
   return resolved

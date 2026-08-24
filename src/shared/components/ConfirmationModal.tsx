@@ -120,10 +120,11 @@ export default function ConfirmationModal({
                 borderWidth: 1,
                 borderColor: Palette.border,
                 alignItems: "center",
+                justifyContent: "center",
                 opacity: loading ? 0.5 : 1,
               }}
             >
-              <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 15 }}>{cancelLabel}</Text>
+              <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 15, textAlign: "center" }}>{cancelLabel}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => { setInput(""); onConfirm() }}
@@ -136,13 +137,14 @@ export default function ConfirmationModal({
                 borderWidth: 1,
                 borderColor: confirmColor[variant],
                 alignItems: "center",
+                justifyContent: "center",
                 opacity: loading || !confirmed ? 0.45 : 1,
               }}
             >
               {loading ? (
                 <ActivityIndicator size="small" color={confirmColor[variant]} />
               ) : (
-                <Text style={{ color: confirmColor[variant], fontFamily: Fonts.semiBold, fontSize: 15 }}>
+                <Text style={{ color: confirmColor[variant], fontFamily: Fonts.semiBold, fontSize: 15, textAlign: "center" }}>
                   {confirmLabel}
                 </Text>
               )}

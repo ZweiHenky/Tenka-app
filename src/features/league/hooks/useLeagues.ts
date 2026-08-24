@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { leagueApi } from "@/features/league/api/leagues"
 import type { CreateLeagueInput, League } from "@/domain/interfaces/league"
 import { committed, notCommitted, withAmbiguousWriteRecovery } from "@/infrastructure/api/ambiguous-write"
+import { LEAGUE_SOCIAL_FIELDS } from "@/features/league/utils/social-links"
 
 const KEY = "leagues"
 type UserLeagueListItem = Pick<League, "id" | "nombre" | "logo">
@@ -16,6 +17,9 @@ function leagueUpdateMatches(current: League, before: League | undefined, data: 
   if (data.ubicacionId !== undefined && current.ubicacionId !== data.ubicacionId) return false
   if (data.multiplesCanchas !== undefined && current.multiplesCanchas !== data.multiplesCanchas) return false
   if (data.usaArbitros !== undefined && current.usaArbitros !== data.usaArbitros) return false
+  for (const field of LEAGUE_SOCIAL_FIELDS) {
+    if (data[field] !== undefined && (current[field] ?? null) !== data[field]) return false
+  }
   if (data.logoAssetId !== undefined) {
     if (data.logoAssetId === null ? current.logo !== null : !current.logo || current.logo === before?.logo) return false
   }

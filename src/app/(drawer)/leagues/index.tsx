@@ -2,8 +2,8 @@ import { useState, useCallback, useRef, useEffect } from "react"
 import { View, Text, ActivityIndicator, TouchableOpacity } from "react-native"
 import { router, useIsFocused } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { api } from "@/infrastructure/api/client"
@@ -64,8 +64,8 @@ export default function LeaguesScreen() {
     if (leagues.length === 0) {
       if (createTourStartedRef.current) return
       const init = async () => {
-        const seen = await AsyncStorage.getItem("@tour_guide:league-create-v1")
-        if (seen === "completed") { createTourStartedRef.current = true; return }
+        const seen = await tourYaCompletado("league-create-v1")
+        if (seen) { createTourStartedRef.current = true; return }
         if (!createBtnRef.current) return
         createTimerRef.current = setTimeout(() => {
           createTourStartedRef.current = true
@@ -80,25 +80,7 @@ export default function LeaguesScreen() {
                 tooltipPosition: "bottom",
               },
             ],
-            {
-              tourId: "league-create-v1",
-              insets: { top: insets.top, bottom: insets.bottom },
-              nextButtonText: "Siguiente",
-              prevButtonText: "Atrás",
-              skipButtonText: "Saltar",
-              doneButtonText: "Entendido",
-              onTourEnd: () => { AsyncStorage.setItem("@tour_guide:league-create-v1", "completed") },
-              tooltipStyles: {
-                backgroundColor: Palette.surface,
-                titleColor: Palette.text,
-                descriptionColor: Palette.textSecondary,
-                buttonTextColor: Palette.black,
-                primaryButtonColor: Palette.cyan,
-                skipButtonColor: Palette.textMuted,
-                borderRadius: Radius.lg,
-              },
-              spotlightStyles: { overlayColor: Palette.black, overlayOpacity: 0.7 },
-            }
+            tourConfig({ tourId: "league-create-v1", insets })
           )
         }, 600)
       }
@@ -106,8 +88,8 @@ export default function LeaguesScreen() {
     } else {
       if (manageTourStartedRef.current) return
       const init = async () => {
-        const seen = await AsyncStorage.getItem("@tour_guide:league-management-v1")
-        if (seen === "completed") { manageTourStartedRef.current = true; return }
+        const seen = await tourYaCompletado("league-management-v1")
+        if (seen) { manageTourStartedRef.current = true; return }
         if (!detailBtnRef.current || !editBtnRef.current || !firstCardReady) return
         manageTimerRef.current = setTimeout(() => {
           manageTourStartedRef.current = true
@@ -130,27 +112,11 @@ export default function LeaguesScreen() {
                 tooltipPosition: "top",
               },
             ],
-            {
+            tourConfig({
               tourId: "league-management-v1",
-              insets: { top: insets.top, bottom: insets.bottom },
-              nextButtonText: "Siguiente",
-              prevButtonText: "Atrás",
-              skipButtonText: "Saltar",
-              doneButtonText: "Entendido",
-              onTourEnd: () => { AsyncStorage.setItem("@tour_guide:league-management-v1", "completed") },
-              tooltipStyles: {
-                backgroundColor: Palette.surface,
-                titleColor: Palette.text,
-                descriptionColor: Palette.textSecondary,
-                buttonTextColor: Palette.black,
-                primaryButtonColor: Palette.cyan,
-                skipButtonColor: Palette.textMuted,
-                borderRadius: Radius.lg,
-              },
-              spotlightStyles: { overlayColor: Palette.black, overlayOpacity: 0.7 },
-              scrollRef,
+              insets,
               getCurrentScrollOffset: () => scrollOffsetRef.current,
-            }
+            })
           )
         }, 600)
       }
@@ -160,7 +126,7 @@ export default function LeaguesScreen() {
       if (createTimerRef.current) clearTimeout(createTimerRef.current)
       if (manageTimerRef.current) clearTimeout(manageTimerRef.current)
     }
-  }, [isFocused, isLoading, error, leagues.length, startTour, endTour, insets.top, insets.bottom, blocked, firstCardReady, canCreate])
+  }, [isFocused, isLoading, error, leagues.length, startTour, endTour, insets, blocked, firstCardReady, canCreate])
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)

@@ -13,7 +13,7 @@ import LogoImage from "@/shared/components/LogoImage"
 import { refereeApiClient, type RefereePartidoResponse } from "@/features/partido/api/partidos"
 import { getPlayoffFinalizationError } from "@/shared/utils/playoff-finalization"
 import ScorerAllocationEditor from "@/features/partido/components/ScorerAllocationEditor"
-import { allocationsFromAnnotations, buildResultPayload, buildScorerCandidates, hasValidAllocations, participacionesFromResponse, type ParticipacionInput, type ScorerAllocation } from "@/features/partido/scoring"
+import { allocationsFromAnnotations, buildResultPayload, buildScorerCandidates, hasValidAllocations, hayGoleadoresCapturados, participacionesFromResponse, type ParticipacionInput, type ScorerAllocation } from "@/features/partido/scoring"
 import ParticipacionEditor from "@/features/partido/components/ParticipacionEditor"
 import { getRetryAfterSeconds, isRateLimitError } from "@/infrastructure/api/rate-limit"
 
@@ -82,7 +82,10 @@ export default function ArbitroScreen() {
           setAllocations(allocationsFromAnnotations(data.anotaciones))
           setParticipaciones(participacionesFromResponse(data.participaciones))
           setNotas(data.notas ?? "")
-          setExpandedSection(data.registrarParticipaciones || (data.participaciones ?? []).length > 0 ? "participantes" : "goleadores")
+          const hayGoleo = data.registrarGoleo || hayGoleadoresCapturados(data.anotaciones)
+          setExpandedSection(
+            data.registrarParticipaciones || (data.participaciones ?? []).length > 0 ? "participantes" : hayGoleo ? "goleadores" : null,
+          )
         }
       } catch (requestError: any) {
         if (!cancelled) {
@@ -163,7 +166,7 @@ export default function ArbitroScreen() {
     }
 
     setSubmitting(true)
-    const payload = buildResultPayload({ expectedVersion: partido.version, golesLocal: gl, golesVisitante: gv, penalesLocal: pl, penalesVisitante: pv, estado: "FINALIZADO", allocations, notas, ...(partido.registrarParticipaciones ? { participaciones } : {}) })
+    const payload = buildResultPayload({ expectedVersion: partido.version, golesLocal: gl, golesVisitante: gv, penalesLocal: pl, penalesVisitante: pv, estado: "FINALIZADO", allocations: partido.registrarGoleo ? allocations : [], notas, ...(partido.registrarParticipaciones ? { participaciones } : {}) })
     client.updateResult(payload)
       .then((updated) => {
         setPartido((current) => current ? { ...current, ...updated, anotaciones: payload.allocations } : current)
@@ -336,7 +339,10 @@ export default function ArbitroScreen() {
             <ParticipacionEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localPlayers={localParticipants} visitorPlayers={visitorParticipants} participaciones={participaciones} onChange={handleParticipacionesChange} disabled={finalized || submitting} readOnly={!partido.registrarParticipaciones} expanded={expandedSection === "participantes"} onToggle={() => toggleSection("participantes")} />
           ) : null}
 
-          <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, Number(localGoals) || 0)} visitorScore={Math.max(0, Number(visitorGoals) || 0)} localPlayers={localScorers} visitorPlayers={visitorScorers} allocations={allocations} onChange={setAllocations} disabled={finalized || submitting} participantes={participaciones} limitToParticipantes={partido.registrarParticipaciones} expanded={expandedSection === "goleadores"} onToggle={() => toggleSection("goleadores")} />
+          {/* Igual que en la app: apagado pero con goles ya capturados, se muestra deshabilitado. */}
+          {partido.registrarGoleo || hayGoleadoresCapturados(partido.anotaciones) ? (
+            <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, Number(localGoals) || 0)} visitorScore={Math.max(0, Number(visitorGoals) || 0)} localPlayers={localScorers} visitorPlayers={visitorScorers} allocations={allocations} onChange={setAllocations} disabled={finalized || submitting || !partido.registrarGoleo} participantes={participaciones} limitToParticipantes={partido.registrarParticipaciones} expanded={expandedSection === "goleadores"} onToggle={() => toggleSection("goleadores")} />
+          ) : null}
 
           {showPenales ? (
             <View style={{ backgroundColor: Palette.warning10, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.warning, padding: Pad.md, gap: Gap.md }}>

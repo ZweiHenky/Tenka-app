@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react"
 import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native"
 import { router, useLocalSearchParams, useIsFocused } from "expo-router"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
 import type { TourStep } from "@wrack/react-native-tour-guide"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons"
@@ -52,8 +52,8 @@ export default function TeamDivisionPlayersScreen() {
     if (tourStartedRef.current) return
     if (!divisionCardRef.current || !habSectionRef.current || !habSectionReady) return
     const init = async () => {
-      const seen = await AsyncStorage.getItem("@tour_guide:team-division-players-v1")
-      if (seen === "completed") { tourStartedRef.current = true; return }
+      const seen = await tourYaCompletado("team-division-players-v1")
+      if (seen) { tourStartedRef.current = true; return }
       tourStartedRef.current = true
       const habStep: TourStep = habilitados.length > 0
         ? {
@@ -84,31 +84,15 @@ export default function TeamDivisionPlayersScreen() {
           },
           habStep,
         ],
-        {
+        tourConfig({
           tourId: "team-division-players-v1",
-          insets: { top: insets.top, bottom: insets.bottom },
-          nextButtonText: "Siguiente",
-          prevButtonText: "Atrás",
-          skipButtonText: "Saltar",
-          doneButtonText: "Entendido",
-          onTourEnd: () => { AsyncStorage.setItem("@tour_guide:team-division-players-v1", "completed") },
-          tooltipStyles: {
-            backgroundColor: Palette.surface,
-            titleColor: Palette.text,
-            descriptionColor: Palette.textSecondary,
-            buttonTextColor: Palette.black,
-            primaryButtonColor: Palette.cyan,
-            skipButtonColor: Palette.textMuted,
-            borderRadius: Radius.lg,
-          },
-          spotlightStyles: { overlayColor: Palette.black, overlayOpacity: 0.7 },
-          scrollRef,
+          insets,
           getCurrentScrollOffset: () => scrollOffsetRef.current,
-        }
+        })
       )
     }
     init()
-  }, [isFocused, tourLoading, tourError, team, division, session?.user, habilitados.length, habSectionReady, startTour, insets.top, insets.bottom])
+  }, [isFocused, tourLoading, tourError, team, division, session?.user, habilitados.length, habSectionReady, startTour, insets])
 
   const handleRefresh = async () => {
     setRefreshing(true)

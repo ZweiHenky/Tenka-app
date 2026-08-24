@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   isValidDateStr,
   computeRefDateFromJornada,
@@ -7,10 +7,11 @@ import {
   getActiveSlots,
   migrateDivisionScheduleState,
   reconcilePlayoffSlots,
-  resolveCanchaConflicts,
   SLOT_DISTRIBUTION_VERSION,
   sortValidDays,
   useDivisionScheduleStore,
+  canDeleteSlot,
+  weekMondayFor,
   type DivisionSchedule,
 } from '../divisionSchedule'
 
@@ -88,51 +89,42 @@ describe('computeRefDateFromJornada', () => {
   })
 })
 
-describe('resolveCanchaConflicts', () => {
-  const schedule: DivisionSchedule = {
-    divisionId: 'div-conflicts',
-    slots: [],
-    refDate: '2026-07-20',
-    diasSnapshot: 'L',
-    horarioSnapshot: '18:00 - 23:00',
-    duracionSnapshot: 60,
-    descansoSnapshot: 0,
-  }
-
+// Garantía: un conflicto de cancha es un error de validación y se muestra tal cual;
+// nunca se reacomoda un slot en silencio para ocultarlo.
+describe('los conflictos de cancha no se reacomodan solos', () => {
   it('keeps conflicting slots visible without moving either one', () => {
-    const slots = resolveCanchaConflicts([
+    const slots = ensureUniqueSlotIds([
       { id: 'elim-p1', fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'eliminatoria', partidoId: 'p1', canchaId: 'c1' },
       { id: 'extra-1', fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'amistoso', canchaId: 'c1' },
-    ], schedule)
+    ])
 
     expect(slots.find((slot) => slot.id === 'extra-1')?.horaInicio).toBe('18:00')
     expect(slots.find((slot) => slot.id === 'elim-p1')?.horaInicio).toBe('18:00')
   })
 
   it('keeps simultaneous matches on different courts', () => {
-    const slots = resolveCanchaConflicts([
+    const slots = ensureUniqueSlotIds([
       { id: 'extra-1', fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'amistoso', canchaId: 'c1' },
       { id: 'elim-p1', fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'eliminatoria', partidoId: 'p1', canchaId: 'c2' },
-    ], schedule)
+    ])
 
     expect(slots.map((slot) => slot.horaInicio)).toEqual(['18:00', '18:00'])
   })
 
   it('creates five unique times for three friendlies and two eliminatorias without courts', () => {
-    const slots = resolveCanchaConflicts([
+    const slots = ensureUniqueSlotIds([
       ...Array.from({ length: 3 }, (_, i) => ({ id: `extra-${i}`, fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'amistoso' as const })),
       ...Array.from({ length: 2 }, (_, i) => ({ id: `elim-p${i}`, fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'eliminatoria' as const, partidoId: `p${i}` })),
-    ], schedule)
+    ])
 
     expect(new Set(slots.map((slot) => `${slot.fecha}-${slot.horaInicio}`)).size).toBe(1)
   })
 
   it('keeps unresolved conflict when the configured week has no capacity', () => {
-    const noCapacity = { ...schedule, horarioSnapshot: '18:00 - 19:00' }
-    const slots = resolveCanchaConflicts([
+    const slots = ensureUniqueSlotIds([
       { id: 'extra-1', fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'amistoso', canchaId: 'c1' },
       { id: 'elim-p1', fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'eliminatoria', partidoId: 'p1', canchaId: 'c1' },
-    ], noCapacity)
+    ])
 
     expect(slots).toHaveLength(2)
     expect(slots.map((slot) => slot.horaInicio)).toEqual(['18:00', '18:00'])
@@ -233,6 +225,58 @@ describe('reconcilePlayoffSlots', () => {
 
     expect(result.every((slot) => slot.tipo === 'amistoso')).toBe(true)
     expect(result.every((slot) => slot.prePlayoffTipo === 'regular')).toBe(true)
+  })
+})
+
+describe('weekMondayFor', () => {
+  const ymd = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /**
+   * La regla: la programación arranca **la semana que viene**, sin importar qué día se cree la
+   * división. Los siete días de una misma semana tienen que dar el mismo lunes.
+   */
+  it('los siete días de una semana anclan al mismo lunes', () => {
+    vi.useFakeTimers()
+    const anclas = new Set<string>()
+    // lun 17 a dom 23 de agosto de 2026
+    for (let dia = 17; dia <= 23; dia++) {
+      vi.setSystemTime(new Date(2026, 7, dia, 12, 0))
+      anclas.add(ymd(weekMondayFor()))
+    }
+    expect([...anclas]).toEqual(['2026-08-24'])
+  })
+
+  /**
+   * El caso reportado: una división de puros sábados creada en domingo proponía su primer partido
+   * el 5 de septiembre en vez del 29 de agosto. `nextMondayFrom` nunca devuelve el lunes que
+   * recibe, así que pasarle "mañana" en domingo —que ya es lunes— se saltaba una semana entera.
+   */
+  it('en domingo ancla al lunes siguiente, no al subsiguiente', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 7, 23, 12, 0)) // domingo
+
+    const lunes = weekMondayFor()
+
+    expect(ymd(lunes)).toBe('2026-08-24')
+    const sabado = new Date(lunes)
+    sabado.setDate(sabado.getDate() + 5)
+    expect(ymd(sabado)).toBe('2026-08-29')
+  })
+
+  it('un refDate guardado manda sobre el reloj', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 7, 23, 12, 0))
+
+    expect(ymd(weekMondayFor('2026-09-14'))).toBe('2026-09-14')
+  })
+
+  it('un refDate que no sea lunes se normaliza a su lunes', () => {
+    expect(ymd(weekMondayFor('2026-09-17'))).toBe('2026-09-14')
   })
 })
 
@@ -505,16 +549,6 @@ describe('useDivisionScheduleStore', () => {
       const sched = useDivisionScheduleStore.getState().schedules['div-2']
       expect(sched!.refDate).toBe('2026-07-20')
     })
-
-    it('stores and applies the authoritative fixed court', () => {
-      useDivisionScheduleStore.getState().initSchedule(
-        'div-fixed', 'L', '18:00 - 20:00', 60, 0, '2026-07-20', 2, [], ['court-1'], 'court-1',
-      )
-
-      const sched = useDivisionScheduleStore.getState().schedules['div-fixed']
-      expect(sched.canchaUnicaIdSnapshot).toBe('court-1')
-      expect(sched.slots.every((slot) => slot.canchaId === 'court-1')).toBe(true)
-    })
   })
 
   describe('syncSchedule', () => {
@@ -555,6 +589,52 @@ describe('useDivisionScheduleStore', () => {
       const schedule = useDivisionScheduleStore.getState().schedules['div-sync']
       expect(schedule.refDate).toBe('2026-08-24')
       expect(schedule.slots[0].fecha).toBe('2026-08-24')
+    })
+
+    // Un cuadro no es una plantilla que se repita: sus fechas son partidos concretos.
+    describe('sin fase de liga', () => {
+      const conCuadro = (slots: any[]) => useDivisionScheduleStore.setState({
+        schedules: {
+          'div-cuadro': { divisionId: 'div-cuadro', refDate: '2026-08-31', slots },
+        },
+      })
+
+      it('conserva las fechas pero actualiza el ancla de la semana', () => {
+        conCuadro([{ id: 'elim-p1', fecha: '2026-08-31', horaInicio: '18:00', horaFin: '19:00', tipo: 'eliminatoria', partidoId: 'p1' }])
+
+        useDivisionScheduleStore.getState().syncSchedule('div-cuadro', '2026-08-17T00:01:00.000Z', { faseLiga: false })
+
+        const schedule = useDivisionScheduleStore.getState().schedules['div-cuadro']
+        expect(schedule.slots[0].fecha).toBe('2026-08-31')
+        expect(schedule.refDate).toBe('2026-08-24')
+      })
+
+      // Con el mapeo por día de la semana los dos sábados caerían en la misma fecha y hora:
+      // un solape que la propia app rechaza al generar la jornada.
+      it('no amontona dos sábados de semanas distintas en la misma fecha', () => {
+        conCuadro([
+          { id: 'elim-p1', fecha: '2026-08-29', horaInicio: '10:00', horaFin: '11:00', tipo: 'eliminatoria', partidoId: 'p1' },
+          { id: 'elim-p2', fecha: '2026-09-05', horaInicio: '10:00', horaFin: '11:00', tipo: 'eliminatoria', partidoId: 'p2' },
+        ])
+
+        useDivisionScheduleStore.getState().syncSchedule('div-cuadro', '2026-08-17T00:01:00.000Z', { faseLiga: false })
+
+        const fechas = useDivisionScheduleStore.getState().schedules['div-cuadro'].slots.map((slot) => slot.fecha)
+        expect(new Set(fechas).size).toBe(2)
+        expect(fechas).toEqual(['2026-08-29', '2026-09-05'])
+      })
+
+      it('con fase de liga sigue moviendo todo, eliminatorias incluidas', () => {
+        conCuadro([
+          { id: 'elim-p1', fecha: '2026-08-31', horaInicio: '18:00', horaFin: '19:00', tipo: 'eliminatoria', partidoId: 'p1' },
+          { id: 'slot-0', fecha: '2026-08-31', horaInicio: '19:00', horaFin: '20:00', tipo: 'regular' },
+        ])
+
+        useDivisionScheduleStore.getState().syncSchedule('div-cuadro', '2026-08-17T00:01:00.000Z', { faseLiga: true })
+
+        const fechas = useDivisionScheduleStore.getState().schedules['div-cuadro'].slots.map((slot) => slot.fecha)
+        expect(fechas).toEqual(['2026-08-24', '2026-08-24'])
+      })
     })
   })
 
@@ -654,7 +734,7 @@ describe('useDivisionScheduleStore', () => {
       })
 
       useDivisionScheduleStore.getState().initSchedule(
-        'div-distribution', 'L,J', '17:00 - 21:10', 50, 0, '2026-07-20', 10, [], ['c1', 'c2'], null,
+        'div-distribution', 'L,J', '17:00 - 21:10', 50, 0, '2026-07-20', 10, [], ['c1', 'c2'],
       )
 
       const schedule = useDivisionScheduleStore.getState().schedules['div-distribution']
@@ -721,13 +801,128 @@ describe('useDivisionScheduleStore', () => {
     })
   })
 
+  // En una división de pura eliminatoria el cupo de regulares es 0: los partidos salen del
+  // cuadro. Sin esto se llenaría sola de partidos de liga que nadie pidió.
+  describe('cupo cero (sin fase de liga)', () => {
+    it('no genera ningún slot regular', () => {
+      const store = useDivisionScheduleStore
+      store.getState().initSchedule('div-cupo0', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 0)
+      expect(store.getState().schedules['div-cupo0']!.slots).toEqual([])
+    })
+
+    it('deja pasar los slots del cuadro y no los recorta', () => {
+      const store = useDivisionScheduleStore
+      store.getState().initSchedule('div-cupo0b', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 0)
+      store.getState().setScheduleTipoSlots('div-cupo0b', [
+        { id: 'elim-p1', fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'eliminatoria', partidoId: 'p1' },
+        { id: 'elim-p2', fecha: '2026-07-20', horaInicio: '19:00', horaFin: '20:00', tipo: 'eliminatoria', partidoId: 'p2' },
+      ])
+
+      const slots = store.getState().schedules['div-cupo0b']!.slots
+      expect(slots).toHaveLength(2)
+      // Con 0 equipos habilitados el recorte no toca las eliminatorias.
+      expect(getActiveSlots(slots, 0, true)).toHaveLength(2)
+    })
+  })
+
+  describe('removeSlot', () => {
+    it('no borra un slot regular: su cupo lo fijan los equipos habilitados', () => {
+      const store = useDivisionScheduleStore
+      store.getState().initSchedule('div-rm1', 'L', '18:00 - 20:00', 60, 0, '2026-07-20', 2)
+      const target = store.getState().schedules['div-rm1']!.slots[0]
+
+      store.getState().removeSlot('div-rm1', target.id)
+
+      expect(store.getState().schedules['div-rm1']!.slots).toHaveLength(2)
+      expect(store.getState().schedules['div-rm1']!.slots[0].id).toBe(target.id)
+    })
+
+    it('sí borra amistosos y complementos, que son los que se agregan a mano', () => {
+      const store = useDivisionScheduleStore
+      store.getState().initSchedule('div-rm2', 'L', '18:00 - 21:00', 60, 0, '2026-07-20', 1)
+      const amistoso = store.getState().addSlot('div-rm2', 'amistoso').slot!
+      const complemento = store.getState().addSlot('div-rm2', 'complemento').slot!
+
+      store.getState().removeSlot('div-rm2', amistoso.id)
+      store.getState().removeSlot('div-rm2', complemento.id)
+
+      const ids = store.getState().schedules['div-rm2']!.slots.map((slot) => slot.id)
+      expect(ids).not.toContain(amistoso.id)
+      expect(ids).not.toContain(complemento.id)
+    })
+
+    it('canDeleteSlot trata un tipo ausente como regular', () => {
+      expect(canDeleteSlot({ tipo: undefined })).toBe(false)
+      expect(canDeleteSlot({ tipo: 'regular' })).toBe(false)
+      expect(canDeleteSlot({ tipo: 'eliminatoria' })).toBe(false)
+      expect(canDeleteSlot({ tipo: 'amistoso' })).toBe(true)
+      expect(canDeleteSlot({ tipo: 'complemento' })).toBe(true)
+    })
+  })
+
+  // El relleno corre cuando sube el cupo (se habilitan más equipos) y antes generaba los slots
+  // que faltaban a partir del resumen de la división, sin cancha: terminaban en cualquier cancha
+  // libre de la liga, incluso en una donde la división no juega.
+  describe('relleno con horarios por cancha', () => {
+    const withCourts = (courtSchedules: Map<string, { diasPartido: string; horarioPartido: string }>) => ({ courtSchedules })
+
+    it('rellena solo en las canchas configuradas aunque la liga tenga más', () => {
+      const store = useDivisionScheduleStore
+      const oneCourt = new Map([['c1', { diasPartido: 'L,M', horarioPartido: '18:00 - 20:00' }]])
+      // 'L,M' / '18:00 - 20:00' son el resumen (unión) que manda el backend; la grilla real es la de c1.
+      store.getState().initSchedule('div-pc1', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 2, undefined, ['c1', 'c2'], withCourts(oneCourt))
+      expect(store.getState().schedules['div-pc1']!.slots.map((slot) => slot.canchaId)).toEqual(['c1', 'c1'])
+
+      store.getState().initSchedule('div-pc1', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 4, undefined, ['c1', 'c2'], withCourts(oneCourt))
+
+      const slots = store.getState().schedules['div-pc1']!.slots
+      expect(slots).toHaveLength(4)
+      expect(slots.map((slot) => slot.canchaId)).toEqual(['c1', 'c1', 'c1', 'c1'])
+    })
+
+    it('permite el mismo horario en dos canchas: la ocupación se mide por cancha', () => {
+      const store = useDivisionScheduleStore
+      const twoCourts = new Map([
+        ['c1', { diasPartido: 'L', horarioPartido: '18:00 - 19:00' }],
+        ['c2', { diasPartido: 'L', horarioPartido: '18:00 - 19:00' }],
+      ])
+      store.getState().initSchedule('div-pc2', 'L', '18:00 - 19:00', 60, 0, '2026-07-20', 1, undefined, ['c1', 'c2'], withCourts(twoCourts))
+      store.getState().initSchedule('div-pc2', 'L', '18:00 - 19:00', 60, 0, '2026-07-20', 2, undefined, ['c1', 'c2'], withCourts(twoCourts))
+
+      const slots = store.getState().schedules['div-pc2']!.slots
+      expect(slots).toHaveLength(2)
+      expect(slots.map((slot) => slot.canchaId).sort()).toEqual(['c1', 'c2'])
+      expect(slots.every((slot) => slot.horaInicio === '18:00')).toBe(true)
+    })
+
+    it('sin configuración por cancha el relleno se comporta como antes', () => {
+      const store = useDivisionScheduleStore
+      store.getState().initSchedule('div-pc3', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 2)
+      store.getState().initSchedule('div-pc3', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 3)
+
+      const slots = store.getState().schedules['div-pc3']!.slots
+      expect(slots).toHaveLength(3)
+      expect(slots[2]).toMatchObject({ fecha: '2026-07-21', horaInicio: '18:00', canchaId: undefined })
+    })
+  })
+
   describe('addSlot', () => {
+    // `removeSlot` ya no borra regulares: su cupo lo fijan los equipos habilitados. Para abrir
+    // un hueco a mano en estos tests se usa `replaceSlots`, que reemplaza el arreglo entero.
+    const dropSlot = (divisionId: string, slotId: string) => {
+      const store = useDivisionScheduleStore
+      store.getState().replaceSlots(
+        divisionId,
+        store.getState().schedules[divisionId]!.slots.filter((slot) => slot.id !== slotId),
+      )
+    }
+
     it('fills an earlier vacancy before creating a slot in a later day', () => {
       const store = useDivisionScheduleStore
       store.getState().initSchedule('div-add1', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 4)
       let sched = store.getState().schedules['div-add1']!
-      store.getState().removeSlot('div-add1', sched.slots[1].id)
-      const slot = store.getState().addSlot('div-add1', 'regular')
+      dropSlot('div-add1', sched.slots[1].id)
+      const slot = store.getState().addSlot('div-add1', 'regular').slot
       expect(slot).not.toBeNull()
       expect(slot!.fecha).toBe('2026-07-20')
       expect(slot!.horaInicio).toBe('19:00')
@@ -737,8 +932,8 @@ describe('useDivisionScheduleStore', () => {
       const store = useDivisionScheduleStore
       store.getState().initSchedule('div-add2', 'L,M,Mi', '18:00 - 19:00', 60, 0, '2026-07-20', 3)
       let sched = store.getState().schedules['div-add2']!
-      store.getState().removeSlot('div-add2', sched.slots[0].id)
-      const slot = store.getState().addSlot('div-add2', 'regular')
+      dropSlot('div-add2', sched.slots[0].id)
+      const slot = store.getState().addSlot('div-add2', 'regular').slot
       expect(slot).not.toBeNull()
       expect(slot!.fecha).toBe('2026-07-20')
     })
@@ -747,9 +942,9 @@ describe('useDivisionScheduleStore', () => {
       const store = useDivisionScheduleStore
       store.getState().initSchedule('div-add3', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 4)
       let sched = store.getState().schedules['div-add3']!
-      store.getState().removeSlot('div-add3', sched.slots[1].id)
-      store.getState().removeSlot('div-add3', sched.slots[2].id)
-      const slot = store.getState().addSlot('div-add3', 'regular')
+      dropSlot('div-add3', sched.slots[1].id)
+      dropSlot('div-add3', sched.slots[2].id)
+      const slot = store.getState().addSlot('div-add3', 'regular').slot
       expect(slot).not.toBeNull()
       expect(slot!.fecha).toBe('2026-07-20')
       expect(slot!.horaInicio).toBe('19:00')
@@ -758,40 +953,132 @@ describe('useDivisionScheduleStore', () => {
     it('returns null when no free slot in the reference week', () => {
       const store = useDivisionScheduleStore
       store.getState().initSchedule('div-add4', 'L', '18:00 - 20:00', 60, 0, '2026-07-20', 2)
-      expect(store.getState().addSlot('div-add4', 'regular')).toBeNull()
+      expect(store.getState().addSlot('div-add4', 'regular').slot).toBeNull()
     })
 
     it('returns null for non-existent division', () => {
       const store = useDivisionScheduleStore
-      expect(store.getState().addSlot('div-nonexistent', 'regular')).toBeNull()
+      expect(store.getState().addSlot('div-nonexistent', 'regular').slot).toBeNull()
     })
 
     it('preserves slot tipo (regular/amistoso/complemento)', () => {
       const store = useDivisionScheduleStore
       store.getState().initSchedule('div-add5', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 2)
       let sched = store.getState().schedules['div-add5']!
-      store.getState().removeSlot('div-add5', sched.slots[1].id)
+      dropSlot('div-add5', sched.slots[1].id)
 
-      expect(store.getState().addSlot('div-add5', 'regular')!.tipo).toBe('regular')
-      store.getState().removeSlot('div-add5', store.getState().schedules['div-add5']!.slots[1].id)
-      expect(store.getState().addSlot('div-add5', 'amistoso')!.tipo).toBe('amistoso')
-      store.getState().removeSlot('div-add5', store.getState().schedules['div-add5']!.slots[1].id)
-      expect(store.getState().addSlot('div-add5', 'complemento')!.tipo).toBe('complemento')
+      expect(store.getState().addSlot('div-add5', 'regular').slot!.tipo).toBe('regular')
+      dropSlot('div-add5', store.getState().schedules['div-add5']!.slots[1].id)
+      expect(store.getState().addSlot('div-add5', 'amistoso').slot!.tipo).toBe('amistoso')
+      dropSlot('div-add5', store.getState().schedules['div-add5']!.slots[1].id)
+      expect(store.getState().addSlot('div-add5', 'complemento').slot!.tipo).toBe('complemento')
     })
 
     it('assigns the preferred court without changing the earliest day and time', () => {
       const store = useDivisionScheduleStore
       store.getState().initSchedule('div-add-court', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 1)
       const existing = store.getState().schedules['div-add-court'].slots[0]
-      store.getState().removeSlot('div-add-court', existing.id)
+      dropSlot('div-add-court', existing.id)
 
-      const slot = store.getState().addSlot('div-add-court', 'amistoso', 'court-1')
+      const slot = store.getState().addSlot('div-add-court', 'amistoso', 'court-1').slot
 
       expect(slot).toMatchObject({
         fecha: '2026-07-20',
         horaInicio: '18:00',
         horaFin: '19:00',
         canchaId: 'court-1',
+      })
+    })
+
+    // El motivo importa: "no hay horarios" tapaba tres causas distintas, y la más común —las
+    // reservas de otras divisiones— no se ve en Programación.
+    describe('motivo del fallo', () => {
+      it('CANCHAS_OCUPADAS cuando los huecos propios los tiene otra división', () => {
+        const store = useDivisionScheduleStore
+        store.getState().initSchedule('div-why-a', 'L', '18:00 - 20:00', 60, 0, '2026-07-20', 1, undefined, ['c1'])
+
+        const result = store.getState().addSlot('div-why-a', 'amistoso', 'c1', {
+          courtOrder: ['c1'],
+          isCourtBlocked: () => true,
+        })
+
+        expect(result.slot).toBeNull()
+        expect(result.reason).toBe('CANCHAS_OCUPADAS')
+      })
+
+      it('SEMANA_LLENA cuando la grilla propia no deja ningún hueco', () => {
+        const store = useDivisionScheduleStore
+        // 1 día × 2 horarios = 2 celdas, ocupadas por los 2 slots generados.
+        store.getState().initSchedule('div-why-b', 'L', '18:00 - 20:00', 60, 0, '2026-07-20', 2, undefined, ['c1'])
+
+        const result = store.getState().addSlot('div-why-b', 'amistoso', 'c1', {
+          courtOrder: ['c1'],
+          isCourtBlocked: () => true,
+        })
+
+        expect(result.slot).toBeNull()
+        // isCourtBlocked nunca llegó a evaluarse: no hubo hueco propio que ofrecer.
+        expect(result.reason).toBe('SEMANA_LLENA')
+      })
+
+      it('SIN_CONFIGURACION sin días ni horario', () => {
+        const store = useDivisionScheduleStore
+        store.getState().initSchedule('div-why-c', '', '', 60, 0, '2026-07-20', 0)
+        expect(store.getState().addSlot('div-why-c', 'amistoso').reason).toBe('SIN_CONFIGURACION')
+      })
+
+      it('NO_PERMITIDO para complemento en modo eliminatorias', () => {
+        const store = useDivisionScheduleStore
+        store.getState().initSchedule('div-why-d', 'L', '18:00 - 21:00', 60, 0, '2026-07-20', 1)
+        store.getState().setPlayoffMode('div-why-d', true)
+        expect(store.getState().addSlot('div-why-d', 'complemento').reason).toBe('NO_PERMITIDO')
+      })
+
+      it('un regular recortado que sigue en la store no bloquea si no está en occupancy', () => {
+        const store = useDivisionScheduleStore
+        store.getState().initSchedule('div-why-e', 'L', '18:00 - 20:00', 60, 0, '2026-07-20', 2, undefined, ['c1'])
+        const slots = store.getState().schedules['div-why-e']!.slots
+        // Lo que getActiveSlots mostraría si se deshabilitaran equipos: solo el primero.
+        const visible = slots.slice(0, 1)
+
+        expect(store.getState().addSlot('div-why-e', 'amistoso', 'c1', { courtOrder: ['c1'] }).slot).toBeNull()
+        expect(store.getState().addSlot('div-why-e', 'amistoso', 'c1', { courtOrder: ['c1'], occupancy: visible }).slot)
+          .toMatchObject({ fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' })
+      })
+    })
+
+    // Cada cancha se recorre con su propia grilla: ofrecer una hora que esa cancha no juega
+    // produce un slot que el backend rechaza al crear la jornada.
+    describe('con horarios por cancha', () => {
+      const courtSchedules = new Map([
+        ['c1', { diasPartido: 'L', horarioPartido: '18:00 - 19:00' }],
+        ['c2', { diasPartido: 'L', horarioPartido: '19:00 - 21:00' }],
+      ])
+
+      it('no ofrece una hora fuera del rango de la cancha preferida', () => {
+        const store = useDivisionScheduleStore
+        store.getState().initSchedule('div-cs-a', 'L', '18:00 - 21:00', 60, 0, '2026-07-20', 1, undefined, ['c1', 'c2'], { courtSchedules })
+
+        const result = store.getState().addSlot('div-cs-a', 'amistoso', 'c1', { courtOrder: ['c1', 'c2'], courtSchedules })
+
+        // c1 solo juega 18:00-19:00 y su única celda ya está tomada, así que pasa a c2, que
+        // empieza a las 19:00. Sin la grilla por cancha habría puesto 19:00 en c1.
+        expect(result.slot).toMatchObject({ horaInicio: '19:00', canchaId: 'c2' })
+      })
+
+      it('sin courtSchedules sigue usando el rango de la división completa', () => {
+        const store = useDivisionScheduleStore
+        store.getState().initSchedule('div-cs-b', 'L', '18:00 - 21:00', 60, 0, '2026-07-20', 1, undefined, ['c1', 'c2'])
+        // Misma ocupación que el caso de arriba: la celda de las 18:00 en c1.
+        store.getState().replaceSlots('div-cs-b', [
+          { id: 'seed-0', fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', tipo: 'amistoso', canchaId: 'c1' },
+        ])
+
+        const result = store.getState().addSlot('div-cs-b', 'amistoso', 'c1', { courtOrder: ['c1', 'c2'] })
+
+        // Sin grilla por cancha, las 19:00 se consideran válidas en c1 aunque esa cancha
+        // solo juegue hasta las 19:00 — es justo lo que el caso anterior evita.
+        expect(result.slot).toMatchObject({ horaInicio: '19:00', canchaId: 'c1' })
       })
     })
 
@@ -814,7 +1101,7 @@ describe('useDivisionScheduleStore', () => {
 
       it('uses a later time on the same court before another court', () => {
         const store = seed('div-court-a', 'L', [{ fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' }])
-        expect(store.getState().addSlot('div-court-a', 'amistoso', 'c1', twoCourts)).toMatchObject({
+        expect(store.getState().addSlot('div-court-a', 'amistoso', 'c1', twoCourts).slot).toMatchObject({
           fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1',
         })
       })
@@ -825,7 +1112,7 @@ describe('useDivisionScheduleStore', () => {
           { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
         ])
         // c2 is wide open on Monday, but the preferred court wins: Tuesday on c1.
-        expect(store.getState().addSlot('div-court-day', 'amistoso', 'c1', twoCourts)).toMatchObject({
+        expect(store.getState().addSlot('div-court-day', 'amistoso', 'c1', twoCourts).slot).toMatchObject({
           fecha: '2026-07-21', horaInicio: '18:00', canchaId: 'c1',
         })
       })
@@ -835,7 +1122,7 @@ describe('useDivisionScheduleStore', () => {
           { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' },
           { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
         ])
-        expect(store.getState().addSlot('div-court-b', 'amistoso', 'c1', twoCourts)).toMatchObject({
+        expect(store.getState().addSlot('div-court-b', 'amistoso', 'c1', twoCourts).slot).toMatchObject({
           fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c2',
         })
       })
@@ -847,7 +1134,7 @@ describe('useDivisionScheduleStore', () => {
           { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c2' },
           { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c2' },
         ])
-        expect(store.getState().addSlot('div-court-c', 'amistoso', 'c1', twoCourts)).toMatchObject({
+        expect(store.getState().addSlot('div-court-c', 'amistoso', 'c1', twoCourts).slot).toMatchObject({
           fecha: '2026-07-21', horaInicio: '18:00', canchaId: 'c1',
         })
       })
@@ -859,7 +1146,7 @@ describe('useDivisionScheduleStore', () => {
           { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c2' },
           { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c2' },
         ])
-        expect(store.getState().addSlot('div-court-d', 'amistoso', 'c1', twoCourts)).toBeNull()
+        expect(store.getState().addSlot('div-court-d', 'amistoso', 'c1', twoCourts).slot).toBeNull()
       })
 
       it('never lands on a court missing from courtOrder', () => {
@@ -870,7 +1157,7 @@ describe('useDivisionScheduleStore', () => {
           { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
         ])
 
-        const slot = store.getState().addSlot('div-court-optout', 'amistoso', 'c1', { courtOrder: ['c1'] })
+        const slot = store.getState().addSlot('div-court-optout', 'amistoso', 'c1', { courtOrder: ['c1'] }).slot
 
         expect(slot).toMatchObject({ fecha: '2026-07-21', canchaId: 'c1' })
       })
@@ -880,7 +1167,7 @@ describe('useDivisionScheduleStore', () => {
           { fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c1' },
           { fecha: '2026-07-20', horaInicio: '19:00', canchaId: 'c1' },
         ])
-        expect(store.getState().addSlot('div-court-e', 'amistoso', 'c1')).toBeNull()
+        expect(store.getState().addSlot('div-court-e', 'amistoso', 'c1').slot).toBeNull()
       })
 
       it('skips a court the league already booked elsewhere', () => {
@@ -888,7 +1175,7 @@ describe('useDivisionScheduleStore', () => {
         const slot = store.getState().addSlot('div-court-f', 'amistoso', 'c1', {
           courtOrder: ['c1', 'c2'],
           isCourtBlocked: (canchaId, _fecha, horaInicio) => canchaId === 'c1' && horaInicio === '19:00',
-        })
+        }).slot
         expect(slot).toMatchObject({ fecha: '2026-07-20', horaInicio: '18:00', canchaId: 'c2' })
       })
     })
@@ -897,11 +1184,11 @@ describe('useDivisionScheduleStore', () => {
       const store = useDivisionScheduleStore
       store.getState().initSchedule('div-add6', 'L,M', '18:00 - 20:00', 60, 0, '2026-07-20', 2)
       store.getState().setPlayoffMode('div-add6', true)
-      expect(store.getState().addSlot('div-add6', 'regular')).toBeNull()
-      expect(store.getState().addSlot('div-add6', 'complemento')).toBeNull()
+      expect(store.getState().addSlot('div-add6', 'regular').slot).toBeNull()
+      expect(store.getState().addSlot('div-add6', 'complemento').slot).toBeNull()
       let sched = store.getState().schedules['div-add6']!
       store.getState().removeSlot('div-add6', sched.slots[1].id)
-      expect(store.getState().addSlot('div-add6', 'amistoso')).not.toBeNull()
+      expect(store.getState().addSlot('div-add6', 'amistoso').slot).not.toBeNull()
     })
 
     it('restores five regular slots after deleting two eliminatorias', () => {
@@ -932,9 +1219,7 @@ describe('useDivisionScheduleStore', () => {
     it('preserves manual amistosos when leaving playoff mode', () => {
       const store = useDivisionScheduleStore.getState()
       store.initSchedule('div-manual-friendly', 'L', '18:00 - 21:00', 60, 0, '2026-07-20', 2)
-      const schedule = useDivisionScheduleStore.getState().schedules['div-manual-friendly']
-      store.removeSlot('div-manual-friendly', schedule.slots[1].id)
-      const manual = store.addSlot('div-manual-friendly', 'amistoso')!
+      const manual = store.addSlot('div-manual-friendly', 'amistoso').slot!
       store.setPlayoffMode('div-manual-friendly', true)
       store.setPlayoffMode('div-manual-friendly', false)
 
@@ -1214,27 +1499,6 @@ describe('useDivisionScheduleStore', () => {
   })
 
   describe('cancha conflict normalization', () => {
-    it('synchronizes the fixed-court snapshot and drops a stale template', () => {
-      useDivisionScheduleStore.setState({
-        schedules: {
-          fixed: {
-            divisionId: 'fixed',
-            canchaUnicaIdSnapshot: 'old',
-            slots: [{ id: 'slot-1', fecha: '2026-07-20', horaInicio: '18:00', horaFin: '19:00', canchaId: 'old' }],
-            plantilla: [{ diaSemana: 1, horaInicio: '18:00', horaFin: '19:00', canchaId: 'old' }],
-          },
-        },
-      })
-      const nextSlots = [{ id: 'slot-1', fecha: '2026-07-20', horaInicio: '19:00', horaFin: '20:00', canchaId: 'new' }]
-
-      useDivisionScheduleStore.getState().syncCanchaUnica('fixed', 'new', nextSlots)
-
-      const schedule = useDivisionScheduleStore.getState().schedules.fixed
-      expect(schedule.canchaUnicaIdSnapshot).toBe('new')
-      expect(schedule.slots).toEqual(nextSlots)
-      expect(schedule.plantilla).toBeUndefined()
-    })
-
     it('does not move times when assigning the same court to all', () => {
       useDivisionScheduleStore.setState({
         schedules: {

@@ -11,7 +11,7 @@ import ErrorState from "@/shared/components/ErrorState"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
-import { useDivisionScheduleStore, computeRefDateFromJornada, ensureUniqueSlotIds, generateSlots, getActiveSlots, isSlotManual, localDateFromString, reconcilePlayoffSlots, SLOT_DISTRIBUTION_VERSION, type CourtScheduleConfig, type PlayoffSlotCandidate, type TimeSlotConfig } from "@/stores/divisionSchedule"
+import { useDivisionScheduleStore, canDeleteSlot, computeRefDateFromJornada, ensureUniqueSlotIds, getActiveSlots, isSlotManual, localDateFromString, reconcilePlayoffSlots, slotOccupancyKey, SLOT_DISTRIBUTION_VERSION, type CourtScheduleConfig, type TimeSlotConfig } from "@/stores/divisionSchedule"
 import { parseDiasPartido } from "@/shared/utils/parse-dias-partido"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { jornadaApi } from "@/features/jornada/api/jornadas"
@@ -22,8 +22,12 @@ import { applyAutomaticCourtAssignments, isCourtOccupiedForSlot, planFromAvailab
 import { generateTimeSlots, isTimeSlotWithinRanges, type GeneratedTimeSlot } from "@/shared/utils/time-range"
 import { availableTimesForDay, placementForDay, type DayPlacement } from "@/features/division/utils/slot-day-move"
 import { timeForCourt } from "@/features/division/utils/slot-court-move"
+import { equiposDisponiblesParaRegulares, exigeEquipoQueDescansa } from "@/features/division/utils/descanso"
+import { equiposComprometidos, permiteRepetirEquipo } from "@/features/division/utils/slot-repeticion"
 import { resolveCourtSchedules, scheduleForCourt, unionOfPlayDays } from "@/features/division/utils/division-schedule"
-import { inheritedPlayoffCandidates, isSchedulablePlayoffMatch } from "@/features/division/utils/playoff-slot-inheritance"
+import { bracketCandidates, inheritedPlayoffCandidates, isSchedulablePlayoffMatch } from "@/features/division/utils/playoff-slot-inheritance"
+import { addSlotFailureMessage, summarizeCourtConflicts } from "@/features/division/utils/court-conflicts"
+import { visibleWeekDates } from "@/features/division/utils/week-dates"
 
 const DIA_NOMBRES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
 const DIA_NOMBRES_FULL = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
@@ -63,6 +67,11 @@ function getSlotInterval(slot: TimeSlotConfig): { start: number; end: number } |
 
 interface Props {
   divisionId: string
+  /**
+   * Con `false` la división es de puro cuadro: no hay slots regulares derivados de los equipos,
+   * ni complemento, ni equipo que descansa. Los partidos salen del bracket.
+   */
+  faseLiga?: boolean
   embedded?: boolean
   isFocused?: boolean
   isGeneratingJornada: boolean
@@ -71,7 +80,7 @@ interface Props {
   scrollOffsetRef?: { current: number }
 }
 
-export default function DivisionScheduleManager({ divisionId, embedded, isFocused = true, isGeneratingJornada, onGenerateJornada, scrollRef, scrollOffsetRef }: Props) {
+export default function DivisionScheduleManager({ divisionId, faseLiga = true, embedded, isFocused = true, isGeneratingJornada, onGenerateJornada, scrollRef, scrollOffsetRef }: Props) {
   const toast = useToast()
   const qc = useQueryClient()
   const internalScrollRef = useRef<any>(null)
@@ -95,7 +104,6 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
   const addSlot = useDivisionScheduleStore((s) => s.addSlot)
   const removeSlot = useDivisionScheduleStore((s) => s.removeSlot)
   const replaceSlots = useDivisionScheduleStore((s) => s.replaceSlots)
-  const syncCanchaUnica = useDivisionScheduleStore((s) => s.syncCanchaUnica)
   const moveSlotToTime = useDivisionScheduleStore((s) => s.moveSlotToTime)
   const setDescansoEquipoId = useDivisionScheduleStore((s) => s.setDescansoEquipoId)
   const setPlayoffMode = useDivisionScheduleStore((s) => s.setPlayoffMode)
@@ -152,27 +160,10 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
   // accepts a day is decided per placement anyway.
   const validDays = useMemo(() => unionOfPlayDays(division), [division])
 
-  const weekDates = useMemo(() => {
-    if (!schedule?.refDate || validDays.length === 0) return []
-    const [y, m, d] = schedule.refDate.split("-").map(Number)
-    const weekMonday = new Date(y, m - 1, d)
-    if (isNaN(weekMonday.getTime())) return []
-    const sorted = [...validDays].sort((a, b) => {
-      const na = a === 0 ? 7 : a
-      const nb = b === 0 ? 7 : b
-      return na - nb
-    })
-    const seen = new Set<string>()
-    return sorted.map((day) => {
-      const date = new Date(weekMonday)
-      const offset = day === 0 ? 6 : day - 1
-      date.setDate(date.getDate() + offset)
-      const fechaStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-      if (seen.has(fechaStr)) return null
-      seen.add(fechaStr)
-      return fechaStr
-    }).filter(Boolean) as string[]
-  }, [schedule, validDays])
+  const weekDates = useMemo(
+    () => visibleWeekDates(schedule?.refDate, validDays, slots),
+    [schedule?.refDate, validDays, slots],
+  )
 
   const { data: lastJornada, isSuccess: lastJornadaLoaded } = useQuery({
     queryKey: ["last-jornada", divisionId],
@@ -232,11 +223,32 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
   }, [division, canchas])
 
 
-  const activeSlots = useMemo(() => getActiveSlots(slots, habilitados?.length ?? 0, playoffMode, courtIds), [slots, habilitados, playoffMode, courtIds])
-  const hasComplementoSlot = useMemo(() => activeSlots.some((s) => s.tipo === 'complemento'), [activeSlots])
-  const regularSlotsCount = useMemo(() => activeSlots.filter((s) => (s.tipo ?? 'regular') === 'regular').length, [activeSlots])
-  const maxRegularSlots = useMemo(() => Math.floor((habilitados ?? []).length / 2), [habilitados])
-  const atRegularLimit = useMemo(() => regularSlotsCount >= maxRegularSlots, [regularSlotsCount, maxRegularSlots])
+  // Solo estas canchas pueden recibir un slot. El fallback a todas las canchas cubre las ligas
+  // sin configuración por cancha, donde `courtSchedules` ya resuelve a la liga entera.
+  const playableCourtIds = useMemo(
+    () => (courtSchedules.size > 0 ? [...courtSchedules.keys()] : courtIds),
+    [courtSchedules, courtIds],
+  )
+
+  // El orden manda al recortar: los slots en canchas no jugables no están en la lista, así que
+  // caen al final del ranking y son los primeros en salir.
+  const activeSlots = useMemo(() => getActiveSlots(slots, equiposDisponiblesParaRegulares(habilitados ?? [], slots), playoffMode, playableCourtIds), [slots, habilitados, playoffMode, playableCourtIds])
+  // Antes esto era `habilitados impares && !hasComplementoSlot`, copiado en tres sitios. Ya no
+  // basta: un complemento cuyo equipo de puntos repite no absorbe al sobrante. Se mide cuántos
+  // equipos quedan de verdad para los regulares.
+  const descansoObligatorio = useMemo(
+    () => faseLiga && !playoffMode && exigeEquipoQueDescansa(habilitados, activeSlots),
+    [faseLiga, playoffMode, habilitados, activeSlots],
+  )
+  // En un cuadro no se habilitan equipos —los define el bracket—, así que lo que habilita
+  // generar es tener partidos programados.
+  const puedeGenerarJornada = faseLiga ? (habilitados ?? []).length >= 2 : activeSlots.length > 0
+  // Descuenta lo que el complemento se lleva: prometer un slot regular que nunca se puede
+  // llenar deja un hueco que al generar la jornada simplemente no produce partido.
+  const maxRegularSlots = useMemo(
+    () => (faseLiga ? Math.floor(equiposDisponiblesParaRegulares(habilitados ?? [], activeSlots) / 2) : 0),
+    [faseLiga, habilitados, activeSlots],
+  )
   const visibleSlots = useMemo(() => {
     if (habilitados === undefined) return activeSlots
     const habSet = new Set(habilitados)
@@ -317,7 +329,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
 
     // Keep the automatic playoff slots at the exact weekly capacity.
     const totalEliminatorias = slotsToKeep.filter((s) => s.tipo === 'eliminatoria').length + nuevos.length
-    const baseRegular = Math.floor((habilitados ?? []).length / 2)
+    const baseRegular = maxRegularSlots
     const targetSlotCount = Math.max(0, baseRegular - totalEliminatorias)
     const autoAmistosoCount = slotsToKeep.filter((s) => s.tipo === 'amistoso' && !isSlotManual(s)).length
     const needsSlotCountNormalization = autoAmistosoCount !== targetSlotCount
@@ -326,20 +338,16 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
     const validDays = parseDiasPartido(division?.diasPartido ?? "sab")
     const refDate = schedule?.refDate ?? slots[0]?.fecha ?? (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` })()
 
-    const duracion = division?.duracionPartido ?? 60
-    const dayTimeSlots = generateTimeSlots(division?.horarioPartido ?? "08:00-20:00", duracion, division?.descanso ?? 0)
-
-    const defaultCandidates: PlayoffSlotCandidate[] = []
-    const cursor = localDateFromString(refDate)
-    for (let d = 0; d < 60; d++) {
-      if (validDays.includes(cursor.getDay())) {
-        const fecha = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`
-        for (const ts of dayTimeSlots) {
-          defaultCandidates.push({ fecha, horaInicio: ts.horaInicio, horaFin: ts.horaFin })
-        }
-      }
-      cursor.setDate(cursor.getDate() + 1)
-    }
+    // Grilla por cancha: cada candidato trae la cancha que lo ofrece, con sus días y su rango.
+    const defaultCandidates = bracketCandidates(
+      courtSchedules,
+      division?.diasPartido ?? "sab",
+      division?.horarioPartido ?? "08:00-20:00",
+      division?.duracionPartido ?? 60,
+      division?.descanso ?? 0,
+      refDate,
+      playableCourtIds,
+    )
 
     const inheritedCandidates = [...new Set(nuevos.map((partido) => partido.rondaOrden))].flatMap((roundOrder) => {
       const matchCount = nuevos.filter((partido) => partido.rondaOrden === roundOrder).length
@@ -350,7 +358,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
     })
     const seenCandidates = new Set<string>()
     const candidates = [...inheritedCandidates, ...defaultCandidates].filter((candidate) => {
-      const key = `${candidate.fecha}|${candidate.horaInicio}`
+      const key = slotOccupancyKey(candidate)
       if (seenCandidates.has(key)) return false
       seenCandidates.add(key)
       return true
@@ -382,7 +390,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
         setDescansoEquipoId(divisionId!, undefined)
       }
     }
-  }, [partidosEliminatoria, divisionId, division?.horarioPartido, division?.duracionPartido, division?.descanso, division?.diasPartido, habilitados, rondas, slots, replaceSlots, schedule?.descansoEquipoId, schedule?.refDate, setDescansoEquipoId, playoffMode])
+  }, [partidosEliminatoria, courtSchedules, divisionId, division?.horarioPartido, division?.duracionPartido, division?.descanso, division?.diasPartido, habilitados, maxRegularSlots, playableCourtIds, rondas, slots, replaceSlots, schedule?.descansoEquipoId, schedule?.refDate, setDescansoEquipoId, playoffMode])
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -412,47 +420,46 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastJornadaLoaded, lastJornada?.fechaInicio, schedule?.refDate])
 
+  const equiposHabilitados = useMemo(() => {
+    const habSet = new Set(habilitados ?? [])
+    return divisionTeams.filter((t) => habSet.has(t.id))
+  }, [divisionTeams, habilitados])
+
+  /** Para un slot regular o de eliminatoria: los habilitados que no juegan ya en otro de esos. */
   const assignedTeams = useMemo(
     () => {
-      const habSet = new Set(habilitados ?? [])
-      const blockedTeamIds = new Set<string>()
-      for (const sl of activeSlots) {
-        if (sl.tipo === 'amistoso') continue
-        if (sl.tipo === 'complemento' && sl.equipoVisitanteId && !sl.equipoLocalId) continue
-        if (sl.equipoLocalId) blockedTeamIds.add(sl.equipoLocalId)
-        if (sl.tipo !== 'complemento' && sl.equipoVisitanteId) blockedTeamIds.add(sl.equipoVisitanteId)
-        if (sl.tipo === 'complemento' && sl.equipoLocalId) blockedTeamIds.add(sl.equipoLocalId)
-      }
-      return divisionTeams.filter((t) => habSet.has(t.id) && !blockedTeamIds.has(t.id))
+      const comprometidos = equiposComprometidos(activeSlots)
+      return equiposHabilitados.filter((t) => !comprometidos.has(t.id))
     },
-    [divisionTeams, habilitados, activeSlots],
+    [equiposHabilitados, activeSlots],
   )
 
   const pickerTeams = useMemo(() => {
     if (!pickingSlot) return assignedTeams
     const currentSlot = slots.find((s) => s.id === pickingSlot.slotId)
     if (!currentSlot) return assignedTeams
-    const tipo = currentSlot.tipo ?? 'regular'
-    const isComplementoSinPuntos = tipo === 'complemento' && pickingSlot.side === 'visitante'
-    const isAmistoso = tipo === 'amistoso'
-    if (isComplementoSinPuntos || isAmistoso) {
-      const habSet = new Set(habilitados ?? [])
-      return divisionTeams.filter((t) => habSet.has(t.id))
-    }
-    return assignedTeams
-  }, [pickingSlot, slots, assignedTeams, divisionTeams, habilitados])
+    // Los dos lados del complemento y el amistoso ofrecen a todos: son partidos extra, y un equipo
+    // que ya juega puede sumar otro. Antes solo se ampliaba para "Sin puntos", así que el selector
+    // de "Puntos" recibía la lista recortada y le faltaban equipos.
+    return permiteRepetirEquipo(currentSlot.tipo) ? equiposHabilitados : assignedTeams
+  }, [pickingSlot, slots, assignedTeams, equiposHabilitados])
 
   const multipleCourts = availability?.mode === "MULTIPLE"
-  const canchaUnicaId = division?.canchaUnicaId ?? null
-  const canchaUnica = canchas.find((cancha) => cancha.id === canchaUnicaId)
-  const canchaUnicaInactiva = !!canchaUnicaId && !canchaUnica
-  const showCanchaPicker = multipleCourts && canchas.length > 0 && !canchaUnicaId
+  // Las canchas donde esta división juega, más cualquiera que ya tenga slots: filtrar por
+  // configuración sola volvería invisible un partido heredado en una cancha que se dejó fuera.
+  const visibleCourts = useMemo(() => {
+    const withSlots = new Set(visibleSlots.map((slot) => slot.canchaId).filter((id): id is string => !!id))
+    return canchas.filter((court) => courtSchedules.has(court.id) || withSlots.has(court.id))
+  }, [canchas, courtSchedules, visibleSlots])
+
+  // Con una sola cancha usable no hay nada que elegir: ni pestañas, ni botón de cancha, ni fallback.
+  const showCanchaPicker = multipleCourts && visibleCourts.length > 1
   const courtSetupError = multipleCourts && canchas.length < 2
   const unassignedCourtSlots = visibleSlots.filter((slot) => !slot.canchaId).length
-  const selectedCourtIsAvailable = canchas.some((court) => court.id === selectedCourtId)
+  const selectedCourtIsAvailable = visibleCourts.some((court) => court.id === selectedCourtId)
     || (selectedCourtId === UNASSIGNED_COURT && unassignedCourtSlots > 0)
   const activeCourtFilter = showCanchaPicker
-    ? (selectedCourtIsAvailable ? selectedCourtId : canchas[0]?.id ?? null)
+    ? (selectedCourtIsAvailable ? selectedCourtId : visibleCourts[0]?.id ?? null)
     : null
   const displayedSlots = useMemo(() => {
     if (!activeCourtFilter) return visibleSlots
@@ -499,59 +506,24 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
     || schedule.courtSchedulesSnapshot !== courtSchedulesSnapshot
   )
   const courtPlan = useMemo(
-    () => availability && !canchaUnicaInactiva ? planFromAvailability(activeSlots, availability) : null,
-    [activeSlots, availability, canchaUnicaInactiva],
+    () => availability ? planFromAvailability(activeSlots, availability, playableCourtIds) : null,
+    [activeSlots, availability, playableCourtIds],
   )
   const conflictSlotIds = useMemo(
     () => new Set(courtPlan?.conflicts.map((conflict) => conflict.slotId) ?? []),
     [courtPlan],
   )
+  const conflictSummary = useMemo(
+    () => summarizeCourtConflicts(courtPlan?.conflicts ?? [], new Map(canchas.map((court) => [court.id, court.nombre]))),
+    [canchas, courtPlan],
+  )
 
   useEffect(() => {
-    if (!multipleCourts || !courtPlan || canchaUnicaId) return
-    const nextSlots = applyAutomaticCourtAssignments(slots, courtPlan.slots, canchas.map((court) => court.id))
+    if (!multipleCourts || !courtPlan) return
+    const nextSlots = applyAutomaticCourtAssignments(slots, courtPlan.slots, playableCourtIds)
     if (!nextSlots.some((slot, index) => slot.canchaId !== slots[index]?.canchaId)) return
     replaceSlots(divisionId, nextSlots)
-  }, [canchas, canchaUnicaId, courtPlan, divisionId, multipleCourts, replaceSlots, slots])
-
-  useEffect(() => {
-    if (!schedule || !availability || !division?.horarioPartido || !division.duracionPartido || !division.diasPartido) return
-    const hasFixedCourtMismatch = !!canchaUnicaId && slots.some((slot) => slot.canchaId !== canchaUnicaId)
-    if (schedule.canchaUnicaIdSnapshot === canchaUnicaId && !hasFixedCourtMismatch) return
-
-    if (!canchaUnicaId) {
-      const nextSlots = schedule.canchaUnicaIdSnapshot === undefined
-        ? slots
-        : slots.map((slot) => ({ ...slot, canchaId: undefined }))
-      syncCanchaUnica(divisionId, null, nextSlots)
-      return
-    }
-
-    const candidates = generateSlots(
-      division.diasPartido,
-      division.horarioPartido,
-      division.duracionPartido,
-      division.descanso ?? 0,
-      schedule.refDate,
-      undefined,
-      [canchaUnicaId],
-    ).filter((candidate) => !isCourtOccupiedForSlot(candidate, canchaUnicaId, availability, []))
-    const hasCapacity = candidates.length >= slots.length
-    const nextSlots = slots.map((slot, index) => {
-      const candidate = hasCapacity ? candidates[index] : undefined
-      return {
-        ...slot,
-        fecha: candidate?.fecha ?? slot.fecha,
-        horaInicio: candidate?.horaInicio ?? slot.horaInicio,
-        horaFin: candidate?.horaFin ?? slot.horaFin,
-        canchaId: canchaUnicaId,
-      }
-    })
-    syncCanchaUnica(divisionId, canchaUnicaId, nextSlots)
-    if (!hasCapacity && slots.length > 0) {
-      toast.info("La cancha fija no tiene espacio suficiente para reacomodar todos los slots de esta semana")
-    }
-  }, [availability, canchaUnicaId, division?.descanso, division?.diasPartido, division?.duracionPartido, division?.horarioPartido, divisionId, schedule, slots, syncCanchaUnica, toast])
+  }, [courtPlan, divisionId, multipleCourts, playableCourtIds, replaceSlots, slots])
 
   const handleGenerateSlots = useCallback(() => {
     if (!division?.horarioPartido || !division?.duracionPartido || !division?.diasPartido) {
@@ -570,13 +542,8 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
       toast.error("Configura al menos 2 canchas activas para usar el modo de múltiples canchas")
       return
     }
-    if (canchaUnicaInactiva) {
-      toast.error("La cancha fija de la división no está activa")
-      return
-    }
-    const neededSlots = Math.floor((habilitados ?? []).length / 2)
     const eliminatoriaCount = slots.filter((slot) => slot.tipo === "eliminatoria").length
-    const regularSlotsNeeded = Math.max(0, neededSlots - eliminatoriaCount)
+    const regularSlotsNeeded = Math.max(0, maxRegularSlots - eliminatoriaCount)
     // Capacity is the sum over courts of (horarios de esa cancha × sus días), so a division
     // with per-court schedules can hold more matches than días × horarios.
     const weeklyCapacity = courtSchedules.size > 0
@@ -592,19 +559,20 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
     setGenerating(true)
     const refDate = lastJornada?.fechaInicio ? computeRefDateFromJornada(lastJornada.fechaInicio) : undefined
     requestAnimationFrame(() => {
-      initSchedule(divisionId, division.diasPartido!, division.horarioPartido!, division.duracionPartido!, division.descanso ?? 0, refDate, regularSlotsNeeded, habilitados, multipleCourts ? (canchaUnicaId ? [canchaUnicaId] : canchas.map((court) => court.id)) : [], canchaUnicaId, { courtSchedules })
+      initSchedule(divisionId, division.diasPartido!, division.horarioPartido!, division.duracionPartido!, division.descanso ?? 0, refDate, regularSlotsNeeded, habilitados, multipleCourts ? canchas.map((court) => court.id) : [], { courtSchedules })
       setTimeout(() => setGenerating(false), 250)
     })
-  }, [availability, availabilityQuery.error, availabilityQuery.isLoading, canchas, canchaUnicaId, canchaUnicaInactiva, courtSchedules, courtSetupError, division, divisionId, habilitados, initSchedule, lastJornada, multipleCourts, slots, toast])
+  }, [availability, availabilityQuery.error, availabilityQuery.isLoading, canchas, courtSchedules, courtSetupError, division, divisionId, habilitados, initSchedule, lastJornada, maxRegularSlots, multipleCourts, slots, toast])
 
   useEffect(() => {
+    if (!faseLiga) return
     if (!division?.horarioPartido || !division.duracionPartido || !division.diasPartido || !habilitados || habilitados.length < 2 || lastJornada === undefined || availabilityQuery.isLoading) return
     const hasManualEdits = slots.some((slot) => ((slot.equipoLocalId || slot.equipoVisitanteId) && slot.tipo !== "eliminatoria") || slot.tipo === "amistoso" || slot.tipo === "complemento") || !!schedule?.descansoEquipoId
     if (hasManualEdits && !scheduleConfigurationChanged) return
-    if (!scheduleConfigurationChanged && slots.length > 0 && activeSlots.length >= Math.floor(habilitados.length / 2)) return
+    if (!scheduleConfigurationChanged && slots.length > 0 && activeSlots.length >= maxRegularSlots) return
     const frame = requestAnimationFrame(handleGenerateSlots)
     return () => cancelAnimationFrame(frame)
-  }, [activeSlots.length, availabilityQuery.isLoading, division?.diasPartido, division?.duracionPartido, division?.horarioPartido, habilitados, handleGenerateSlots, lastJornada, schedule?.descansoEquipoId, scheduleConfigurationChanged, slots])
+  }, [activeSlots.length, availabilityQuery.isLoading, division?.diasPartido, division?.duracionPartido, division?.horarioPartido, faseLiga, habilitados, handleGenerateSlots, lastJornada, maxRegularSlots, schedule?.descansoEquipoId, scheduleConfigurationChanged, slots])
 
   useEffect(() => {
     if (!autoOpenedRef.current && weekDates.length > 0) {
@@ -630,7 +598,10 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
   // Courts the league already booked for another division are not valid landing spots.
   const addSlotCourtBlocked = useCallback(
     (courtId: string | undefined, fecha: string, horaInicio: string, horaFin: string) => {
-      if (!courtId || !availability) return false
+      // En cancha única no hay courtId que pasar, y aun así hay que respetar lo que ya reservaron
+      // otras divisiones: el helper lo resuelve mirando el modo de la liga.
+      if (!availability) return false
+      if (!courtId && availability.mode !== "SINGLE") return false
       return isCourtOccupiedForSlot({ id: "", fecha, horaInicio, horaFin, canchaId: courtId }, courtId, availability, [])
     },
     [availability],
@@ -651,20 +622,23 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
     return weekDates.filter((fecha) => localDateFromString(fecha) >= tomorrow)
   }, [weekDates])
 
-  const handleAddSlot = useCallback((tipo: 'regular' | 'amistoso' | 'complemento') => {
-    if (tipo === 'regular' && atRegularLimit) {
-      toast.info("Ya tienes los slots regulares necesarios para los equipos habilitados")
-      return
-    }
+  // Solo amistosos y complementos: los regulares los fija el número de equipos habilitados.
+  const handleAddSlot = useCallback((tipo: 'amistoso' | 'complemento') => {
     // Prefer the court the user is currently looking at.
     // The viewed court is only a valid preference if the division plays there; otherwise fall
     // back to the first configured one so the slot never lands on an unconfigured court.
     const viewedCourt = showCanchaPicker && activeCourtFilter && activeCourtFilter !== UNASSIGNED_COURT
       ? activeCourtFilter
       : undefined
-    const preferredCourtId = canchaUnicaId
-      ?? (viewedCourt && courtSchedules.has(viewedCourt) ? viewedCourt : [...courtSchedules.keys()][0])
-    const newSlot = addSlot(divisionId!, tipo, preferredCourtId, { courtOrder, isCourtBlocked: addSlotCourtBlocked })
+    const preferredCourtId = viewedCourt && courtSchedules.has(viewedCourt) ? viewedCourt : [...courtSchedules.keys()][0]
+    const { slot: newSlot, reason } = addSlot(divisionId!, tipo, preferredCourtId, {
+      courtOrder,
+      isCourtBlocked: addSlotCourtBlocked,
+      // La store guarda regulares recortados que la pantalla no muestra; sin esto bloquearían
+      // celdas invisibles. Y cada cancha solo acepta su propia grilla de días y horas.
+      occupancy: activeSlots,
+      courtSchedules,
+    })
     if (newSlot) {
       if (newSlot.canchaId) setSelectedCourtId(newSlot.canchaId)
       setExpandedDay(newSlot.fecha)
@@ -672,9 +646,9 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
       if (focusTimerRef.current) clearTimeout(focusTimerRef.current)
       focusTimerRef.current = setTimeout(() => setFocusedSlotId(null), 3000)
     } else {
-      toast.info("No hay horarios disponibles en esta semana")
+      toast.info(addSlotFailureMessage(reason))
     }
-  }, [activeCourtFilter, addSlot, addSlotCourtBlocked, atRegularLimit, canchaUnicaId, courtOrder, courtSchedules, divisionId, showCanchaPicker, toast])
+  }, [activeCourtFilter, activeSlots, addSlot, addSlotCourtBlocked, courtOrder, courtSchedules, divisionId, showCanchaPicker, toast])
 
   // Real court bookings from the backend block a move just like draft slots do.
   // Only applies when a court is in play; single-court leagues keep the draft-only check.
@@ -771,6 +745,13 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
   const handleClearSlot = useCallback((slotId: string) => {
     const slot = slots.find((s) => s.id === slotId)
     if (!slot || slot.tipo === 'eliminatoria') return
+    // Un regular solo se limpia: su cupo lo fijan los equipos habilitados, y borrarlo abría un
+    // hueco que el relleno automático volvía a tapar en cualquier cancha libre de la liga.
+    if (!canDeleteSlot(slot)) {
+      clearSlot(divisionId!, slotId)
+      setPendingDeleteSlotId(null)
+      return
+    }
     if (pendingDeleteSlotId === slotId) {
       removeSlot(divisionId!, slotId)
       setPendingDeleteSlotId(null)
@@ -804,20 +785,34 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
           <Text style={{ color: Palette.danger, fontFamily: Fonts.semiBold, fontSize: 12 }}>No se pudo cargar la disponibilidad. Toca para reintentar.</Text>
         </TouchableOpacity>
       ) : availability ? (
-        <View style={{ padding: Pad.md, gap: Gap.micro, backgroundColor: courtSetupError || canchaUnicaInactiva ? Palette.danger10 : Palette.cyan10, borderRadius: Radius.md }}>
-          <Text style={{ color: courtSetupError || canchaUnicaInactiva ? Palette.danger : Palette.text, fontFamily: Fonts.semiBold, fontSize: 13 }}>
-            {canchaUnicaId ? `Cancha fija: ${canchaUnica?.nombre ?? "inactiva"}` : availability.mode === "SINGLE" ? "Cancha única" : `${canchas.length} canchas activas`}
+        <View style={{ padding: Pad.md, gap: Gap.micro, backgroundColor: courtSetupError ? Palette.danger10 : Palette.cyan10, borderRadius: Radius.md }}>
+          <Text style={{ color: courtSetupError ? Palette.danger : Palette.text, fontFamily: Fonts.semiBold, fontSize: 13 }}>
+            {availability.mode === "SINGLE" ? "Cancha única" : `${canchas.length} canchas activas`}
           </Text>
           <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, fontSize: 11 }}>
-            {canchaUnicaInactiva
-              ? "Selecciona otra cancha desde Opciones de división."
-              : courtSetupError
+            {courtSetupError
               ? "El modo múltiples canchas requiere al menos 2 canchas activas."
-              : `${availability.ocupaciones.length} ocupaciones guardadas en el rango · ${courtPlan?.conflicts.length ?? 0} conflictos en borradores`}
+              : `${availability.ocupaciones.length} ocupaciones guardadas en el rango`}
           </Text>
         </View>
       ) : null}
-      {habilitados && habilitados.length < 2 ? (
+      {conflictSummary ? (
+        <View style={{ padding: Pad.md, gap: Gap.micro, backgroundColor: Palette.danger10, borderRadius: Radius.md, borderLeftWidth: 4, borderLeftColor: Palette.danger }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+            <MaterialIcons name="error-outline" size={18} color={Palette.danger} />
+            <Text style={{ color: Palette.danger, fontFamily: Fonts.semiBold, fontSize: 13, flex: 1 }}>{conflictSummary.title}</Text>
+          </View>
+          <Text style={{ color: Palette.text, fontFamily: Fonts.sans, fontSize: 12 }}>{conflictSummary.detail}</Text>
+          <Text style={{ color: Palette.textMuted, fontFamily: Fonts.sans, fontSize: 12 }}>{conflictSummary.remedy}</Text>
+        </View>
+      ) : null}
+      {!faseLiga && slots.length === 0 ? (
+        <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, alignItems: "center", paddingVertical: Pad.xxl, paddingHorizontal: Pad.base, gap: Gap.md, borderWidth: 1, borderColor: Palette.border }}>
+          <MaterialIcons name="emoji-events" size={48} color={Palette.textMuted} />
+          <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold, textAlign: "center" }}>Genera el cuadro para programar</Text>
+          <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, textAlign: "center" }}>Esta división es de pura eliminatoria: los partidos salen del cuadro. Créalo en la pestaña Eliminatoria y aquí les asignas día, hora y cancha.</Text>
+        </View>
+      ) : habilitados && habilitados.length < 2 ? (
         <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, alignItems: "center", paddingVertical: Pad.xxl, paddingHorizontal: Pad.base, gap: Gap.md, borderWidth: 1, borderColor: Palette.border }}>
           <MaterialIcons name="group" size={48} color={Palette.textMuted} />
           <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold, textAlign: "center" }}>Habilita al menos 2 equipos para continuar con la configuracion</Text>
@@ -831,7 +826,14 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
       ) : (
         <View style={{ gap: Gap.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: Pad.sm }}>
-            <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.text }}>Slots ({slots.length})</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontFamily: Fonts.semiBold, color: Palette.text }}>Slots ({slots.length})</Text>
+              <Text style={{ fontSize: 11, fontFamily: Fonts.sans, color: Palette.textMuted, marginTop: 2 }}>
+                {faseLiga
+                  ? `${maxRegularSlots} regulares · uno por cada par de equipos habilitados`
+                  : "Los partidos salen del cuadro de eliminatorias"}
+              </Text>
+            </View>
             <TouchableOpacity onPress={() => setHelpOpen(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <MaterialIcons name="info-outline" size={18} color={Palette.cyan} />
             </TouchableOpacity>
@@ -842,7 +844,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
               {showCanchaPicker ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -Pad.base }}>
                   <View style={{ flexDirection: "row", gap: Gap.sm, paddingHorizontal: Pad.base }}>
-                    {canchas.map((cancha) => {
+                    {visibleCourts.map((cancha) => {
                       const isActive = activeCourtFilter === cancha.id
                       const count = visibleSlots.filter((slot) => slot.canchaId === cancha.id).length
                       return (
@@ -979,6 +981,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
                               showDayPicker={validDays.length > 1}
                               showCanchaPicker={showCanchaPicker}
                               hasCourtConflict={conflictSlotIds.has(sl.id)}
+                              canDelete={canDeleteSlot(sl)}
                               focused={focusedSlotId === sl.id}
                               pendingDelete={pendingDeleteSlotId === sl.id}
                               onSelectDay={(s) => { disarmDelete(); setDayPickerSlot(s) }}
@@ -1001,7 +1004,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
             </>
           ) : null}
 
-          {!playoffMode && habilitados && habilitados.length >= 3 && habilitados.length % 2 !== 0 && !hasComplementoSlot ? (
+          {descansoObligatorio ? (
             <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.base, gap: Gap.sm, borderWidth: 1, borderColor: schedule?.descansoEquipoId ? Palette.cyan : Palette.danger }}>
               <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans }}>Con número impar de equipos, uno debe descansar esta jornada</Text>
               <TouchableOpacity onPress={() => setShowDescansoPicker(true)} activeOpacity={0.7} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
@@ -1016,43 +1019,37 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
             </View>
           ) : null}
 
-          {!playoffMode && habilitados && habilitados.length >= 3 && habilitados.length % 2 !== 0 && !hasComplementoSlot ? (
+          {descansoObligatorio ? (
             <Text style={{ color: Palette.textMuted, fontSize: 11, fontFamily: Fonts.sans, marginTop: Gap.sm }}>O puedes agregar un partido Completar para que ese equipo no se quede sin jugar</Text>
           ) : null}
-          <View style={{ flexDirection: "row", gap: Gap.sm }}>
-            {!playoffMode ? (
+          {/* En un cuadro puro los partidos salen del bracket: ni complemento ni amistoso tienen
+              sentido, y la fila entera sobra — dejarla vacía ocuparía espacio sin ofrecer nada. */}
+          {faseLiga ? (
+            <View style={{ flexDirection: "row", gap: Gap.sm }}>
+              {!playoffMode ? (
+                <TouchableOpacity
+                  onPress={() => handleAddSlot('complemento')}
+                  activeOpacity={0.7}
+                  style={{ flex: 1, backgroundColor: Palette.warning, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
+                >
+                  <MaterialIcons name="group-add" size={18} color={Palette.black} />
+                  <Text style={{ color: Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Completar</Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
-                onPress={() => handleAddSlot('regular')}
+                onPress={() => handleAddSlot('amistoso')}
                 activeOpacity={0.7}
-                style={{ flex: 1, backgroundColor: atRegularLimit ? Palette.dark60 : Palette.cyan, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm, opacity: atRegularLimit ? 0.5 : 1 }}
+                style={{ flex: 1, backgroundColor: Palette.success, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
               >
-                <MaterialIcons name="sports" size={18} color={atRegularLimit ? Palette.textMuted : Palette.black} />
-                <Text style={{ color: atRegularLimit ? Palette.textMuted : Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Regular</Text>
+                <MaterialIcons name="sports-kabaddi" size={18} color={Palette.black} />
+                <Text style={{ color: Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Amistoso</Text>
               </TouchableOpacity>
-            ) : null}
-            {!playoffMode ? (
-              <TouchableOpacity
-                onPress={() => handleAddSlot('complemento')}
-                activeOpacity={0.7}
-                style={{ flex: 1, backgroundColor: Palette.warning, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
-              >
-                <MaterialIcons name="group-add" size={18} color={Palette.black} />
-                <Text style={{ color: Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Completar</Text>
-              </TouchableOpacity>
-            ) : null}
-            <TouchableOpacity
-              onPress={() => handleAddSlot('amistoso')}
-              activeOpacity={0.7}
-              style={{ flex: 1, backgroundColor: Palette.success, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
-            >
-              <MaterialIcons name="sports-kabaddi" size={18} color={Palette.black} />
-              <Text style={{ color: Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Amistoso</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+          ) : null}
         </View>
       )}
 
-      {(habilitados ?? []).length >= 2 ? (
+      {puedeGenerarJornada ? (
         <View style={{ gap: Gap.sm, paddingTop: Gap.md, borderTopWidth: 1, borderTopColor: Palette.border }}>
           <TouchableOpacity
             activeOpacity={0.7}
@@ -1069,12 +1066,8 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
                  toast.error("Configura al menos 2 canchas activas antes de generar")
                   return
                 }
-                if (canchaUnicaInactiva) {
-                  toast.error("Selecciona una cancha fija activa desde Opciones de división")
-                  return
-                }
-               if (courtPlan && courtPlan.conflicts.length > 0) {
-                 toast.error("Hay conflictos de cancha visibles. Corrígelos antes de generar")
+               if (conflictSummary) {
+                 toast.error(conflictSummary.remedy)
                  return
                }
               for (let i = 0; i < activeSlots.length; i++) {
@@ -1097,7 +1090,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
                   }
                 }
               }
-              const oddWithoutDescanso = !playoffMode && habilitados && habilitados.length >= 3 && habilitados.length % 2 !== 0 && !hasComplementoSlot && !schedule?.descansoEquipoId
+              const oddWithoutDescanso = descansoObligatorio && !schedule?.descansoEquipoId
               if (oddWithoutDescanso) {
                 toast.error("Selecciona qué equipo descansa antes de generar la jornada")
                 return
@@ -1182,7 +1175,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
       />
 
       <AppBottomSheetModal visible={!!dayPickerSlot} onClose={() => setDayPickerSlot(null)} title="Cambiar día" snapPoints={["55%"]}>
-        <ScrollView>
+        <View>
           {weekDates.map((fecha) => {
             const tomorrow = new Date()
             tomorrow.setDate(tomorrow.getDate() + 1)
@@ -1236,7 +1229,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
               </TouchableOpacity>
             )
           })}
-        </ScrollView>
+        </View>
       </AppBottomSheetModal>
 
       <ConfirmationModal
@@ -1262,7 +1255,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
       />
 
       <AppBottomSheetModal visible={showDescansoPicker} onClose={() => setShowDescansoPicker(false)} title="Equipo que descansa" snapPoints={["70%"]}>
-        <ScrollView>
+        <View>
           <TouchableOpacity
             onPress={() => { setDescansoEquipoId(divisionId!, undefined); setShowDescansoPicker(false) }}
             style={{ backgroundColor: Palette.danger, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", marginBottom: Gap.sm }}
@@ -1286,19 +1279,19 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
           <TouchableOpacity onPress={() => setShowDescansoPicker(false)} style={{ paddingVertical: Pad.md, alignItems: "center" }}>
             <Text style={{ color: Palette.textMuted, fontWeight: "600", fontSize: 14 }}>Cancelar</Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </AppBottomSheetModal>
 
       <AppBottomSheetModal
-        visible={multipleCourts && canchas.length > 0 && canchaPickerSlotId !== null}
+        visible={showCanchaPicker && canchaPickerSlotId !== null}
         onClose={() => setCanchaPickerSlotId(null)}
         title="Seleccionar cancha"
         snapPoints={["50%"]}
       >
-        <ScrollView>
+        <View>
           {(() => {
             const pickerSlot = activeSlots.find((slot) => slot.id === canchaPickerSlotId)
-            return canchas.map((c) => {
+            return visibleCourts.map((c) => {
               // Keeps the slot's hour when it is free on that court, otherwise the earliest one.
               const landing = pickerSlot
                 ? timeForCourt(
@@ -1359,7 +1352,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
           <TouchableOpacity onPress={() => setCanchaPickerSlotId(null)} style={{ paddingVertical: Pad.md, alignItems: "center" }}>
             <Text style={{ color: Palette.textMuted, fontSize: 14, fontFamily: Fonts.sans }}>Cancelar</Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </AppBottomSheetModal>
 
       <AppBottomSheetModal
@@ -1368,7 +1361,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
         title="Información de slots"
         snapPoints={["80%"]}
       >
-        <ScrollView contentContainerStyle={{ gap: Gap.sm }}>
+        <View style={{ gap: Gap.sm }}>
           <Text style={{ color: Palette.text, fontSize: 15, fontFamily: Fonts.semiBold, marginBottom: Gap.micro }}>Tipos de partido</Text>
           <View style={{ flexDirection: "row", alignItems: "flex-start", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.md, borderLeftWidth: 4, borderLeftColor: Palette.cyan }}>
             <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: `${Palette.cyan}30`, alignItems: "center", justifyContent: "center" }}>
@@ -1377,6 +1370,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
             <View style={{ flex: 1, gap: Gap.micro }}>
               <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Regular</Text>
               <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans }}>Ambos equipos suman puntos en la tabla general. Es el tipo por defecto.</Text>
+              <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans }}>La cantidad es fija: uno por cada par de equipos habilitados. No se agregan ni se borran a mano; para tener menos, deshabilita equipos.</Text>
             </View>
           </View>
           <View style={{ flexDirection: "row", alignItems: "flex-start", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.md, borderLeftWidth: 4, borderLeftColor: Palette.success }}>
@@ -1444,7 +1438,7 @@ export default function DivisionScheduleManager({ divisionId, embedded, isFocuse
               <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans }}>El primer toque limpia los equipos; vuelve a tocar para eliminar el slot. No aplica a eliminatorias.</Text>
             </View>
           </View>
-        </ScrollView>
+        </View>
       </AppBottomSheetModal>
     </>
   )

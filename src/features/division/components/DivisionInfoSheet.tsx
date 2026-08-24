@@ -1,4 +1,6 @@
 import { ActivityIndicator, View, Text } from "react-native"
+import CourtScheduleLines from "@/features/division/components/CourtScheduleLines"
+import { courtScheduleLines } from "@/features/division/utils/court-schedule-selection"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
@@ -19,6 +21,9 @@ interface Props {
   horarioPartido: string | null
   duracionPartido: number | null
   descanso: number | null
+  /** Configuración real por cancha. Con filas, diasPartido/horarioPartido son solo su resumen. */
+  canchaHorarios?: { canchaId: string; diasPartido: string; horarioPartido: string }[]
+  canchas?: { id: string; nombre: string }[]
   loading?: boolean
 }
 
@@ -38,8 +43,11 @@ export default function DivisionInfoSheet({
   horarioPartido,
   duracionPartido,
   descanso,
+  canchaHorarios,
+  canchas,
   loading,
 }: Props) {
+  const porCancha = courtScheduleLines(canchaHorarios, canchas)
   return (
     <AppBottomSheetModal visible={visible} onClose={onClose} title="Información" snapPoints={["65%"]} scrollable>
       <View style={{ gap: Gap.lg }}>
@@ -113,28 +121,34 @@ export default function DivisionInfoSheet({
         <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.base, gap: Gap.md, borderWidth: 1, borderColor: Palette.border }}>
           <Text style={{ fontSize: 11, fontFamily: Fonts.semiBold, color: Palette.cyan, textTransform: "uppercase", letterSpacing: 0.5 }}>Programación</Text>
           <View style={{ gap: Gap.sm }}>
-            {diasPartido ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-                <View style={{ width: 32, height: 32, borderRadius: Radius.md, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-                  <MaterialIcons name="calendar-today" size={18} color={Palette.cyan} />
+            {porCancha.length > 0 ? (
+              <CourtScheduleLines lines={porCancha} />
+            ) : (
+              <>
+              {diasPartido ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+                  <View style={{ width: 32, height: 32, borderRadius: Radius.md, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                    <MaterialIcons name="calendar-today" size={18} color={Palette.cyan} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Días de juego</Text>
+                    <Text style={{ fontSize: 13, fontFamily: Fonts.sans, color: Palette.text }}>{diasPartido}</Text>
+                  </View>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Días de juego</Text>
-                  <Text style={{ fontSize: 13, fontFamily: Fonts.sans, color: Palette.text }}>{diasPartido}</Text>
+              ) : null}
+              {horarioPartido ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
+                  <View style={{ width: 32, height: 32, borderRadius: Radius.md, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+                    <MaterialIcons name="access-time" size={18} color={Palette.cyan} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
+                    <Text style={{ fontSize: 13, fontFamily: Fonts.sans, color: Palette.text }}>{horarioPartido}</Text>
+                  </View>
                 </View>
-              </View>
-            ) : null}
-            {horarioPartido ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>
-                <View style={{ width: 32, height: 32, borderRadius: Radius.md, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-                  <MaterialIcons name="access-time" size={18} color={Palette.cyan} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 10, fontFamily: Fonts.semiBold, color: Palette.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Horario</Text>
-                  <Text style={{ fontSize: 13, fontFamily: Fonts.sans, color: Palette.text }}>{horarioPartido}</Text>
-                </View>
-              </View>
-            ) : null}
+              ) : null}
+              </>
+            )}
             <View style={{ height: 1, backgroundColor: Palette.border, marginVertical: Gap.sm }} />
             {duracionPartido != null ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm }}>

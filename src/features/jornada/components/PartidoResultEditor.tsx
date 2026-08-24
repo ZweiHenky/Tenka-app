@@ -7,9 +7,10 @@ import type { PartidoResponse } from "@/features/jornada/api/jornadas"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { useToast } from "@/shared/components/Toast"
 import { getPlayoffFinalizationError } from "@/shared/utils/playoff-finalization"
+import { ACTION_HELP, secondaryActions } from "@/features/jornada/utils/partido-acciones"
 import ScorerAllocationEditor from "@/features/partido/components/ScorerAllocationEditor"
 import ParticipacionEditor from "@/features/partido/components/ParticipacionEditor"
-import { allocationsFromAnnotations, hasValidAllocations, isResultEditable, participacionesFromResponse, type ParticipacionInput, type ScorerAllocation, type ScorerCandidate } from "@/features/partido/scoring"
+import { allocationsFromAnnotations, hasValidAllocations, hayGoleadoresCapturados, isResultEditable, participacionesFromResponse, type ParticipacionInput, type ScorerAllocation, type ScorerCandidate } from "@/features/partido/scoring"
 
 const ESTADO_LABELS: Record<string, string> = {
   PROGRAMADO: "Programado",
@@ -25,29 +26,12 @@ const TIPO_INFO = {
   ELIMINATORIA: { label: "Eliminatoria", color: Palette.playoff, background: Palette.playoff10 },
 } as const
 
-const ACTION_HELP: { icon: keyof typeof MaterialIcons.glyphMap; title: string; description: string; color: string; background: string }[] = [
-  { icon: "check-circle", title: "Finalizar partido", description: "Guarda el resultado final y, cuando corresponde, actualiza la tabla de posiciones.", color: Palette.cyan, background: Palette.cyan10 },
-  { icon: "pause-circle-outline", title: "Suspender", description: "Marca el partido como suspendido para que no cuente en la tabla.", color: Palette.danger, background: Palette.danger10 },
-  { icon: "replay", title: "Reabrir", description: "Regresa el partido a programado y limpia el resultado para poder corregirlo.", color: Palette.cyan, background: Palette.cyan10 },
-  { icon: "flag", title: "Penales", description: "Aparecen en eliminatorias y cuando la división los usa para resolver empates.", color: Palette.warning, background: Palette.warning10 },
-]
-
-function secondaryActions(estado: string | null): { label: string; targetEstado: string; icon: keyof typeof MaterialIcons.glyphMap }[] {
-  if (estado === "FINALIZADO") {
-    return [
-      { label: "Suspender", targetEstado: "SUSPENDIDO", icon: "pause-circle-outline" },
-      { label: "Reabrir", targetEstado: "PROGRAMADO", icon: "replay" },
-    ]
-  }
-  if (estado === "SUSPENDIDO") return [{ label: "Reabrir", targetEstado: "PROGRAMADO", icon: "replay" }]
-  if (estado === "EN_JUEGO") return [{ label: "Suspender", targetEstado: "SUSPENDIDO", icon: "pause-circle-outline" }]
-  return []
-}
 
 interface Props {
   partido: PartidoResponse
   isUpdating: boolean
   registrarParticipaciones?: boolean
+  registrarGoleo?: boolean
   usarPenalesEnEmpates?: boolean
   onSave: (golesLocal: number, golesVisitante: number, estado: string, anotaciones: ScorerAllocation[], penalesLocal?: number, penalesVisitante?: number, tipoPartido?: string, participaciones?: ParticipacionInput[], notas?: string | null) => void
   onReplaceTeam?: (side: "local" | "visitor") => void
@@ -57,9 +41,12 @@ interface Props {
   visitorPlayers?: ScorerCandidate[]
   localParticipantPlayers?: ScorerCandidate[]
   visitorParticipantPlayers?: ScorerCandidate[]
+  /** Solo en partidos del cuadro: deja ver quién no llega al mínimo antes de guardar. */
+  partidosPorJugador?: Record<string, number>
+  minimoEliminatoria?: number
 }
 
-function PartidoResultEditorForm({ partido, isUpdating, registrarParticipaciones = false, usarPenalesEnEmpates = true, onSave, onReplaceTeam, canReplaceTeams = false, multiplesCanchas = false, localPlayers = [], visitorPlayers = [], localParticipantPlayers = localPlayers, visitorParticipantPlayers = visitorPlayers }: Props) {
+function PartidoResultEditorForm({ partido, isUpdating, registrarParticipaciones = false, registrarGoleo = true, usarPenalesEnEmpates = true, onSave, onReplaceTeam, canReplaceTeams = false, multiplesCanchas = false, localPlayers = [], visitorPlayers = [], localParticipantPlayers = localPlayers, visitorParticipantPlayers = visitorPlayers, partidosPorJugador, minimoEliminatoria }: Props) {
   const toast = useToast()
   const arbitros = partido.arbitros?.map((arbitro) => arbitro.nombre).filter(Boolean).join(", ") ?? ""
   const [golesLocal, setGolesLocal] = useState(() => partido.estado === "PROGRAMADO" || !partido.estado ? "" : String(partido.golesLocal))
@@ -72,7 +59,14 @@ function PartidoResultEditorForm({ partido, isUpdating, registrarParticipaciones
   const [participaciones, setParticipaciones] = useState<ParticipacionInput[]>(() => participacionesFromResponse(partido.participaciones))
   const [notas, setNotas] = useState(() => partido.notas ?? "")
   const hasParticipantes = registrarParticipaciones || (partido.participaciones ?? []).length > 0
-  const [expandedSection, setExpandedSection] = useState<"participantes" | "goleadores" | null>(hasParticipantes ? "participantes" : "goleadores")
+  // Con el goleo apagado el editor sigue apareciendo si el partido ya tiene goleadores, pero
+  // deshabilitado: esconderlo dejaría esos goles invisibles e incorregibles.
+  // Sobre lo persistido, no sobre el estado editable: mirando `allocations`, la tarjeta
+  // desaparecería a media edición en cuanto se vaciaran los goleadores.
+  const hasGoleadores = registrarGoleo || hayGoleadoresCapturados(partido.anotaciones)
+  const [expandedSection, setExpandedSection] = useState<"participantes" | "goleadores" | null>(
+    hasParticipantes ? "participantes" : hasGoleadores ? "goleadores" : null,
+  )
   const toggleSection = (section: "participantes" | "goleadores") => setExpandedSection((current) => (current === section ? null : section))
 
   const handleParticipacionesChange = (next: ParticipacionInput[]) => {
@@ -140,7 +134,7 @@ function PartidoResultEditorForm({ partido, isUpdating, registrarParticipaciones
       }
     }
 
-    onSave(parsed.gl, parsed.gv, "FINALIZADO", allocations, requierePenales ? (penales?.pl ?? undefined) : undefined, requierePenales ? (penales?.pv ?? undefined) : undefined, partido.tipoPartido, registrarParticipaciones ? participaciones : undefined, notas)
+    onSave(parsed.gl, parsed.gv, "FINALIZADO", registrarGoleo ? allocations : [], requierePenales ? (penales?.pl ?? undefined) : undefined, requierePenales ? (penales?.pv ?? undefined) : undefined, partido.tipoPartido, registrarParticipaciones ? participaciones : undefined, notas)
   }
 
   const handleSecondary = (targetEstado: string) => {
@@ -271,10 +265,12 @@ function PartidoResultEditorForm({ partido, isUpdating, registrarParticipaciones
         </View>
 
         {hasParticipantes ? (
-          <ParticipacionEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localPlayers={localParticipantPlayers} visitorPlayers={visitorParticipantPlayers} participaciones={participaciones} onChange={handleParticipacionesChange} disabled={inputsDisabled || isUpdating} readOnly={!registrarParticipaciones} expanded={expandedSection === "participantes"} onToggle={() => toggleSection("participantes")} />
+          <ParticipacionEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localPlayers={localParticipantPlayers} visitorPlayers={visitorParticipantPlayers} participaciones={participaciones} onChange={handleParticipacionesChange} disabled={inputsDisabled || isUpdating} readOnly={!registrarParticipaciones} expanded={expandedSection === "participantes"} onToggle={() => toggleSection("participantes")} partidosPorJugador={partidosPorJugador} minimoEliminatoria={minimoEliminatoria} />
         ) : null}
 
-        <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, parseInt(golesLocal, 10) || 0)} visitorScore={Math.max(0, parseInt(golesVisitante, 10) || 0)} localPlayers={localPlayers} visitorPlayers={visitorPlayers} allocations={allocations} onChange={setAllocations} disabled={inputsDisabled || isUpdating} participantes={participaciones} limitToParticipantes={registrarParticipaciones} expanded={expandedSection === "goleadores"} onToggle={() => toggleSection("goleadores")} />
+        {hasGoleadores ? (
+          <ScorerAllocationEditor localName={equipoLocalNombre} visitorName={equipoVisitanteNombre} localScore={Math.max(0, parseInt(golesLocal, 10) || 0)} visitorScore={Math.max(0, parseInt(golesVisitante, 10) || 0)} localPlayers={localPlayers} visitorPlayers={visitorPlayers} allocations={allocations} onChange={setAllocations} disabled={inputsDisabled || isUpdating || !registrarGoleo} participantes={participaciones} limitToParticipantes={registrarParticipaciones} expanded={expandedSection === "goleadores"} onToggle={() => toggleSection("goleadores")} />
+        ) : null}
 
         {mostrarPenales ? (
           <View style={{ backgroundColor: Palette.warning10, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.warning, padding: Pad.md, gap: Gap.md }}>

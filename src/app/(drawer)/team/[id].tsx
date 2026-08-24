@@ -3,8 +3,8 @@ import { View, Text, TouchableOpacity, Image, Modal, TextInput, ActivityIndicato
 import { Flag, CountryModalProvider, CountryFilter, CountryList, getAllCountries, FlagType } from "react-native-country-picker-modal"
 import type { Country, CountryCode } from "react-native-country-picker-modal"
 import { router, useLocalSearchParams, useIsFocused } from "expo-router"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useQuery } from "@tanstack/react-query"
 import { MaterialIcons } from "@expo/vector-icons"
@@ -24,6 +24,8 @@ import EmptyState from "@/shared/components/EmptyState"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { TabBar } from "@/shared/components/TabBar"
+import TeamAchievementsList from "@/features/team/components/TeamAchievementsList"
+import { useCampeonatosEquipo } from "@/features/division-campeon/hooks/useDivisionCampeon"
 import { useToast } from "@/shared/components/Toast"
 import TeamDetailHeaderCard from "@/features/team/components/TeamDetailHeaderCard"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
@@ -41,7 +43,7 @@ export default function TeamDetailScreen() {
   const toast = useToast()
   const guard = useNavGuard()
   const { id } = useLocalSearchParams<{ id: string }>()
-  const [tab, setTab] = useState<"jugadores" | "divisiones">("jugadores")
+  const [tab, setTab] = useState<"jugadores" | "divisiones" | "logros">("jugadores")
   const isFocused = useIsFocused()
   const { data: team, isLoading, error, refetch } = useTeam(id, isFocused)
   const { data: jugadores = [], isLoading: loadingPlayers, refetch: refetchPlayers } = useJugadores(id, isFocused && tab === "jugadores")
@@ -90,8 +92,8 @@ export default function TeamDetailScreen() {
     if (!isFocused || isLoading || error || !team || !session?.user || tab !== "jugadores" || blocked) return
     if (tourStartedRef.current) return
     const init = async () => {
-      const seen = await AsyncStorage.getItem("@tour_guide:team-detail-v1")
-      if (seen === "completed") { tourStartedRef.current = true; return }
+      const seen = await tourYaCompletado("team-detail-v1")
+      if (seen) { tourStartedRef.current = true; return }
       if (!newPlayerBtnRef.current || !tabBarRef.current) return
       if (jugadores.length > 0 && (!firstPlayerRef.current || !firstPlayerReady)) return
       tourStartedRef.current = true
@@ -123,30 +125,10 @@ export default function TeamDetailScreen() {
         spotlightPadding: 8,
         tooltipPosition: "bottom",
       })
-      startTour(steps, {
-        tourId: "team-detail-v1",
-        insets: { top: insets.top, bottom: insets.bottom },
-        nextButtonText: "Siguiente",
-        prevButtonText: "Atrás",
-        skipButtonText: "Saltar",
-        doneButtonText: "Entendido",
-        onTourEnd: () => { AsyncStorage.setItem("@tour_guide:team-detail-v1", "completed") },
-        tooltipStyles: {
-          backgroundColor: Palette.surface,
-          titleColor: Palette.text,
-          descriptionColor: Palette.textSecondary,
-          buttonTextColor: Palette.black,
-          primaryButtonColor: Palette.cyan,
-          skipButtonColor: Palette.textMuted,
-          borderRadius: Radius.lg,
-        },
-        spotlightStyles: { overlayColor: Palette.black, overlayOpacity: 0.7 },
-        scrollRef,
-        getCurrentScrollOffset: () => scrollOffsetRef.current,
-      })
+      startTour(steps, tourConfig({ tourId: "team-detail-v1", insets, getCurrentScrollOffset: () => scrollOffsetRef.current }))
     }
     init()
-  }, [isFocused, isLoading, error, team, session?.user, tab, blocked, jugadores.length, firstPlayerReady, startTour, endTour, insets.top, insets.bottom])
+  }, [isFocused, isLoading, error, team, session?.user, tab, blocked, jugadores.length, firstPlayerReady, startTour, endTour, insets])
 
   useEffect(() => {
     if (!countryPickerOpen || countryCatalogRequestedRef.current) return
@@ -169,6 +151,8 @@ export default function TeamDetailScreen() {
     })
   }, [allCountries, countryFilter])
 
+  const { data: logros = [], isLoading: loadingLogros, error: logrosError, refetch: refetchLogros } = useCampeonatosEquipo(id, isFocused && tab === "logros")
+
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
@@ -176,6 +160,7 @@ export default function TeamDetailScreen() {
         refetch(),
         tab === "jugadores" ? refetchPlayers() : Promise.resolve(),
         tab === "divisiones" ? refetchDivisionLinks() : Promise.resolve(),
+        tab === "logros" ? refetchLogros() : Promise.resolve(),
       ])
     } finally {
       setRefreshing(false)
@@ -273,9 +258,9 @@ export default function TeamDetailScreen() {
           <TeamDetailHeaderCard nombre={team.nombre} logo={team.logo} codigo={team.codigo} />
           <View ref={tabBarRef}>
              <TabBar
-               tabs={[{ key: "jugadores", label: "Jugadores" }, { key: "divisiones", label: "Divisiones" }]}
+               tabs={[{ key: "jugadores", label: "Jugadores" }, { key: "divisiones", label: "Divisiones" }, { key: "logros", label: "Logros" }]}
                activeTab={tab}
-               onTabChange={(nextTab) => setTab(nextTab as "jugadores" | "divisiones")}
+               onTabChange={(nextTab) => setTab(nextTab as "jugadores" | "divisiones" | "logros")}
              />
            </View>
 
@@ -316,6 +301,20 @@ export default function TeamDetailScreen() {
               })
             )}
           </View>
+          ) : null}
+
+          {tab === "logros" ? (
+            <View style={{ gap: Gap.sm }}>
+              <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.semiBold, textTransform: "uppercase", letterSpacing: 0.5 }}>Logros</Text>
+              <Text style={{ color: Palette.textMuted, fontSize: 12 }}>Divisiones que ha ganado el equipo</Text>
+              {loadingLogros ? (
+                <ActivityIndicator color={Palette.cyan} />
+              ) : logrosError ? (
+                <ErrorState message={(logrosError as Error).message} onRetry={() => refetchLogros()} />
+              ) : (
+                <TeamAchievementsList logros={logros} />
+              )}
+            </View>
           ) : null}
 
           {tab === "divisiones" ? (

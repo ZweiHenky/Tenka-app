@@ -2,11 +2,16 @@ import { api } from "@/infrastructure/api/client"
 
 export interface GoleadorRow {
   rank: number
-  jugadorId: string
+  /**
+   * `null` cuando el jugador ya no existe: la fila sobrevive por el snapshot del nombre y sale
+   * como "Jugador eliminado". No hay perfil al que ir ni campeonato que otorgarle.
+   */
+  jugadorId: string | null
   nombre: string
   foto: string | null
   goles: number
-  equipos: { equipoId: string; nombre: string; goles: number }[]
+  /** `equipoId` es `null` por lo mismo: el equipo se borró y solo queda su nombre. */
+  equipos: { equipoId: string | null; nombre: string; goles: number }[]
 }
 
 export interface GoleadoresResponse {

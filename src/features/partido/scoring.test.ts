@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { allocationsFromAnnotations, buildResultAnnotations, buildResultPayload, buildScorerCandidates, canSetAllocation, filterScorerCandidatesByParticipants, hasValidAllocations, isParticipant, isResultEditable, participacionesFromResponse, toggleParticipacion, type ParticipacionInput, type ScorerAllocation, type ScorerCandidate } from "./scoring"
+import { allocationsFromAnnotations, buildResultAnnotations, buildResultPayload, buildScorerCandidates, canSetAllocation, filterScorerCandidatesByParticipants, hasValidAllocations, hayGoleadoresCapturados, isParticipant, isResultEditable, participacionesFromResponse, toggleParticipacion, type ParticipacionInput, type ScorerAllocation, type ScorerCandidate } from "./scoring"
 
 const allocations: ScorerAllocation[] = [
   { ladoMarcador: "LOCAL", jugadorId: "player-1", cantidad: 2 },
@@ -138,5 +138,38 @@ describe("result participaciones", () => {
       { id: "player-2", nombre: "Luis", foto: null, dorsal: 7 },
     ]
     expect(filterScorerCandidatesByParticipants(players, [], "LOCAL")).toEqual([])
+  })
+})
+
+describe("hayGoleadoresCapturados", () => {
+  /**
+   * El caso que motiva el helper. El servidor escribe filas sin dueño para que la suma de
+   * anotaciones cuadre con el marcador, **también con el goleo apagado**; medir por longitud las
+   * contaba como historial y hacía aparecer el editor en cada partido guardado.
+   */
+  it("las filas sin dueño no son goleadores capturados", () => {
+    expect(hayGoleadoresCapturados([
+      { ladoMarcador: "LOCAL", jugadorId: null, cantidad: 2 },
+      { ladoMarcador: "VISITANTE", jugadorId: null, cantidad: 1 },
+    ])).toBe(false)
+  })
+
+  /** Lo que la regla de "congelar, no esconder" tiene que seguir protegiendo. */
+  it("basta un goleador con nombre", () => {
+    expect(hayGoleadoresCapturados([
+      { ladoMarcador: "LOCAL", jugadorId: null, cantidad: 2 },
+      { ladoMarcador: "LOCAL", jugadorId: "player-1", cantidad: 1 },
+    ])).toBe(true)
+  })
+
+  it("sin anotaciones no hay nada que congelar", () => {
+    expect(hayGoleadoresCapturados([])).toBe(false)
+    expect(hayGoleadoresCapturados()).toBe(false)
+  })
+
+  it("un jugador con cero goles no cuenta, igual que en allocationsFromAnnotations", () => {
+    expect(hayGoleadoresCapturados([
+      { ladoMarcador: "LOCAL", jugadorId: "player-1", cantidad: 0 },
+    ])).toBe(false)
   })
 })

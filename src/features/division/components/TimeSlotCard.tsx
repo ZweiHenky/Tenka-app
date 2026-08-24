@@ -12,6 +12,8 @@ interface Props {
   showCanchaPicker: boolean
   hasCourtConflict?: boolean
   focused?: boolean
+  /** Los regulares no se borran (su cupo lo fijan los equipos): el botón solo limpia. */
+  canDelete?: boolean
   pendingDelete?: boolean
   onSelectDay: (slot: TimeSlotConfig) => void
   onClearSlot: (slotId: string) => void
@@ -41,7 +43,7 @@ function tipoLabel(tipo: string | undefined): string {
   return 'Regular'
 }
 
-export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canchaNombre, showDayPicker, showCanchaPicker, hasCourtConflict, focused, pendingDelete, onSelectDay, onClearSlot, onAssignTeam, onChangeTime, onSelectCancha }: Props) {
+export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canchaNombre, showDayPicker, showCanchaPicker, hasCourtConflict, focused, canDelete = true, pendingDelete, onSelectDay, onClearSlot, onAssignTeam, onChangeTime, onSelectCancha }: Props) {
   const color = tipoColor(slot.tipo)
   const bg = tipoBg(slot.tipo)
   const esEliminatoria = slot.tipo === "eliminatoria"
@@ -49,6 +51,15 @@ export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canch
   const textMuted = Palette.textMuted
   const courtColor = hasCourtConflict ? Palette.danger : canchaNombre ? Palette.warning : Palette.textMuted
   const courtBackground = hasCourtConflict ? Palette.danger10 : canchaNombre ? Palette.warning10 : Palette.cyan10
+  // El realce del slot recién agregado intensifica su color, no lo reemplaza: antes se forzaba
+  // cian —el color del tipo Regular— y un Amistoso o un Completar perdían su identidad justo
+  // cuando uno los estaba mirando. El conflicto de cancha sigue ganando sobre el tipo.
+  const accentColor = hasCourtConflict ? Palette.danger : color
+  // El fondo no toma el tinte del tipo: `bg` ya es el de las cajas de equipos de adentro, y se
+  // fundirían con la tarjeta. El realce vive en el borde y en el resplandor.
+  const focusStyle = focused
+    ? { borderWidth: 2, elevation: 4, shadowColor: accentColor, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.45, shadowRadius: 6 }
+    : { borderWidth: 1, elevation: 0 }
   const courtButton = showCanchaPicker && onSelectCancha ? (
     <TouchableOpacity
       accessibilityRole="button"
@@ -61,7 +72,7 @@ export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canch
   ) : null
 
   return (
-    <View style={{ backgroundColor: focused ? Palette.cyan10 : Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.base, gap: Gap.sm, borderWidth: focused ? 2 : 1, borderColor: hasCourtConflict ? Palette.danger : focused ? Palette.cyan : color, position: "relative", elevation: focused ? 4 : 0 }}>
+    <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.base, gap: Gap.sm, borderColor: accentColor, position: "relative", ...focusStyle }}>
       {slot.tipo ? (
         <View style={{ position: "absolute", top: -10, left: 12, height: 18, flexDirection: "row", alignItems: "center", gap: Gap.micro, backgroundColor: Palette.surfaceLight, paddingHorizontal: Pad.sm }}>
           {slot.tipo === "eliminatoria" ? <MaterialIcons name="emoji-events" size={12} color={color} /> : null}
@@ -83,8 +94,17 @@ export default function TimeSlotCard({ slot, localNombre, visitanteNombre, canch
               </TouchableOpacity>
             ) : null}
             {courtButton}
-            <TouchableOpacity onPress={() => onClearSlot(slot.id)} style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: pendingDelete ? Palette.danger10 : "transparent", alignItems: "center", justifyContent: "center" }}>
-              <MaterialIcons name={pendingDelete ? "delete-forever" : "delete-outline"} size={18} color={pendingDelete ? Palette.danger : Palette.danger} />
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={canDelete ? "Borrar slot" : "Limpiar equipos del slot"}
+              onPress={() => onClearSlot(slot.id)}
+              style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: pendingDelete ? Palette.danger10 : "transparent", alignItems: "center", justifyContent: "center" }}
+            >
+              <MaterialIcons
+                name={!canDelete ? "backspace" : pendingDelete ? "delete-forever" : "delete-outline"}
+                size={18}
+                color={canDelete ? Palette.danger : Palette.textMuted}
+              />
             </TouchableOpacity>
           </View>
         </View>

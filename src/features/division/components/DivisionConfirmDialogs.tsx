@@ -24,7 +24,14 @@ interface Props {
   onCloseReset: () => void
   resetDivisionIsPending: boolean
 
+  showRemoveCampeonConfirm: boolean
+  onConfirmRemoveCampeon: () => void
+  onCloseRemoveCampeon: () => void
+  removeCampeonIsPending: boolean
+
   isGeneratingJornada: boolean
+  generateRondasIsPending: boolean
+  assignCampeonIsPending: boolean
 }
 
 export default function DivisionConfirmDialogs({
@@ -44,10 +51,26 @@ export default function DivisionConfirmDialogs({
   onConfirmReset,
   onCloseReset,
   resetDivisionIsPending,
+  showRemoveCampeonConfirm,
+  onConfirmRemoveCampeon,
+  onCloseRemoveCampeon,
+  removeCampeonIsPending,
   isGeneratingJornada,
+  generateRondasIsPending,
+  assignCampeonIsPending,
 }: Props) {
   const insets = useSafeAreaInsets()
   const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 32 : 0)
+
+  // Un solo overlay para todas: nunca corren dos a la vez, y repetir el bloque con distinto texto
+  // invita a que se desincronicen.
+  const busyLabel = isGeneratingJornada ? "Generando jornada..."
+    : generateRondasIsPending ? "Generando eliminatorias..."
+    : deleteRondasIsPending ? "Eliminando eliminatorias..."
+    : resetDivisionIsPending ? "Reiniciando división..."
+    : assignCampeonIsPending ? "Asignando campeón..."
+    : removeCampeonIsPending ? "Quitando campeón..."
+    : null
 
   return (
     <>
@@ -79,21 +102,28 @@ export default function DivisionConfirmDialogs({
         message="¿Seguro? Se borrarán todas las rondas y partidos de eliminatoria. Esta acción no se puede deshacer."
         variant="danger"
         confirmLabel="Eliminar"
-        loading={deleteRondasIsPending}
         onConfirm={onConfirmDeletePlayoffs}
         onClose={onCloseDeletePlayoffs}
       />
       <ConfirmationModal
         visible={showResetConfirm}
         title="Reiniciar división"
-        message="¿Seguro? Se borrarán todas las jornadas, partidos, eliminatorias y estadísticas. Los equipos se conservan."
+        message="¿Seguro? Se borrarán todas las jornadas, partidos, eliminatorias y estadísticas. Los equipos se conservan, el campeón pasa a Títulos anteriores y la división vuelve a quedar en curso."
         variant="danger"
         confirmLabel="Reiniciar"
-        loading={resetDivisionIsPending}
         onConfirm={onConfirmReset}
         onClose={onCloseReset}
       />
-      <Modal visible={isGeneratingJornada} transparent animationType="slide">
+      <ConfirmationModal
+        visible={showRemoveCampeonConfirm}
+        title="Quitar campeón"
+        message="La división queda sin ganador. Puedes volver a asignarlo cuando quieras."
+        variant="danger"
+        confirmLabel="Quitar"
+        onConfirm={onConfirmRemoveCampeon}
+        onClose={onCloseRemoveCampeon}
+      />
+      <Modal visible={busyLabel !== null} transparent animationType="slide">
         <View style={{ flex: 1, backgroundColor: Palette.overlay, justifyContent: "flex-end" }}>
           <View style={{
             backgroundColor: Palette.surface,
@@ -109,7 +139,7 @@ export default function DivisionConfirmDialogs({
             borderColor: Palette.border,
           }}>
             <ActivityIndicator size="large" color={Palette.cyan} />
-            <Text style={{ color: Palette.cyan, fontSize: 18, fontWeight: "700" }}>Generando jornada...</Text>
+            <Text style={{ color: Palette.cyan, fontSize: 18, fontWeight: "700" }}>{busyLabel}</Text>
           </View>
         </View>
       </Modal>

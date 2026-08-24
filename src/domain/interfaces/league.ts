@@ -11,11 +11,18 @@ export interface TipoRef {
 export interface EstadoLigaRef {
   id: string
   nombre: string
+  /**
+   * Identidad estable: BORRADOR | ABIERTA | EN_CURSO | FINALIZADA | CANCELADA. Toda lógica se
+   * decide con esto; el nombre es solo la etiqueta que se muestra, y es editable por API.
+   */
+  codigo?: string
 }
 
 export interface TipoCompetenciaRef {
   id: string
   nombre: string
+  /** Identidad estable del formato. El nombre es editable; esto no. Ver competition-format.ts. */
+  codigo?: string
 }
 
 export interface DivisionConRelaciones {
@@ -25,6 +32,8 @@ export interface DivisionConRelaciones {
   arbitraje: number
   diasPartido: string | null
   horarioPartido: string | null
+  /** Configuración real por cancha; los escalares de arriba son solo su resumen (unión). */
+  canchaHorarios?: CourtScheduleRow[]
   duracionPartido: number | null
   descanso: number | null
   fechaInicio: string | null
@@ -36,13 +45,22 @@ export interface DivisionConRelaciones {
   categoriaId: string
   tipoId: string
   tipoCompetenciaId: string
-  canchaUnicaId: string | null
   registrarParticipaciones: boolean
+  registrarGoleo: boolean
+  /** Partidos de la fase regular exigidos para alinear en eliminatorias. 0 = sin requisito. */
+  minPartidosEliminatoria?: number
   usarPenalesEnEmpates: boolean
-  categoria: CategoriaRef
-  tipo: TipoRef
-  estadoLiga: EstadoLigaRef
-  tipoCompetencia: TipoCompetenciaRef
+  /**
+   * Opcionales a propósito, aunque el servidor de hoy siempre los mande: la app se despliega por
+   * separado del backend y se encuentra versiones más viejas —el de testing, un usuario que no
+   * actualizó, un rollback—. Declararlos obligatorios hacía que un campo ausente tumbara la
+   * pantalla con "Cannot read property 'nombre' of undefined", y TypeScript no podía avisar
+   * porque el tipo prometía lo que el cable no garantiza.
+   */
+  categoria?: CategoriaRef
+  tipo?: TipoRef
+  estadoLiga?: EstadoLigaRef
+  tipoCompetencia?: TipoCompetenciaRef
 }
 
 export interface LigaCanchaRef {
@@ -100,11 +118,19 @@ export interface League {
   usaArbitros?: boolean
   arbitros?: { id: string; nombre: string }[]
   reglas?: LeagueRule[]
+  facebook?: string | null
+  x?: string | null
+  instagram?: string | null
+  tiktok?: string | null
 }
 
 export interface CreateLeagueInput {
   nombre: string
   descripcion: string
+  facebook?: string | null
+  x?: string | null
+  instagram?: string | null
+  tiktok?: string | null
   logoAssetId?: string | null
   coverAssetId?: string | null
   multiplesCanchas?: boolean
@@ -132,8 +158,10 @@ export interface Division {
   categoriaId: string
   tipoId: string
   tipoCompetenciaId: string
-  canchaUnicaId: string | null
   registrarParticipaciones: boolean
+  registrarGoleo: boolean
+  /** Partidos de la fase regular exigidos para alinear en eliminatorias. 0 = sin requisito. */
+  minPartidosEliminatoria?: number
   usarPenalesEnEmpates: boolean
   /**
    * Configuración real por cancha. Cuando trae filas, diasPartido/horarioPartido son solo su
@@ -142,7 +170,12 @@ export interface Division {
   canchaHorarios?: CourtScheduleRow[]
   liga?: { id: string; nombre: string; logo: string | null }
   categoria?: CategoriaRef
-  estadoLiga?: { id: string; nombre: string }
+  estadoLiga?: EstadoLigaRef
+  /**
+   * Los títulos que ha dado esta división, vigente y anteriores. Solo el id del equipo: sirve para
+   * el distintivo de campeón en la ficha del equipo.
+   */
+  campeones?: { equipoId: string | null }[]
 }
 
 export interface CreateDivisionInput {
@@ -160,9 +193,10 @@ export interface CreateDivisionInput {
   categoriaId: string
   tipoId: string
   tipoCompetenciaId: string
-  canchaUnicaId?: string | null
   /** Reemplaza por completo la configuración por cancha. Arreglo vacío = volver a los escalares. */
   horariosPorCancha?: CourtScheduleRow[]
   registrarParticipaciones?: boolean
+  registrarGoleo?: boolean
+  minPartidosEliminatoria?: number
   usarPenalesEnEmpates?: boolean
 }

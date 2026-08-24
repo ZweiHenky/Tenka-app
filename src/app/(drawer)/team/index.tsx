@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from "react"
 import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native"
 import { router, useIsFocused } from "expo-router"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
 import QRCode from "react-native-qrcode-svg"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Radius, Pad, Gap, Palette } from "@/constants/theme"
@@ -90,8 +90,8 @@ export default function TeamScreen() {
     if (!addButtonRef.current) return
 
     const init = async () => {
-      const seen = await AsyncStorage.getItem("@tour_guide:team-create-v1")
-      if (seen === "completed") { hasSeenCreateTour.current = true; return }
+      const seen = await tourYaCompletado("team-create-v1")
+      if (seen) { hasSeenCreateTour.current = true; return }
 
       startTour(
         [
@@ -104,30 +104,12 @@ export default function TeamScreen() {
             tooltipPosition: "bottom",
           },
         ],
-        {
-          tourId: "team-create-v1",
-          insets: { top: insets.top, bottom: insets.bottom },
-          nextButtonText: "Siguiente",
-          prevButtonText: "Atrás",
-          skipButtonText: "Saltar",
-          doneButtonText: "Entendido",
-          onTourEnd: () => { AsyncStorage.setItem("@tour_guide:team-create-v1", "completed") },
-          tooltipStyles: {
-            backgroundColor: Palette.surface,
-            titleColor: Palette.text,
-            descriptionColor: Palette.textSecondary,
-            buttonTextColor: Palette.black,
-            primaryButtonColor: Palette.cyan,
-            skipButtonColor: Palette.textMuted,
-            borderRadius: Radius.lg,
-          },
-          spotlightStyles: { overlayColor: Palette.black, overlayOpacity: 0.7 },
-        }
+        tourConfig({ tourId: "team-create-v1", insets })
       )
       hasSeenCreateTour.current = true
     }
     init()
-  }, [isFocused, isLoading, teams.length, startTour, insets.top, insets.bottom, canCreate])
+  }, [isFocused, isLoading, teams.length, startTour, insets, canCreate])
 
   useEffect(() => {
     if (hasSeenManagementTour.current) return
@@ -135,8 +117,8 @@ export default function TeamScreen() {
     if (!firstCardRef.current || !qrButtonRef.current || !editButtonRef.current) return
 
     const init = async () => {
-      const seen = await AsyncStorage.getItem("@tour_guide:team-management-v1")
-      if (seen === "completed") { hasSeenManagementTour.current = true; return }
+      const seen = await tourYaCompletado("team-management-v1")
+      if (seen) { hasSeenManagementTour.current = true; return }
 
       startTour(
         [
@@ -165,32 +147,17 @@ export default function TeamScreen() {
             tooltipPosition: "top",
           },
         ],
-        {
+        tourConfig({
           tourId: "team-management-v1",
-          insets: { top: insets.top, bottom: insets.bottom },
-          nextButtonText: "Siguiente",
-          prevButtonText: "Atrás",
-          skipButtonText: "Saltar",
-          doneButtonText: "Entendido",
-          onTourEnd: () => { AsyncStorage.setItem("@tour_guide:team-management-v1", "completed") },
-          tooltipStyles: {
-            backgroundColor: Palette.surface,
-            titleColor: Palette.text,
-            descriptionColor: Palette.textSecondary,
-            buttonTextColor: Palette.black,
-            primaryButtonColor: Palette.cyan,
-            skipButtonColor: Palette.textMuted,
-            borderRadius: Radius.lg,
-          },
-          spotlightStyles: { overlayColor: Palette.black, overlayOpacity: 0.7 },
+          insets,
           scrollRef: scrollViewRef,
           getCurrentScrollOffset: () => scrollOffsetRef.current,
-        }
+        })
       )
       hasSeenManagementTour.current = true
     }
     init()
-  }, [isFocused, isLoading, teams.length, firstCardReady, startTour, insets.top, insets.bottom])
+  }, [isFocused, isLoading, teams.length, firstCardReady, startTour, insets])
 
   if (isLoading) {
     return (

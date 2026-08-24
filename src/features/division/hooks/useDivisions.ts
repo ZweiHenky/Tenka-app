@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { removeDeletedQuery } from "@/shared/utils/query-cache"
+import { divisionCampeonKey, historialCampeonesKey } from "@/features/division-campeon/queryKeys"
 import { divisionApi } from "@/features/division/api/divisions"
-import type { CourtScheduleRow, CreateDivisionInput, Division } from "@/domain/interfaces/league"
+import type { CreateDivisionInput, Division } from "@/domain/interfaces/league"
 import type { InfiniteData } from "@tanstack/react-query"
 import type { JornadaPage, JornadaResponse } from "@/features/jornada/api/jornadas"
 import { emptyJornadasInfinite } from "@/features/jornada/jornadaCache"
@@ -9,12 +11,7 @@ import type { GoleadoresResponse } from "@/features/goleador/api/goleadores"
 import { useDivisionScheduleStore } from "@/stores/divisionSchedule"
 import type { PartidoResponse } from "@/features/partido/api/partidos"
 import { committed, notCommitted, withAmbiguousWriteRecovery } from "@/infrastructure/api/ambiguous-write"
-
-function removeDeletedQuery(qc: ReturnType<typeof useQueryClient>, queryKey: readonly unknown[]) {
-  const query = qc.getQueryCache().find({ queryKey, exact: true })
-  if (query?.isActive()) qc.invalidateQueries({ queryKey, exact: true })
-  else qc.removeQueries({ queryKey, exact: true })
-}
+import { divisionWriteCommitted } from "@/features/division/utils/division-write-check"
 
 export function useDivisions(ligaId: string, enabled = true) {
   return useQuery({
@@ -61,22 +58,7 @@ export function useUpdateDivision(ligaId: string) {
       () => divisionApi.update(id, data),
       async () => {
         const division = await divisionApi.getById(id)
-        const fields: (keyof CreateDivisionInput)[] = [
-          "nombre", "maxEquipos", "arbitraje", "diasPartido", "horarioPartido", "duracionPartido", "descanso",
-          "estadoLigaId", "categoriaId", "tipoId", "tipoCompetenciaId", "canchaUnicaId", "registrarParticipaciones", "usarPenalesEnEmpates",
-        ]
-        const matches = fields.every((field) => data[field] === undefined || division[field as keyof Division] === data[field])
-        const dateMatches = data.fechaInicio === undefined || division.fechaInicio?.startsWith(data.fechaInicio) === true
-        // Array field: the scalar === above would always say "different", and leaving it out
-        // would wrongly report a per-court save as committed when only that field changed.
-        const canonical = (rows: CourtScheduleRow[] | undefined) => JSON.stringify(
-          [...(rows ?? [])]
-            .map((row) => ({ canchaId: row.canchaId, diasPartido: row.diasPartido, horarioPartido: row.horarioPartido }))
-            .sort((a, b) => a.canchaId.localeCompare(b.canchaId)),
-        )
-        const courtsMatch = data.horariosPorCancha === undefined
-          || canonical(data.horariosPorCancha) === canonical(division.canchaHorarios)
-        return matches && dateMatches && courtsMatch ? committed(division) : notCommitted()
+        return divisionWriteCommitted(data, division) ? committed(division) : notCommitted()
       },
     ),
     onSuccess: (result, { id }) => {
@@ -139,6 +121,8 @@ export function useResetDivision() {
       qc.setQueryData(["rondas-playoff", divisionId], [])
       qc.setQueryData(["last-jornada", divisionId], null)
       qc.setQueryData<GoleadoresResponse>(["goleadores", divisionId], { rows: [], unattributedGoals: 0 })
+      qc.setQueryData(divisionCampeonKey(divisionId), null)
+      qc.invalidateQueries({ queryKey: historialCampeonesKey(divisionId), exact: true })
       useDivisionScheduleStore.getState().resetSchedule(divisionId)
       qc.invalidateQueries({ queryKey: ["tabla-posiciones", divisionId], exact: true })
       qc.invalidateQueries({ queryKey: ["court-availability", leagueId] })

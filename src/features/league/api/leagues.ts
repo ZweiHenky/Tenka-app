@@ -35,9 +35,19 @@ export interface PublicLeagueListDto {
     arbitraje: number
     diasPartido: string | null
     horarioPartido: string | null
-    categoria: { id: string; nombre: string }
-    tipo: { id: string; nombre: string }
-    estadoLiga: { id: string; nombre: string }
+    /** Configuración real por cancha; los escalares de arriba son solo su resumen (unión). */
+    canchaHorarios?: { canchaId: string; diasPartido: string; horarioPartido: string; cancha: { nombre: string } }[]
+    /**
+     * Opcionales a propósito, aunque el servidor de hoy siempre los mande: la app se despliega por
+     * separado del backend y se encuentra versiones más viejas —testing, un usuario que no
+     * actualizó, un rollback—. Declararlos obligatorios hacía que un campo ausente tumbara la
+     * pantalla con "Cannot read property 'nombre' of undefined", y TypeScript no podía avisar
+     * porque el tipo prometía lo que el cable no garantiza.
+     */
+    categoria?: { id: string; nombre: string }
+    tipo?: { id: string; nombre: string }
+    tipoCompetencia?: { id: string; nombre: string }
+    estadoLiga?: { id: string; nombre: string }
   }[]
 }
 

@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { View, Text, ScrollView } from "react-native"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Gap, Palette, Fonts } from "@/constants/theme"
+import { ladoGanador } from "@/features/division/utils/campeon"
 
 export interface BracketMatchData {
   id: string
@@ -113,14 +114,11 @@ export default function BracketView({ rounds }: Props) {
                 )
               }
 
-              const localWon = m.estado === "FINALIZADO" && (
-                m.golesLocal > m.golesVisitante ||
-                (m.golesLocal === m.golesVisitante && m.penalesLocal != null && m.penalesLocal > (m.penalesVisitante ?? 0))
-              )
-              const visitWon = m.estado === "FINALIZADO" && (
-                m.golesVisitante > m.golesLocal ||
-                (m.golesLocal === m.golesVisitante && m.penalesVisitante != null && m.penalesVisitante > (m.penalesLocal ?? 0))
-              )
+              // La regla de desempate vive en el util: la comparten el cuadro y la sugerencia de
+              // campeón, y allá sí se puede testear.
+              const ganador = ladoGanador(m)
+              const localWon = ganador === "LOCAL"
+              const visitWon = ganador === "VISITANTE"
               const finished = m.estado === "FINALIZADO"
 
               return (

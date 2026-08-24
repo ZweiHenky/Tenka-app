@@ -1,8 +1,7 @@
 import { useEffect, useRef } from "react"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide, type TourStep } from "@wrack/react-native-tour-guide"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
-import { Palette, Radius } from "@/constants/theme"
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
 
 interface UseTourOptions {
   tourId: string
@@ -33,8 +32,6 @@ export function useTour({
   const tourCheckingRef = useRef(false)
   const tourTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const asyncStorageKey = `@tour_guide:${tourId}`
-
   useEffect(() => {
     if ((!isFocused || isBlocked) && isActive && activeTourId === tourId) {
       endTour()
@@ -50,9 +47,9 @@ export function useTour({
     tourCheckingRef.current = true
 
     const initTour = async () => {
-      const seen = await AsyncStorage.getItem(asyncStorageKey)
+      const yaVisto = await tourYaCompletado(tourId)
       if (cancelled) return
-      if (seen === "completed") {
+      if (yaVisto) {
         tourStartedRef.current = true
         tourCheckingRef.current = false
         return
@@ -62,32 +59,10 @@ export function useTour({
         if (cancelled || isActive) return
         tourStartedRef.current = true
         tourCheckingRef.current = false
-        startTour(steps, {
-          tourId,
-          insets: { top: insets.top, bottom: insets.bottom },
-          nextButtonText: "Siguiente",
-          prevButtonText: "Atrás",
-          skipButtonText: "Saltar",
-          doneButtonText: "Entendido",
-          onTourEnd: () => {
-            AsyncStorage.setItem(asyncStorageKey, "completed")
-            onTourEnd?.()
-          },
-          tooltipStyles: {
-            backgroundColor: Palette.surface,
-            titleColor: Palette.text,
-            descriptionColor: Palette.textSecondary,
-            buttonTextColor: Palette.black,
-            primaryButtonColor: Palette.cyan,
-            skipButtonColor: Palette.textMuted,
-            borderRadius: Radius.lg,
-          },
-          spotlightStyles: {
-            overlayColor: Palette.black,
-            overlayOpacity: 0.7,
-          },
-          ...(scrollRef ? { scrollRef, getCurrentScrollOffset } : {}),
-        })
+        startTour(
+          steps,
+          tourConfig({ tourId, insets, onTourEnd, scrollRef, getCurrentScrollOffset }),
+        )
       }, 600)
     }
 
@@ -103,8 +78,7 @@ export function useTour({
     }
   }, [
     isFocused, isBlocked, isEnabled, allRefsReady, isActive,
-    tourId, steps, startTour, insets.top, insets.bottom,
+    tourId, steps, startTour, insets,
     onTourEnd, scrollRef, getCurrentScrollOffset,
-    asyncStorageKey,
   ])
 }

@@ -2,8 +2,8 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react"
 import { View, Text, FlatList, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, RefreshControl } from "react-native"
 import { router, useIsFocused } from "expo-router"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide } from "@wrack/react-native-tour-guide"
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
 import { useQueryClient } from "@tanstack/react-query"
 import { Radius, Pad, Gap, Palette, MaxContentWidth, Fonts } from "@/constants/theme"
 import { MaterialIcons } from "@expo/vector-icons"
@@ -165,8 +165,8 @@ export default function Home() {
     if (!searchRef.current || !filterRef.current || !firstCardRef.current) return
 
     const initTour = async () => {
-      const seen = await AsyncStorage.getItem("@tour_guide:home-discovery-v1")
-      if (seen === "completed") {
+      const seen = await tourYaCompletado("home-discovery-v1")
+      if (seen) {
         tourStartedRef.current = true
         return
       }
@@ -200,36 +200,18 @@ export default function Home() {
             tooltipPosition: "top",
           },
         ],
-        {
+        tourConfig({
           tourId: "home-discovery-v1",
-          insets: { top: insets.top, bottom: insets.bottom },
-          nextButtonText: "Siguiente",
-          prevButtonText: "Atrás",
-          skipButtonText: "Saltar",
-          doneButtonText: "Entendido",
-          onTourEnd: () => { AsyncStorage.setItem("@tour_guide:home-discovery-v1", "completed") },
-          tooltipStyles: {
-            backgroundColor: Palette.surface,
-            titleColor: Palette.text,
-            descriptionColor: Palette.textSecondary,
-            buttonTextColor: Palette.black,
-            primaryButtonColor: Palette.cyan,
-            skipButtonColor: Palette.textMuted,
-            borderRadius: Radius.lg,
-          },
-          spotlightStyles: {
-            overlayColor: Palette.black,
-            overlayOpacity: 0.7,
-          },
+          insets,
           scrollRef: flatListScroller,
           getCurrentScrollOffset: () => scrollOffsetRef.current,
-        }
+        })
       )
       tourStartedRef.current = true
     }
 
     initTour()
-  }, [isFocused, ligas.length, firstCardReady, startTour, insets.top, insets.bottom])
+  }, [isFocused, ligas.length, firstCardReady, startTour, insets])
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>

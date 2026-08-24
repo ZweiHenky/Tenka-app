@@ -27,3 +27,18 @@ export function formatTimeInTimeZone(isoDate: string, timeZone: string): string 
     hour12: false,
   }).format(new Date(isoDate))
 }
+
+/**
+ * Mes y año en español: "marzo de 2026".
+ *
+ * El palmarés de un equipo lo usa para la fecha en que se coronó. Va a mes y no a día porque ese
+ * dato es cuándo se asignó el campeón, no cuándo se jugó la final: casi siempre coinciden, pero
+ * mostrar el día exacto fingiría una precisión que el dato no garantiza.
+ *
+ * Una fecha inválida devuelve cadena vacía en vez de "Invalid Date" en pantalla.
+ */
+export function formatMonthYear(isoDate: string): string {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleDateString("es-MX", { month: "long", year: "numeric" })
+}

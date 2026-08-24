@@ -8,81 +8,23 @@ import { useToast } from "@/shared/components/Toast"
 import { useLeague } from "@/features/league/hooks/useLeagues"
 import { useLookups, type Lookups } from "@/features/league/hooks/useLookups"
 import { useDivision, useCreateDivision, useUpdateDivision } from "@/features/division/hooks/useDivisions"
-import type { CourtScheduleRow, Division, LigaCanchaRef } from "@/domain/interfaces/league"
+import type { Division, LigaCanchaRef } from "@/domain/interfaces/league"
 import { SelectField } from "@/shared/components/SelectField"
 import { TimeRangePicker } from "@/shared/components/TimeRangePicker"
-import { calculateTimeRangeCapacity, parseTimeRanges, validateTimeRange } from "@/shared/utils/time-range"
 import DivisionDaysPicker from "@/features/division/components/DivisionDaysPicker"
 import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import { AuthGate } from "@/shared/components/AuthGate"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
-
-interface FormState {
-  nombre: string
-  maxEquipos: string
-  arbitraje: string
-  duracionPartido: string
-  descanso: string
-  categoriaId: string
-  tipoId: string
-  tipoCompetenciaId: string
-  diasPartido: string
-  horarioPartido: string
-  usarPenalesEnEmpates: boolean
-  /** Off = cada cancha define sus propios días y horario. */
-  mismoHorarioTodasLasCanchas: boolean
-  /** Config por cancha, solo se usa cuando el interruptor está apagado. */
-  porCancha: Record<string, CourtFormEntry>
-}
-
-interface CourtFormEntry {
-  juega: boolean
-  diasPartido: string
-  horarioPartido: string
-}
-
-const EMPTY_COURT_ENTRY: CourtFormEntry = { juega: false, diasPartido: "", horarioPartido: "" }
-
-function normalizeForm(form: FormState) {
-  return {
-    nombre: form.nombre,
-    maxEquipos: form.maxEquipos,
-    arbitraje: form.arbitraje,
-    duracionPartido: form.duracionPartido,
-    descanso: form.descanso,
-    categoriaId: form.categoriaId,
-    tipoId: form.tipoId,
-    tipoCompetenciaId: form.tipoCompetenciaId,
-    diasPartido: form.diasPartido,
-    horarioPartido: form.horarioPartido,
-    usarPenalesEnEmpates: form.usarPenalesEnEmpates,
-    mismoHorarioTodasLasCanchas: form.mismoHorarioTodasLasCanchas,
-    porCancha: form.porCancha,
-  }
-}
-
-const EMPTY_FORM: FormState = {
-  nombre: "",
-  maxEquipos: "",
-  arbitraje: "",
-  duracionPartido: "",
-  descanso: "",
-  categoriaId: "",
-  tipoId: "",
-  tipoCompetenciaId: "",
-  diasPartido: "",
-  horarioPartido: "",
-  usarPenalesEnEmpates: true,
-  mismoHorarioTodasLasCanchas: true,
-  porCancha: {},
-}
-
-function hasValidRanges(value: string): boolean {
-  const ranges = parseTimeRanges(value)
-  return ranges.length > 0 && ranges.every((r) => /^\d{2}:\d{2}$/.test(r.start) && /^\d{2}:\d{2}$/.test(r.end))
-}
+import {
+  buildDivisionPayload,
+  EMPTY_COURT_ENTRY,
+  hydrateDivisionForm,
+  validateDivisionForm,
+  type CourtFormEntry,
+  type DivisionFormState,
+} from "@/features/division/utils/division-form"
 
 interface FormContentProps {
   id: string
@@ -98,42 +40,9 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups, c
   const createDivision = useCreateDivision(id)
   const updateDivision = useUpdateDivision(id)
 
-  const [initialForm] = useState<FormState>(() => {
-    if (isEdit && division) {
-      return {
-        nombre: division.nombre,
-        maxEquipos: String(division.maxEquipos),
-        arbitraje: String(division.arbitraje),
-        duracionPartido: division.duracionPartido != null ? String(division.duracionPartido) : "",
-        descanso: division.descanso != null ? String(division.descanso) : "",
-        categoriaId: division.categoriaId,
-        tipoId: division.tipoId,
-        tipoCompetenciaId: division.tipoCompetenciaId,
-        diasPartido: division.diasPartido || "",
-        horarioPartido: division.horarioPartido || "",
-        usarPenalesEnEmpates: division.usarPenalesEnEmpates !== false,
-        // Rows present = the division was configured court by court.
-        mismoHorarioTodasLasCanchas: (division.canchaHorarios ?? []).length === 0,
-        porCancha: Object.fromEntries(canchas.map((court) => {
-          const row = (division.canchaHorarios ?? []).find((entry) => entry.canchaId === court.id)
-          return [court.id, row
-            ? { juega: true, diasPartido: row.diasPartido, horarioPartido: row.horarioPartido }
-            : { ...EMPTY_COURT_ENTRY }]
-        })),
-      }
-    }
-    return {
-      ...EMPTY_FORM,
-      porCancha: Object.fromEntries(canchas.map((court) => [court.id, { ...EMPTY_COURT_ENTRY }])),
-    }
-  })
+  const [initialForm] = useState<DivisionFormState>(() => hydrateDivisionForm(isEdit ? division : null, canchas))
 
-  const [form, setForm] = useState<FormState>(initialForm)
-
-  const perCourtRows = useMemo((): CourtScheduleRow[] => Object.entries(form.porCancha)
-    .filter(([, entry]) => entry.juega)
-    .map(([canchaId, entry]) => ({ canchaId, diasPartido: entry.diasPartido, horarioPartido: entry.horarioPartido })),
-    [form.porCancha])
+  const [form, setForm] = useState<DivisionFormState>(initialForm)
 
   const setCourt = useCallback((canchaId: string, patch: Partial<CourtFormEntry>) => {
     setForm((prev) => ({
@@ -151,82 +60,25 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups, c
   const allowLeaveRef = useRef(false)
   const savingRef = useRef(false)
 
-  const dirty = useMemo(() => {
-    return JSON.stringify(normalizeForm(form)) !== JSON.stringify(normalizeForm(initialForm))
-  }, [form, initialForm])
-
-  const validate = (): string | null => {
-    if (!form.nombre.trim()) return "El nombre es obligatorio"
-    const maxEquipos = Number(form.maxEquipos)
-    if (!Number.isFinite(maxEquipos) || maxEquipos < 2 || maxEquipos !== Math.floor(maxEquipos))
-      return "Equipos debe ser un número entero mayor o igual a 2"
-    if (!form.categoriaId) return "Selecciona una categoría"
-    if (!form.tipoId) return "Selecciona un tipo"
-    if (!form.tipoCompetenciaId) return "Selecciona un tipo de competencia"
-    const dur = form.duracionPartido
-    if (!dur || !Number.isFinite(Number(dur)) || Number(dur) <= 0) return "Duración del partido es obligatoria y debe ser un número positivo"
-    const desc = form.descanso
-    if (desc && (!Number.isFinite(Number(desc)) || Number(desc) < 0)) return "Tiempo libre debe ser un número no negativo"
-
-    // Same ruleset either way; only the source of days/hours differs.
-    const checkSchedule = (dias: string, horario: string, label: string): string | null => {
-      if (!dias) return `Selecciona al menos un día de partido${label}`
-      if (!hasValidRanges(horario)) return `Agrega al menos un rango de horario${label}`
-      const ranges = parseTimeRanges(horario)
-      for (let index = 0; index < ranges.length; index++) {
-        const range = ranges[index]
-        const rangeError = validateTimeRange(range.start, range.end, ranges, index)
-        if (rangeError) return `${rangeError}${label}`
-        const capacity = calculateTimeRangeCapacity(range.start, range.end, Number(dur), Number(desc) || 0)
-        if (capacity.matchCount === 0) return `El rango ${range.start} - ${range.end} no alcanza para un partido completo${label}`
-      }
-      return null
-    }
-
-    if (form.mismoHorarioTodasLasCanchas) {
-      return checkSchedule(form.diasPartido, form.horarioPartido, "")
-    }
-
-    if (perCourtRows.length === 0) return "Activa al menos una cancha para esta división"
-    for (const row of perCourtRows) {
-      const nombre = canchas.find((court) => court.id === row.canchaId)?.nombre ?? "la cancha"
-      const error = checkSchedule(row.diasPartido, row.horarioPartido, ` en ${nombre}`)
-      if (error) return error
-    }
-    return null
-  }
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initialForm), [form, initialForm])
 
   const handleSave = async () => {
     if (savingRef.current) return
-    const error = validate()
+    const error = validateDivisionForm(form, canchas)
     if (error) { toast.error(error); return }
 
     savingRef.current = true
     setSaving(true)
     try {
-      const payload = {
-        nombre: form.nombre.trim(),
-        maxEquipos: Number(form.maxEquipos),
-        arbitraje: Number(form.arbitraje) || 0,
-        duracionPartido: form.duracionPartido ? Number(form.duracionPartido) : undefined,
-        descanso: form.descanso ? Number(form.descanso) : undefined,
-        // Con horario compartido se mandan los escalares; por cancha, las filas (el backend
-        // deriva el resumen). Un arreglo vacío en edición volvería a los escalares.
-        ...(form.mismoHorarioTodasLasCanchas
-          ? { diasPartido: form.diasPartido, horarioPartido: form.horarioPartido, ...(isEdit ? { horariosPorCancha: [] } : {}) }
-          : { horariosPorCancha: perCourtRows }),
-        ligaId: id,
-        categoriaId: form.categoriaId,
-        tipoId: form.tipoId,
-        tipoCompetenciaId: form.tipoCompetenciaId,
-        usarPenalesEnEmpates: form.usarPenalesEnEmpates,
-      }
-
       if (isEdit) {
-        await updateDivision.mutateAsync({ id: divisionIdParam!, data: payload })
+        // El payload de edición no lleva `tipoCompetenciaId`: el formato se fija al crear.
+        await updateDivision.mutateAsync({
+          id: divisionIdParam!,
+          data: buildDivisionPayload(form, { ligaId: id, isEdit: true }),
+        })
         toast.success("Cambios guardados")
       } else {
-        await createDivision.mutateAsync(payload)
+        await createDivision.mutateAsync(buildDivisionPayload(form, { ligaId: id, isEdit: false }))
         toast.success("División creada")
       }
       allowLeaveRef.current = true
@@ -352,7 +204,16 @@ function DivisionFormContent({ id, divisionIdParam, isEdit, division, lookups, c
           <View style={{ padding: Pad.base, gap: Gap.md }}>
             <SelectField label="Categoría *" current={form.categoriaId} options={lookups.categorias} onSelect={(v) => setForm((p) => ({ ...p, categoriaId: v }))} />
             <SelectField label="Tipo *" current={form.tipoId} options={lookups.tipos} onSelect={(v) => setForm((p) => ({ ...p, tipoId: v }))} />
-            <SelectField label="Tipo de competencia *" current={form.tipoCompetenciaId} options={lookups.tiposCompetencia} onSelect={(v) => setForm((p) => ({ ...p, tipoCompetenciaId: v }))} />
+            {/* El formato decide qué pestañas y qué flujo tiene la división; cambiarlo con
+                jornadas o rondas ya creadas dejaría datos de un formato que ya no aplica. */}
+            <SelectField
+              label="Tipo de competencia *"
+              current={form.tipoCompetenciaId}
+              options={lookups.tiposCompetencia}
+              onSelect={(v) => setForm((p) => ({ ...p, tipoCompetenciaId: v }))}
+              readOnly={isEdit}
+              hint={isEdit ? "El tipo de competencia se define al crear la división y no se puede cambiar." : undefined}
+            />
             <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, padding: Pad.md }}>
               <View style={{ flex: 1, gap: 3 }}>
                 <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Desempate por penales</Text>

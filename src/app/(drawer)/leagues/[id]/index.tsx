@@ -1,14 +1,14 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { ActivityIndicator, TouchableOpacity, View, Text } from "react-native"
 import { useIsFocused, useLocalSearchParams, router } from "expo-router"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useTourGuide, type TourStep } from "@wrack/react-native-tour-guide"
+import { tourConfig, tourYaCompletado } from "@/shared/utils/tour-config"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import { useLeague } from "@/features/league/hooks/useLeagues"
 import { useLookups } from "@/features/league/hooks/useLookups"
-import { useDeleteDivision } from "@/features/division/hooks/useDivisions"
+import { useDivisions, useDeleteDivision } from "@/features/division/hooks/useDivisions"
 import { useToast } from "@/shared/components/Toast"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import DivisionListCard from "@/features/division/components/DivisionListCard"
@@ -33,7 +33,17 @@ export default function LeagueDetailScreen() {
   const guard = useNavGuard()
   const isFocused = useIsFocused()
   const { data: league, isLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!, isFocused)
-  const divisions = league?.divisiones ?? []
+  /**
+   * Las divisiones NO salen de `league.divisiones`. Ese arreglo viene de `findVisibleById`, que
+   * filtra los borradores con la regla pública incluso para el dueño, así que una división recién
+   * creada quedaba invisible justo en la pantalla desde la que hay que publicarla. La vista pública
+   * comparte ese mismo endpoint, y por eso el arreglo va aquí y no en el servidor: aflojarlo allá
+   * destaparía los borradores a cualquiera.
+   *
+   * `por-liga` resuelve con `visibleDivisionWhere(actor)`, que sí le suma al dueño las suyas.
+   */
+  const { data: divisionsData, isLoading: divisionsLoading, refetch: refetchDivisions } = useDivisions(id!, isFocused)
+  const divisions = divisionsData ?? []
   const deleteDivision = useDeleteDivision(id!)
   const toast = useToast()
   const [refreshing, setRefreshing] = useState(false)
@@ -65,11 +75,11 @@ export default function LeagueDetailScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await refetchLeague()
+      await Promise.all([refetchLeague(), refetchDivisions()])
     } finally {
       setRefreshing(false)
     }
-  }, [refetchLeague])
+  }, [refetchLeague, refetchDivisions])
 
   useEffect(() => {
     if (tourBlocked || !isFocused) endTour()
@@ -84,9 +94,9 @@ export default function LeagueDetailScreen() {
     let cancelled = false
     tourCheckingRef.current = true
     const initTour = async () => {
-      const seen = await AsyncStorage.getItem("@tour_guide:league-detail-v1")
+      const seen = await tourYaCompletado("league-detail-v1")
       if (cancelled) return
-      if (seen === "completed") {
+      if (seen) {
         tourStartedRef.current = true
         tourCheckingRef.current = false
         return
@@ -148,30 +158,12 @@ export default function LeagueDetailScreen() {
       tourTimerRef.current = setTimeout(() => {
         tourStartedRef.current = true
         tourCheckingRef.current = false
-        startTour(steps, {
+        startTour(steps, tourConfig({
           tourId: "league-detail-v1",
-          insets: { top: insets.top, bottom: insets.bottom },
-          nextButtonText: "Siguiente",
-          prevButtonText: "Atrás",
-          skipButtonText: "Saltar",
-          doneButtonText: "Entendido",
-          onTourEnd: () => {
-            setTab("divisiones")
-            AsyncStorage.setItem("@tour_guide:league-detail-v1", "completed")
-          },
-          tooltipStyles: {
-            backgroundColor: Palette.surface,
-            titleColor: Palette.text,
-            descriptionColor: Palette.textSecondary,
-            buttonTextColor: Palette.black,
-            primaryButtonColor: Palette.cyan,
-            skipButtonColor: Palette.textMuted,
-            borderRadius: Radius.lg,
-          },
-          spotlightStyles: { overlayColor: Palette.black, overlayOpacity: 0.7 },
-          scrollRef,
+          insets,
+          onTourEnd: () => setTab("divisiones"),
           getCurrentScrollOffset: () => scrollOffsetRef.current,
-        })
+        }))
       }, 600)
     }
 
@@ -184,7 +176,7 @@ export default function LeagueDetailScreen() {
       }
       if (!tourStartedRef.current) tourCheckingRef.current = false
     }
-  }, [isFocused, isLoading, leagueError, league, session?.user, tab, tourBlocked, divisions.length, addDivisionReady, firstDivisionReady, tabBarReady, startTour, insets.top, insets.bottom])
+  }, [isFocused, isLoading, leagueError, league, session?.user, tab, tourBlocked, divisions.length, addDivisionReady, firstDivisionReady, tabBarReady, startTour, insets])
 
   const handleDeleteDivision = (divisionId: string, nombre: string) => {
     setDeleteTarget({ id: divisionId, nombre })
@@ -222,7 +214,7 @@ export default function LeagueDetailScreen() {
     }
   }
 
-  if (isLoading || (tab === "divisiones" && lookups.isLoading)) {
+  if (isLoading || (tab === "divisiones" && (lookups.isLoading || divisionsLoading))) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="" />

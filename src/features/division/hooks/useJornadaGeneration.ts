@@ -1,3 +1,4 @@
+import { equiposDisponiblesParaRegulares } from "@/features/division/utils/descanso"
 import { useCallback, useRef, useState } from "react"
 import { useGenerateNextJornada } from "@/features/jornada/hooks/useJornadas"
 import { getActiveSlots, useDivisionScheduleStore } from "@/stores/divisionSchedule"
@@ -12,6 +13,11 @@ interface UseJornadaGenerationOptions {
   leagueId: string
   ligaCompletada: boolean
   playoffMode: boolean
+  /**
+   * Con `false` la división es de puro cuadro: los equipos que juegan los decide el bracket, no
+   * la selección semanal de `habilitados`, que es un concepto de liga.
+   */
+  faseLiga: boolean
   onGenerated: () => void
 }
 
@@ -20,6 +26,7 @@ export function useJornadaGeneration({
   leagueId,
   ligaCompletada,
   playoffMode,
+  faseLiga,
   onGenerated,
 }: UseJornadaGenerationOptions) {
   const toast = useToast()
@@ -45,12 +52,18 @@ export function useJornadaGeneration({
       toast.error("Primero configura la programación de la jornada")
       return
     }
-    if (!habilitados || habilitados.length < 2) {
+    if (faseLiga && (!habilitados || habilitados.length < 2)) {
       toast.error("Marca al menos 2 equipos que pagaron arbitraje para generar una jornada")
       return
     }
+    // En un cuadro no hay equipos habilitados que exigir; lo que hace falta es tener partidos
+    // programados, que es lo que va a llevar la jornada.
+    if (!faseLiga && schedule.slots.length === 0) {
+      toast.error("Programa al menos un partido del cuadro antes de generar la jornada")
+      return
+    }
 
-    const oddCount = habilitados.length % 2 !== 0
+    const oddCount = (habilitados?.length ?? 0) % 2 !== 0
     const complementoSlots = schedule.slots.filter((slot) => slot.tipo === "complemento")
     const hasComplementoSlot = complementoSlots.length > 0
     const incompleteComplemento = complementoSlots.find((slot) => !slot.equipoLocalId || !slot.equipoVisitanteId)
@@ -70,11 +83,7 @@ export function useJornadaGeneration({
     let courtOrder: string[] = []
     try {
       const division = await divisionApi.getById(divisionId)
-      const authoritativeSlots = division.canchaUnicaId
-        ? schedule.slots.map((slot) => ({ ...slot, canchaId: division.canchaUnicaId! }))
-        : schedule.canchaUnicaIdSnapshot
-          ? schedule.slots.map((slot) => ({ ...slot, canchaId: undefined }))
-          : schedule.slots
+      const authoritativeSlots = schedule.slots
       // The window is derived from every slot (a superset of the active ones) so that the court
       // order is known before trimming — the trim needs it to drop the last slot of the last court.
       const starts = authoritativeSlots.map((slot) => new Date(`${slot.fecha}T${slot.horaInicio}:00`).getTime()).filter(Number.isFinite)
@@ -93,11 +102,8 @@ export function useJornadaGeneration({
       if (availability.mode === "MULTIPLE" && availability.canchas.length < 2) {
         throw new Error("La liga usa múltiples canchas, pero necesita al menos 2 canchas activas")
       }
-      if (division.canchaUnicaId && !availability.canchas.some((cancha) => cancha.id === division.canchaUnicaId)) {
-        throw new Error("La cancha fija de la división no está activa")
-      }
       courtOrder = availability.canchas.map((cancha) => cancha.id)
-      const activeSlots = getActiveSlots(authoritativeSlots, habilitados.length, playoffMode, courtOrder)
+      const activeSlots = getActiveSlots(authoritativeSlots, equiposDisponiblesParaRegulares(habilitados ?? [], authoritativeSlots), playoffMode, courtOrder)
       if (activeSlots.length === 0) throw new Error("Los horarios de la jornada no son válidos")
       const plan = planFromAvailability(activeSlots, availability)
       if (plan.conflicts.length > 0 || plan.unassignedSlotIds.length > 0) {
@@ -111,9 +117,12 @@ export function useJornadaGeneration({
       return
     }
 
-    const slotsParaJornada = prepareJornadaSlots(plannedSlots, habilitados, playoffMode, courtOrder)
+    const slotsParaJornada = prepareJornadaSlots(plannedSlots, habilitados ?? [], playoffMode, courtOrder)
     const descansoEquipoId = hasComplementoSlot ? undefined : schedule.descansoEquipoId
-    const fingerprint = JSON.stringify({ slots: slotsParaJornada, equipoIds: [...habilitados].sort(), descansoEquipoId: descansoEquipoId ?? null })
+    // Omitirlo significa "todos los equipos de la división", que es lo correcto en un cuadro.
+    // Mandar `[]` lo rechazaría el backend, que valida `min(2)` cuando el campo viene.
+    const equipoIds = faseLiga ? habilitados : undefined
+    const fingerprint = JSON.stringify({ slots: slotsParaJornada, equipoIds: equipoIds ? [...equipoIds].sort() : null, descansoEquipoId: descansoEquipoId ?? null })
     if (generationAttemptRef.current?.fingerprint !== fingerprint) {
       generationAttemptRef.current = {
         fingerprint,
@@ -128,7 +137,7 @@ export function useJornadaGeneration({
         divisionId,
         leagueId,
         slots: slotsParaJornada,
-        equipoIds: habilitados,
+        equipoIds,
         descansoEquipoId,
         idempotencyKey: generationAttemptRef.current.key,
       })
@@ -142,7 +151,7 @@ export function useJornadaGeneration({
         const fechas = slotsParaJornada.map((slot) => slot.fecha).filter(Boolean) as string[]
         return fechas.length > 0 ? [...fechas].sort()[0] : undefined
       })()
-      advanceSchedule(divisionId, jornadaFecha)
+      advanceSchedule(divisionId, jornadaFecha, { faseLiga })
       setHabilitadosStore(divisionId, [])
       onGenerated()
       toast.success("Jornada generada")
@@ -156,6 +165,7 @@ export function useJornadaGeneration({
     schedule,
     habilitados,
     playoffMode,
+    faseLiga,
     generateNext,
     guardarProgramacion,
     advanceSchedule,

@@ -1,12 +1,12 @@
 import { useState } from "react"
-import { ActivityIndicator, Share, Text, View } from "react-native"
+import { ActivityIndicator, Share, Text, TouchableOpacity, View } from "react-native"
 import { router, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
-import { Fonts, Gap, Pad, Palette } from "@/constants/theme"
+import { MaterialIcons } from "@expo/vector-icons"
+import { Fonts, Gap, Pad, Palette, Radius } from "@/constants/theme"
 import { divisionEquipoApi } from "@/features/division-equipo/api/division-equipo"
 import DivisionRosterGroups from "@/features/jugador/components/DivisionRosterGroups"
 import { useDivisionJugadores } from "@/features/jugador/hooks/useJugadores"
-import DivisionTeamInfoCard from "@/features/team/components/DivisionTeamInfoCard"
 import { useTeam } from "@/features/team/hooks/useTeams"
 import CustomHeader from "@/shared/components/CustomHeader"
 import ErrorState from "@/shared/components/ErrorState"
@@ -61,14 +61,19 @@ export default function PublicDivisionTeamScreen() {
     )
   }
 
-  const division = contextLink.division
-
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
       <CustomHeader title={team.nombre} rightActions={[{ icon: "share", onPress: handleShare }]} />
       <PullToRefresh refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, paddingBottom: 48, gap: Gap.lg }}>
-          <DivisionTeamInfoCard team={team} division={division} />
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => guard(() => router.push({ pathname: "/(drawer)/(public)/equipo/[id]", params: { id: id! } }))}
+            style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, minHeight: 42, backgroundColor: Palette.cyan10, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.cyan20 }}
+          >
+            <MaterialIcons name="visibility" size={18} color={Palette.cyan} />
+            <Text style={{ color: Palette.cyan, fontFamily: Fonts.medium, fontSize: 13 }}>Ver detalle del equipo</Text>
+          </TouchableOpacity>
 
           <View style={{ gap: Gap.sm }}>
             <Text style={{ color: Palette.textSecondary, fontSize: 12, fontFamily: Fonts.semiBold, textTransform: "uppercase", letterSpacing: 0.5 }}>

@@ -31,11 +31,27 @@ const queryClient = new QueryClient({
   },
 })
 
+/**
+ * El primer componente del `componentStack`, que es el que realmente falló.
+ *
+ * Sin esto la pantalla solo mostraba el mensaje, y averiguar qué componente reventó en un build
+ * instalado exigía conectar el teléfono y leer `adb logcat`. El dato ya viaja en el error.
+ */
+function componenteQueFallo(error: unknown): string | null {
+  const stack = (error as { componentStack?: string })?.componentStack
+  const despuesDelPrimerAt = stack?.split("at ")[1]
+  return despuesDelPrimerAt?.split(" ")[0]?.trim() || null
+}
+
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  const componente = componenteQueFallo(error)
   return (
     <View className="flex-1 items-center justify-center bg-background px-8">
       <Text className="text-center text-2xl font-bold text-foreground">Algo salio mal</Text>
       <Text className="mt-3 text-center text-base text-muted-foreground">{error.message}</Text>
+      {componente ? (
+        <Text selectable className="mt-2 text-center text-xs text-muted-foreground">en {componente}</Text>
+      ) : null}
       <Pressable
         accessibilityRole="button"
         className="mt-6 rounded-xl bg-primary px-6 py-3"

@@ -7,6 +7,8 @@ import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import LogoImage from "@/shared/components/LogoImage"
 import { POSICIONES_JUGADOR } from "@/domain/interfaces/player"
 import { useJugador } from "@/features/jugador/hooks/useJugadores"
+import { useCampeonatosJugador } from "@/features/division-campeon/hooks/useDivisionCampeon"
+import PlayerAchievementsCard from "@/features/player/components/PlayerAchievementsCard"
 import { jugadorApi } from "@/features/jugador/api/jugadores"
 import CustomHeader from "@/shared/components/CustomHeader"
 import LoadingScreen from "@/shared/components/LoadingScreen"
@@ -21,6 +23,7 @@ function formatPosicion(posicion: string) {
 export default function PlayerDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { data: jugador, isLoading, error, refetch } = useJugador(id)
+  const { data: logros = [] } = useCampeonatosJugador(id)
   const { data: divisiones = [], isLoading: loadingDivs } = useQuery({
     queryKey: ["jugador", "divisiones", id],
     queryFn: () => jugadorApi.listDivisionsByPlayer(id!),
@@ -78,6 +81,8 @@ export default function PlayerDetailScreen() {
               </>
             ) : null}
           </View>
+
+          <PlayerAchievementsCard logros={logros} />
 
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.md }}>
             <Text style={{ color: Palette.text, fontFamily: Fonts.display, fontSize: 16 }}>Equipos</Text>
