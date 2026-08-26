@@ -15,6 +15,7 @@ import { useNavGuard } from "@/shared/hooks/useNavGuard"
 import { waitForIdle } from "@/shared/utils/wait-for-idle"
 import { isRateLimitError } from "@/infrastructure/api/rate-limit"
 import type { League } from "@/domain/interfaces/league"
+import { accountQuotaKey } from "@/features/users/quota"
 
 export default function ProfileScreen() {
   const guard = useNavGuard()
@@ -71,6 +72,7 @@ export default function ProfileScreen() {
     try {
       await userApi.activateLeagueRole()
       await refetchSession({ query: { disableCookieCache: true } })
+      await qc.invalidateQueries({ queryKey: accountQuotaKey })
       toast.success("Tu cuenta ya puede administrar ligas.")
     } catch (error) {
       toast.error(getAuthErrorMessage(error, "No se pudo activar el rol de liga."))

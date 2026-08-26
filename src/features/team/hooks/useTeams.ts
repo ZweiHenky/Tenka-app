@@ -3,6 +3,7 @@ import { teamApi } from "@/features/team/api/teams"
 import type { EquipoResponse } from "@/features/team/api/teams"
 import type { DivisionEquipoByDivision } from "@/features/division-equipo/api/division-equipo"
 import { committed, notCommitted, withAmbiguousWriteRecovery } from "@/infrastructure/api/ambiguous-write"
+import { accountQuotaKey, refreshQuotaAfterError } from "@/features/users/quota"
 
 export function useTeam(id?: string, enabled = true) {
   return useQuery({
@@ -36,7 +37,9 @@ export function useCreateTeam(userId: string) {
       qc.setQueryData<EquipoResponse[]>(["teams", "user", userId], (current) =>
         current && !current.some((entry) => entry.id === team.id) ? [...current, team] : current,
       )
+      qc.invalidateQueries({ queryKey: accountQuotaKey })
     },
+    onError: (error) => { refreshQuotaAfterError(qc, error) },
   })
 }
 
@@ -76,6 +79,7 @@ export function useDeleteTeam(userId: string) {
     onSuccess: (_data, { id }) => {
       qc.removeQueries({ queryKey: ["teams", id], exact: true })
       qc.setQueryData<EquipoResponse[]>(["teams", "user", userId], (current) => current?.filter((entry) => entry.id !== id))
+      qc.invalidateQueries({ queryKey: accountQuotaKey })
     },
   })
 }

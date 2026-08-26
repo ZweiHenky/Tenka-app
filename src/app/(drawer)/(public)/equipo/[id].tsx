@@ -19,6 +19,8 @@ import LoadingScreen from "@/shared/components/LoadingScreen"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import { TabBar } from "@/shared/components/TabBar"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { env } from "@/infrastructure/config/env"
+import { publicAppLink } from "@/shared/utils/public-app-link"
 
 function formatPosicion(posicion: string) {
   return POSICIONES_JUGADOR.find((item) => item.id === posicion)?.nombre ?? posicion
@@ -55,7 +57,7 @@ export default function PublicTeamDivisionSelectorScreen() {
 
   const handleShare = () => {
     const title = `${team?.nombre ?? "Equipo"} - Tenka`
-    Share.share({ message: `${title}\n\nhttps://tenka.studio/equipo/${id}`, title })
+    Share.share({ message: `${title}\n\n${publicAppLink(env.APP_ENV, `/equipo/${id}`)}`, title })
   }
 
   if (isLoading) return <LoadingScreen />

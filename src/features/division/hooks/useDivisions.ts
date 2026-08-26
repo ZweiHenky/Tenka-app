@@ -12,6 +12,7 @@ import { useDivisionScheduleStore } from "@/stores/divisionSchedule"
 import type { PartidoResponse } from "@/features/partido/api/partidos"
 import { committed, notCommitted, withAmbiguousWriteRecovery } from "@/infrastructure/api/ambiguous-write"
 import { divisionWriteCommitted } from "@/features/division/utils/division-write-check"
+import { accountQuotaKey, refreshQuotaAfterError } from "@/features/users/quota"
 
 export function useDivisions(ligaId: string, enabled = true) {
   return useQuery({
@@ -47,7 +48,9 @@ export function useCreateDivision(ligaId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["divisions", ligaId] })
       qc.invalidateQueries({ queryKey: ["leagues", ligaId] })
+      qc.invalidateQueries({ queryKey: accountQuotaKey })
     },
+    onError: (error) => { refreshQuotaAfterError(qc, error) },
   })
 }
 
@@ -61,11 +64,13 @@ export function useUpdateDivision(ligaId: string) {
         return divisionWriteCommitted(data, division) ? committed(division) : notCommitted()
       },
     ),
-    onSuccess: (result, { id }) => {
+    onSuccess: (result, { id, data }) => {
       qc.setQueryData<Division>(["division", id], result)
       qc.invalidateQueries({ queryKey: ["divisions", ligaId] })
       qc.invalidateQueries({ queryKey: ["leagues", ligaId] })
+      if (data.estadoLigaId !== undefined) qc.invalidateQueries({ queryKey: accountQuotaKey })
     },
+    onError: (error) => { refreshQuotaAfterError(qc, error) },
   })
 }
 
@@ -76,6 +81,7 @@ export function useDeleteDivision(ligaId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["divisions", ligaId] })
       qc.invalidateQueries({ queryKey: ["leagues", ligaId] })
+      qc.invalidateQueries({ queryKey: accountQuotaKey })
     },
   })
 }
@@ -128,6 +134,12 @@ export function useResetDivision() {
       qc.invalidateQueries({ queryKey: ["court-availability", leagueId] })
       qc.invalidateQueries({ queryKey: ["referee-candidates", leagueId], exact: true })
       qc.invalidateQueries({ queryKey: ["referee-batches", leagueId], exact: true })
+      qc.invalidateQueries({ queryKey: ["division", divisionId], exact: true })
+      qc.invalidateQueries({ queryKey: ["divisions", leagueId], exact: true })
+      qc.invalidateQueries({ queryKey: ["leagues", leagueId], exact: true })
+      qc.invalidateQueries({ queryKey: ["ligas-infinitas"], refetchType: "none" })
+      qc.invalidateQueries({ queryKey: accountQuotaKey })
     },
+    onError: (error) => { refreshQuotaAfterError(qc, error) },
   })
 }

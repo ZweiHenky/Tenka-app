@@ -13,6 +13,8 @@ import ErrorState from "@/shared/components/ErrorState"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { env } from "@/infrastructure/config/env"
+import { publicAppLink } from "@/shared/utils/public-app-link"
 
 export default function PublicDivisionTeamScreen() {
   const guard = useNavGuard()
@@ -42,7 +44,7 @@ export default function PublicDivisionTeamScreen() {
   const handleShare = () => {
     const divisionName = contextLink?.division?.nombre ?? "División"
     const title = `${team?.nombre ?? "Equipo"} · ${divisionName} - Tenka`
-    Share.share({ message: `${title}\n\nhttps://tenka.studio/equipo/${id}/division/${divisionId}`, title })
+    Share.share({ message: `${title}\n\n${publicAppLink(env.APP_ENV, `/equipo/${id}/division/${divisionId}`)}`, title })
   }
 
   if (loadingTeam || loadingDivisions) return <LoadingScreen />

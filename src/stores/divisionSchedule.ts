@@ -103,6 +103,7 @@ interface DivisionScheduleState {
   moveSlotToTime: (divisionId: string, slotId: string, newHoraInicio: string, newHoraFin: string) => boolean
   setPlayoffMode: (divisionId: string, active: boolean) => void
   setHabilitados: (divisionId: string, equipoIds: string[]) => void
+  replaceEquipoId: (divisionId: string, oldId: string, newId: string) => void
   guardarProgramacion: (divisionId: string) => void
   advanceSchedule: (divisionId: string, lastJornadaFechaInicio?: string | null, options?: WeeklySyncOptions) => void
   syncSchedule: (divisionId: string, lastJornadaFechaInicio?: string | null, options?: WeeklySyncOptions) => void
@@ -1187,6 +1188,31 @@ export const useDivisionScheduleStore = create<DivisionScheduleState>()(
         habilitados: { ...s.habilitados, [divisionId]: equipoIds },
         ...(schedule && schedule !== currentSchedule ? { schedules: { ...s.schedules, [divisionId]: schedule } } : {}),
         programacionGuardada: { ...s.programacionGuardada, [divisionId]: false },
+      }
+    })
+  },
+
+  replaceEquipoId: (divisionId, oldId, newId) => {
+    set((s) => {
+      const schedule = s.schedules[divisionId]
+      const replace = (id: string | undefined) => id === oldId ? newId : id
+      const habilitados = [...new Set((s.habilitados[divisionId] ?? []).map((id) => replace(id)!))]
+      return {
+        habilitados: { ...s.habilitados, [divisionId]: habilitados },
+        ...(schedule ? {
+          schedules: {
+            ...s.schedules,
+            [divisionId]: {
+              ...schedule,
+              slots: schedule.slots.map((slot) => ({
+                ...slot,
+                equipoLocalId: replace(slot.equipoLocalId),
+                equipoVisitanteId: replace(slot.equipoVisitanteId),
+              })),
+              descansoEquipoId: replace(schedule.descansoEquipoId),
+            },
+          },
+        } : {}),
       }
     })
   },

@@ -90,6 +90,9 @@ function createClient({ withSession }: { withSession: boolean }) {
       enrichRateLimitError(error, error.response?.status, error.response?.headers)
       const message = error.response?.data?.error || error.response?.data?.message
       if (message && error.response?.status !== 429) error.message = message
+      const code = error.response?.data?.code
+      if (typeof code === "string") error.apiCode = code
+      if (error.response?.data?.details !== undefined) error.apiDetails = error.response.data.details
       if (!error.response) await logTransportError(error)
       return Promise.reject(error)
     },

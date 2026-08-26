@@ -23,6 +23,10 @@ import { userApi } from "@/features/users/api/users"
 import { getAuthErrorMessage } from "@/infrastructure/auth/errors"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
 import { isRateLimitError } from "@/infrastructure/api/rate-limit"
+import { accountQuotaKey, quotaExhaustedMessage, quotaIsExhausted } from "@/features/users/quota"
+import { useAccountQuota } from "@/features/users/hooks/useAccountQuota"
+import AccountQuotaStatus from "@/features/users/components/AccountQuotaStatus"
+import { useQueryClient } from "@tanstack/react-query"
 
 export default function LeaguesScreen() {
   const toast = useToast()
@@ -31,6 +35,8 @@ export default function LeaguesScreen() {
   const userId = session?.user?.id ?? ""
   const role = (session?.user as { rol?: UserRole } | undefined)?.rol
   const canCreate = canCreateLeague(role)
+  const qc = useQueryClient()
+  const { data: quota, refetch: refetchQuota } = useAccountQuota(userId)
   const { data: leagues = [], isLoading, error, refetch } = useUserLeagues(userId)
   const deleteLeague = useDeleteLeague(userId)
   const [refreshing, setRefreshing] = useState(false)
@@ -131,17 +137,26 @@ export default function LeaguesScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await refetch()
+      await Promise.all([refetch(), refetchQuota()])
     } finally {
       setRefreshing(false)
     }
-  }, [refetch])
+  }, [refetch, refetchQuota])
+
+  const openCreate = () => {
+    if (quotaIsExhausted(quota, "leagues")) {
+      toast.info(quotaExhaustedMessage("leagues"))
+      return
+    }
+    guard(() => router.push({ pathname: "/(drawer)/leagues/league-form" }))
+  }
 
   const handleActivateLeagueRole = async () => {
     setActivatingRole(true)
     try {
       await userApi.activateLeagueRole()
       await refetchSession({ query: { disableCookieCache: true } })
+      await qc.invalidateQueries({ queryKey: accountQuotaKey })
       toast.success("Tu cuenta ya puede administrar ligas.")
     } catch (activationError) {
       toast.error(getAuthErrorMessage(activationError, "No se pudo activar el rol de liga."))
@@ -181,7 +196,7 @@ export default function LeaguesScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader
           title="Ligas"
-          rightActions={canCreate ? [{ icon: "add", onPress: () => guard(() => router.push({ pathname: "/(drawer)/leagues/league-form" })), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
+          rightActions={canCreate ? [{ icon: "add", onPress: openCreate, bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
         />
         <LoadingScreen />
       </View>
@@ -193,10 +208,11 @@ export default function LeaguesScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader
           title="Ligas"
-          rightActions={canCreate ? [{ icon: "add", onPress: () => guard(() => router.push({ pathname: "/(drawer)/leagues/league-form" })), bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
+          rightActions={canCreate ? [{ icon: "add", onPress: openCreate, bg: Palette.cyan, color: Palette.black, ref: createBtnRef }] : []}
         />
         <PullToRefresh scrollRef={scrollRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ paddingHorizontal: Pad.xl, paddingTop: Gap.base, paddingBottom: 48, gap: Gap.md }}>
+          <AccountQuotaStatus quota={quota} resources={["leagues"]} />
           {role === "CAPITAN" ? (
             <View style={{ backgroundColor: Palette.cyan10, borderWidth: 1, borderColor: Palette.cyan, borderRadius: Radius.xl, padding: Pad.lg, gap: Gap.md }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.md }}>

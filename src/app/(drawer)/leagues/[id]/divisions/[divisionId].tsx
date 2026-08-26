@@ -50,6 +50,10 @@ import { codigoDeEstado, esSoloLectura, estadoIdPorCodigo } from "@/features/div
 import GoleadoresTable from "@/features/goleador/components/GoleadoresTable"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
 import { capabilitiesForDivision, type DivisionTab } from "@/features/division/utils/competition-format"
+import AddTeamModeSheet from "@/features/division/components/AddTeamModeSheet"
+import ConfirmationModal from "@/shared/components/ConfirmationModal"
+import { useAccountQuota } from "@/features/users/hooks/useAccountQuota"
+import { accountQuotaKey, increasesActiveDivisionCapacity, quotaExhaustedMessage, quotaIsExhausted, refreshQuotaAfterError } from "@/features/users/quota"
 
 export default function DivisionDetailScreen() {
   const toast = useToast()
@@ -61,6 +65,7 @@ export default function DivisionDetailScreen() {
   const [modalCampeon, setModalCampeon] = useState(false)
   const [infoSheetOpen, setInfoSheetOpen] = useState(false)
   const [actionSheetOpen, setActionSheetOpen] = useState(false)
+  const [addTeamSheetOpen, setAddTeamSheetOpen] = useState(false)
 
   const { data: division, isLoading: loadDiv, error: divError, refetch: refetchDiv } = useQuery({
     queryKey: ["division", divisionId],
@@ -74,7 +79,7 @@ export default function DivisionDetailScreen() {
     tipos: isFocused && infoSheetOpen,
   })
   // La hoja de información también necesita los nombres de cancha para el horario por cancha.
-  const { data: league, isLoading: leagueOptionsLoading } = useLeague(ligaId!, isFocused && (actionSheetOpen || infoSheetOpen))
+  const { data: league, isLoading: leagueOptionsLoading } = useLeague(ligaId!, isFocused)
   // El formato decide qué pestañas hay y qué datos tiene sentido pedir. Mientras el catálogo
   // carga cae al formato completo, así que el tab bar espera (ver `formatoListo`).
   const capabilities = capabilitiesForDivision(lookups.tiposCompetencia, division?.tipoCompetenciaId)
@@ -135,6 +140,7 @@ export default function DivisionDetailScreen() {
   const [tabBarReady, setTabBarReady] = useState(false)
   const [teamsSectionReady, setTeamsSectionReady] = useState(false)
   const { data: session } = authClient.useSession()
+  const { data: quota } = useAccountQuota(league?.userId)
   const tipoCompNombre = resolveNombre(lookups.tiposCompetencia, division?.tipoCompetenciaId ?? "")
   const tieneEliminatorias = capabilities.eliminatorias
   const hasPlayoffs = tieneEliminatorias && rondas.length > 0
@@ -160,6 +166,7 @@ export default function DivisionDetailScreen() {
       } : current)
       qc.invalidateQueries({ queryKey: ["divisions", ligaId], exact: true })
       qc.invalidateQueries({ queryKey: ["ligas-infinitas"], refetchType: "none" })
+      qc.invalidateQueries({ queryKey: accountQuotaKey })
       const nuevoCodigo = codigoDeEstado(lookups.estadosLiga, updated.estadoLigaId)
       toast.success(
         nuevoCodigo === "BORRADOR" ? "División regresada a borrador"
@@ -167,7 +174,10 @@ export default function DivisionDetailScreen() {
           : "Estado actualizado",
       )
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => {
+      refreshQuotaAfterError(qc, e)
+      toast.error(e.message)
+    },
   })
 
   const handleRefresh = useCallback(async () => {
@@ -190,11 +200,16 @@ export default function DivisionDetailScreen() {
   const {
     scannerOpen,
     scannerError,
+    scannerMode,
+    pendingReplacement,
     assignTeamIsPending,
+    replaceTeamIsPending,
     handleBarcodeScanned,
     handleScannerRetry,
     handleScannerClose,
     handleScannerOpen,
+    confirmReplacement,
+    cancelReplacement,
   } = useDivisionScanner(divisionId!, links)
 
   const assignedTeams = useMemo(
@@ -216,7 +231,7 @@ export default function DivisionDetailScreen() {
     onGenerated: () => setTab(capabilities.faseLiga ? "jornadas" : "eliminatorias"),
   })
 
-  const tourBlocked = refreshing || scannerOpen || modalRondas || infoSheetOpen || actionSheetOpen || pendingTeamRemoval !== null || pendingJornadaDelete !== null || showDeletePlayoffsConfirm || showResetConfirm || assignTeamIsPending || removeTeam.isPending || isGeneratingJornada || deleteJornada.isPending || generateRondas.isPending || deleteRondas.isPending || resetDivision.isPending || cambioEstadoMutation.isPending
+  const tourBlocked = refreshing || scannerOpen || addTeamSheetOpen || pendingReplacement !== null || modalRondas || infoSheetOpen || actionSheetOpen || pendingTeamRemoval !== null || pendingJornadaDelete !== null || showDeletePlayoffsConfirm || showResetConfirm || assignTeamIsPending || replaceTeamIsPending || removeTeam.isPending || isGeneratingJornada || deleteJornada.isPending || generateRondas.isPending || deleteRondas.isPending || resetDivision.isPending || cambioEstadoMutation.isPending
   const tourDataLoading = loadDiv || linksLoading || jornadasLoading || rondasLoading || standingsLoading || lookups.isLoading
   const tourDataError = divError || linksError || jornadasError || rondasError || standingsError
 
@@ -275,16 +290,24 @@ export default function DivisionDetailScreen() {
   }
 
   const handlePublish = useCallback(() => {
+    if (quotaIsExhausted(quota, "activeDivisions")) {
+      toast.info(quotaExhaustedMessage("activeDivisions"))
+      return
+    }
     setActionSheetOpen(false)
     const enCursoId = estadoIdPorCodigo(lookups.estadosLiga, "EN_CURSO")
     if (enCursoId) cambioEstadoMutation.mutate(enCursoId)
-  }, [lookups, cambioEstadoMutation])
+  }, [lookups, cambioEstadoMutation, quota, toast])
 
   const handleReabrir = useCallback(() => {
+    if (quotaIsExhausted(quota, "activeDivisions")) {
+      toast.info(quotaExhaustedMessage("activeDivisions"))
+      return
+    }
     setActionSheetOpen(false)
     const enCursoId = estadoIdPorCodigo(lookups.estadosLiga, "EN_CURSO")
     if (enCursoId) cambioEstadoMutation.mutate(enCursoId)
-  }, [lookups, cambioEstadoMutation])
+  }, [lookups, cambioEstadoMutation, quota, toast])
 
   const handleRevertToBorrador = useCallback(() => {
     setActionSheetOpen(false)
@@ -307,9 +330,14 @@ export default function DivisionDetailScreen() {
   }, [])
 
   const handleReset = useCallback(() => {
+    const resetTargetCode = isSoloLectura ? "EN_CURSO" : estadoCodigo ?? ""
+    if (increasesActiveDivisionCapacity(estadoCodigo, resetTargetCode) && quotaIsExhausted(quota, "activeDivisions")) {
+      toast.info(quotaExhaustedMessage("activeDivisions"))
+      return
+    }
     setActionSheetOpen(false)
     setShowResetConfirm(true)
-  }, [])
+  }, [estadoCodigo, isSoloLectura, quota, toast])
 
   const handleAssignCampeon = useCallback(() => {
     setActionSheetOpen(false)
@@ -567,7 +595,7 @@ export default function DivisionDetailScreen() {
                     pathname: "/(drawer)/leagues/[id]/divisions/[divisionId]/teams/[teamId]",
                     params: { id: ligaId!, divisionId: divisionId!, teamId },
                   }))}
-                  onScannerOpen={handleScannerOpen}
+                  onAddPress={() => setAddTeamSheetOpen(true)}
                   onToggleSelectAll={() => { const all = assignedTeams.map((t) => t.id); const current = habilitados ?? []; setHabilitados(divisionId!, current.length === all.length ? [] : all) }}
                   linksError={linksError}
                   refetchLinks={refetchLinks}
@@ -683,7 +711,41 @@ export default function DivisionDetailScreen() {
         onSelect={handleSelectCampeon}
       />
 
-      <QRScannerModal visible={scannerOpen} onBarcodeScanned={handleBarcodeScanned} onClose={handleScannerClose} scannerError={scannerError} onRetry={handleScannerRetry} />
+      <AddTeamModeSheet
+        key={addTeamSheetOpen ? "agregar-abierto" : "agregar-cerrado"}
+        visible={addTeamSheetOpen}
+        assignedTeams={assignedTeams}
+        onAddNew={() => {
+          setAddTeamSheetOpen(false)
+          handleScannerOpen()
+        }}
+        onReplace={(teamId) => {
+          const source = assignedTeams.find((team) => team.id === teamId)
+          if (!source) return
+          setAddTeamSheetOpen(false)
+          handleScannerOpen(source)
+        }}
+        onClose={() => setAddTeamSheetOpen(false)}
+      />
+      <QRScannerModal
+        visible={scannerOpen}
+        onBarcodeScanned={handleBarcodeScanned}
+        onClose={handleScannerClose}
+        scannerError={scannerError}
+        onRetry={handleScannerRetry}
+        promptText={scannerMode === "replacement" ? "Escanea el QR del equipo reemplazante" : undefined}
+      />
+      <ConfirmationModal
+        visible={pendingReplacement !== null}
+        title="Reemplazar equipo"
+        message={pendingReplacement ? `¿Reemplazar "${pendingReplacement.source.nombre}" por "${pendingReplacement.target.nombre}"? Se conservarán las jornadas, resultados, puntos, goles, saldo y eliminatorias.` : ""}
+        highlightText={pendingReplacement?.target.nombre}
+        confirmLabel="Reemplazar"
+        variant="warning"
+        loading={replaceTeamIsPending}
+        onConfirm={confirmReplacement}
+        onClose={cancelReplacement}
+      />
       <DivisionConfirmDialogs
         pendingTeamRemoval={pendingTeamRemoval}
         onConfirmRemoveTeam={handleConfirmRemoveTeam}

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Tenka",
     "slug": "tenka",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "tenka",
@@ -12,8 +12,9 @@
       "bundleIdentifier": "studio.tenka.app",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+            "ITSAppUsesNonExemptEncryption": false,
+            "NSLocationWhenInUseUsageDescription": "Tenka utiliza tu ubicación para buscar canchas y ligas cercanas."
+        }
     },
     "android": {
       "adaptiveIcon": {

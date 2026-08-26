@@ -551,6 +551,62 @@ describe('useDivisionScheduleStore', () => {
     })
   })
 
+  describe('replaceEquipoId', () => {
+    it('synchronizes team ids without marking the schedule dirty', () => {
+      useDivisionScheduleStore.setState({
+        schedules: {
+          division: {
+            divisionId: 'division',
+            slots: [
+              { id: 'one', fecha: '2026-08-24', horaInicio: '18:00', horaFin: '19:00', equipoLocalId: 'old', equipoVisitanteId: 'other' },
+              { id: 'two', fecha: '2026-08-24', horaInicio: '19:00', horaFin: '20:00', equipoLocalId: 'other', equipoVisitanteId: 'old' },
+            ],
+            descansoEquipoId: 'old',
+          },
+          untouched: {
+            divisionId: 'untouched',
+            slots: [{ id: 'three', fecha: '2026-08-24', horaInicio: '18:00', horaFin: '19:00', equipoLocalId: 'old' }],
+            descansoEquipoId: 'old',
+          },
+        },
+        habilitados: { division: ['old', 'new', 'old', 'other'], untouched: ['old'] },
+        programacionGuardada: { division: true, untouched: false },
+        hasUnsaved: false,
+      })
+
+      useDivisionScheduleStore.getState().replaceEquipoId('division', 'old', 'new')
+
+      const state = useDivisionScheduleStore.getState()
+      expect(state.habilitados.division).toEqual(['new', 'other'])
+      expect(state.schedules.division.slots.map((slot) => [slot.equipoLocalId, slot.equipoVisitanteId])).toEqual([
+        ['new', 'other'],
+        ['other', 'new'],
+      ])
+      expect(state.schedules.division.descansoEquipoId).toBe('new')
+      expect(state.schedules.untouched.slots[0].equipoLocalId).toBe('old')
+      expect(state.habilitados.untouched).toEqual(['old'])
+      expect(state.programacionGuardada).toEqual({ division: true, untouched: false })
+      expect(state.hasUnsaved).toBe(false)
+    })
+
+    it('preserves an existing dirty flag and saved-program state', () => {
+      useDivisionScheduleStore.setState({
+        schedules: { division: { divisionId: 'division', slots: [] } },
+        habilitados: { division: ['old'] },
+        programacionGuardada: { division: false },
+        hasUnsaved: true,
+      })
+
+      useDivisionScheduleStore.getState().replaceEquipoId('division', 'old', 'new')
+
+      expect(useDivisionScheduleStore.getState()).toMatchObject({
+        habilitados: { division: ['new'] },
+        programacionGuardada: { division: false },
+        hasUnsaved: true,
+      })
+    })
+  })
+
   describe('syncSchedule', () => {
     it('restores the first valid week from today when no jornadas remain', () => {
       vi.useFakeTimers()

@@ -3,6 +3,7 @@ import { leagueApi } from "@/features/league/api/leagues"
 import type { CreateLeagueInput, League } from "@/domain/interfaces/league"
 import { committed, notCommitted, withAmbiguousWriteRecovery } from "@/infrastructure/api/ambiguous-write"
 import { LEAGUE_SOCIAL_FIELDS } from "@/features/league/utils/social-links"
+import { accountQuotaKey, refreshQuotaAfterError } from "@/features/users/quota"
 
 const KEY = "leagues"
 type UserLeagueListItem = Pick<League, "id" | "nombre" | "logo">
@@ -75,7 +76,9 @@ export function useCreateLeague(userId: string) {
         current && !current.some((entry) => entry.id === item.id) ? [...current, item] : current,
       )
       markPublicLeagueListsStale(qc)
+      qc.invalidateQueries({ queryKey: accountQuotaKey })
     },
+    onError: (error) => { refreshQuotaAfterError(qc, error) },
   })
 }
 
@@ -98,6 +101,7 @@ export function useUpdateLeague() {
         current?.map((entry) => entry.id === league.id ? { id: league.id, nombre: league.nombre, logo: league.logo } : entry),
       )
       markPublicLeagueListsStale(qc)
+      qc.invalidateQueries({ queryKey: accountQuotaKey })
     },
   })
 }
@@ -110,6 +114,7 @@ export function useDeleteLeague(userId: string) {
       qc.removeQueries({ queryKey: [KEY, id], exact: true })
       qc.setQueryData<UserLeagueListItem[]>([KEY, "user", userId], (current) => current?.filter((entry) => entry.id !== id))
       markPublicLeagueListsStale(qc)
+      qc.invalidateQueries({ queryKey: accountQuotaKey })
     },
   })
 }

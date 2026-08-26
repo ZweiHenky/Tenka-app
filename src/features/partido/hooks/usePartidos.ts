@@ -4,6 +4,7 @@ import type { CreateJornadaPartidoInput, PartidoResponse, UpdateResultInput } fr
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import type { JornadaPage, JornadaResponse, PartidoResponse as JornadaPartidoResponse } from "@/features/jornada/api/jornadas"
 import { patchPartidoInInfinite, patchPartidoInJornadas, upsertPartidoInJornada } from "@/features/jornada/jornadaCache"
+import { accountQuotaKey } from "@/features/users/quota"
 
 interface PreviousPartido {
   estado: string | null
@@ -66,6 +67,7 @@ export function useUpdatePartido() {
         queryClient.invalidateQueries({ queryKey: ["last-jornada", divisionId], exact: true })
       }
       if (leagueId) queryClient.invalidateQueries({ queryKey: ["referee-candidates", leagueId], exact: true })
+      queryClient.invalidateQueries({ queryKey: accountQuotaKey })
     },
   })
 }
@@ -105,6 +107,7 @@ export function useUpdatePartidoResult() {
         }
       }
       if (leagueId) queryClient.invalidateQueries({ queryKey: ["referee-candidates", leagueId], exact: true })
+      queryClient.invalidateQueries({ queryKey: accountQuotaKey })
     },
   })
 }

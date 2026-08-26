@@ -27,6 +27,9 @@ import { hasProgramacionReciente, programacionRecienteFilename, programacionReci
 import { downloadPdf } from "@/shared/utils/print-pdf"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
 import { isRateLimitError } from "@/infrastructure/api/rate-limit"
+import { useAccountQuota } from "@/features/users/hooks/useAccountQuota"
+import { quotaExhaustedMessage, quotaIsExhausted } from "@/features/users/quota"
+import AccountQuotaStatus from "@/features/users/components/AccountQuotaStatus"
 
 export default function LeagueDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -69,17 +72,26 @@ export default function LeagueDetailScreen() {
   const [tabBarReady, setTabBarReady] = useState(false)
   const insets = useSafeAreaInsets()
   const { data: session } = authClient.useSession()
+  const { data: quota, refetch: refetchQuota } = useAccountQuota(league?.userId)
   const { startTour, endTour } = useTourGuide()
   const tourBlocked = refreshing || downloadingSchedule || deleteTarget !== null || deleteDivision.isPending
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await Promise.all([refetchLeague(), refetchDivisions()])
+      await Promise.all([refetchLeague(), refetchDivisions(), refetchQuota()])
     } finally {
       setRefreshing(false)
     }
-  }, [refetchLeague, refetchDivisions])
+  }, [refetchLeague, refetchDivisions, refetchQuota])
+
+  const openCreateDivision = () => {
+    if (quotaIsExhausted(quota, "divisions")) {
+      toast.info(quotaExhaustedMessage("divisions"))
+      return
+    }
+    guard(() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id! } }))
+  }
 
   useEffect(() => {
     if (tourBlocked || !isFocused) endTour()
@@ -259,6 +271,7 @@ export default function LeagueDetailScreen() {
 
             {tab === "divisiones" ? (
               <View style={{ gap: Gap.lg }}>
+                <AccountQuotaStatus quota={quota} resources={["divisions", "activeDivisions"]} />
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: Gap.md }}>
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text style={{ color: Palette.text, fontSize: 14, fontFamily: Fonts.semiBold }}>Rol general</Text>
@@ -286,7 +299,7 @@ export default function LeagueDetailScreen() {
                   onNavigate={(divisionId) => guard(() => router.push(`/(drawer)/leagues/${id}/divisions/${divisionId}`))}
                   onEdit={(division) => guard(() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id!, divisionId: division.id } }))}
                   onDelete={handleDeleteDivision}
-                  onAdd={() => guard(() => router.push({ pathname: "/(drawer)/leagues/[id]/division-form", params: { id: id! } }))}
+                  onAdd={openCreateDivision}
                   addButtonRef={addDivisionRef}
                   firstDivisionRef={firstDivisionRef}
                   onAddButtonLayout={() => setAddDivisionReady(true)}

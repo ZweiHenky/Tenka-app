@@ -99,18 +99,16 @@ export type PublicDivisionTab = "info" | "posiciones" | "eliminatoria" | "horari
  *
  *  - **Posiciones** solo con fase de liga: en un cuadro puro la tabla no se llena nunca, porque
  *    `tablaPosicion.recalcular` excluye los partidos de eliminatoria.
- *  - **Eliminatoria** cuando hay partidos de eliminatoria **o** títulos anteriores. `hayCuadro` se
- *    mide con `hayPartidosDeEliminatoria`, no con la cantidad de rondas: una ronda vacía no es un
- *    cuadro. El historial cuenta aparte porque si no, una división reiniciada escondería su palmarés
- *    hasta que alguien genere otro cuadro.
+ *  - **Eliminatoria** solo cuando hay partidos de eliminatoria. `hayCuadro` se mide con
+ *    `hayPartidosDeEliminatoria`, no con la cantidad de rondas: una ronda vacía no es un cuadro.
  *  - **Goleo** solo si la división lo tiene encendido. `registrarGoleo` es opcional para que una
  *    respuesta vieja sin el campo no apague la pestaña.
  */
-export function publicDivisionTabs(faseLiga: boolean, hayCuadro: boolean, registrarGoleo = true, hayHistorial = false): PublicDivisionTab[] {
+export function publicDivisionTabs(faseLiga: boolean, hayCuadro: boolean, registrarGoleo = true): PublicDivisionTab[] {
   return [
     "info",
     ...(faseLiga ? ["posiciones" as const] : []),
-    ...(hayCuadro || hayHistorial ? ["eliminatoria" as const] : []),
+    ...(hayCuadro ? ["eliminatoria" as const] : []),
     "horario",
     ...(registrarGoleo ? ["goleo" as const] : []),
   ]

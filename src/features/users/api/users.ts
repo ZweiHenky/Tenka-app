@@ -1,4 +1,5 @@
 import { api } from "@/infrastructure/api/client"
+import type { AccountQuota } from "@/features/users/quota"
 
 interface ApiRes<T> {
   success: boolean
@@ -7,6 +8,8 @@ interface ApiRes<T> {
 }
 
 export const userApi = {
+  getAccountQuota: (userId: string) =>
+    api.get<ApiRes<AccountQuota>>(`/api/users/${userId}/quota`).then((r) => r.data.data!),
   activateLeagueRole: () =>
     api
       .post<ApiRes<{ id: string; rol: string }>>("/api/users/me/activate-league-role")

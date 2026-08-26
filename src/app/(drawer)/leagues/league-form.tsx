@@ -21,6 +21,8 @@ import type { CreateLeagueInput } from "@/domain/interfaces/league"
 import { createCourtDrafts, toCourtPayload, validateCourtConfig, type CourtDraft } from "@/features/league/utils/court-config"
 import { FontAwesome6 } from "@expo/vector-icons"
 import { buildLeagueSocialPayload, type LeagueSocialField } from "@/features/league/utils/social-links"
+import { useAccountQuota } from "@/features/users/hooks/useAccountQuota"
+import { quotaExhaustedMessage, quotaIsExhausted } from "@/features/users/quota"
 
 let nextCourtKey = 0
 
@@ -294,9 +296,10 @@ function LeagueFormContent({ leagueId, userId, isEdit, league }: FormContentProp
       router.back()
     } catch (e: any) {
       for (const id of uploadedAssets) { await api.post(`/api/media/${id}/abandon`).catch(() => undefined) }
-      if (e?.response?.status === 409) {
-        setNombreError("Ya existe una liga con ese nombre")
-        toast.error("Ya existe una liga con ese nombre")
+      const duplicateName = e?.response?.status === 409 && /liga con ese nombre/i.test(String(e?.message ?? ""))
+      if (duplicateName) {
+        setNombreError(e.message)
+        toast.error(e.message)
       } else {
         setNombreError(null)
         toast.error(e.message || "Error al guardar")
@@ -665,6 +668,7 @@ export default function LeagueFormScreen() {
   const { data: session } = authClient.useSession()
   const userId = session?.user?.id ?? ""
   const canCreate = canCreateLeague((session?.user as { rol?: UserRole } | undefined)?.rol)
+  const { data: quota, isLoading: quotaLoading } = useAccountQuota(userId, !isEdit)
 
   const { data: league, isLoading, error } = useLeague(leagueId ?? "")
 
@@ -708,6 +712,17 @@ export default function LeagueFormScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="Nueva liga" onBack={() => router.back()} />
         <ErrorState message="No tienes permisos para crear ligas" fullScreen />
+      </View>
+    )
+  }
+
+  if (!isEdit && quotaLoading) return <LoadingScreen />
+
+  if (!isEdit && quotaIsExhausted(quota, "leagues")) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Palette.black }}>
+        <CustomHeader title="Nueva liga" onBack={() => router.back()} />
+        <ErrorState message={quotaExhaustedMessage("leagues")} fullScreen />
       </View>
     )
   }

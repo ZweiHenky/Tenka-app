@@ -21,6 +21,9 @@ import { divisionEquipoApi } from "@/features/division-equipo/api/division-equip
 import { useToast } from "@/shared/components/Toast"
 import { canCreateTeam, type UserRole } from "@/domain/interfaces/user"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { useAccountQuota } from "@/features/users/hooks/useAccountQuota"
+import { quotaExhaustedMessage, quotaIsExhausted } from "@/features/users/quota"
+import AccountQuotaStatus from "@/features/users/components/AccountQuotaStatus"
 
 export default function TeamScreen() {
   const toast = useToast()
@@ -28,6 +31,7 @@ export default function TeamScreen() {
   const { data: session } = authClient.useSession()
   const userId = session?.user?.id ?? ""
   const canCreate = canCreateTeam((session?.user as { rol?: UserRole } | undefined)?.rol)
+  const { data: quota, refetch: refetchQuota } = useAccountQuota(userId)
   const { data: teams = [], isLoading, error, refetch } = useUserTeams(userId)
   const deleteTeam = useDeleteTeam(userId)
   const [qrTeamId, setQrTeamId] = useState<string | null>(null)
@@ -52,11 +56,19 @@ export default function TeamScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await refetch()
+      await Promise.all([refetch(), refetchQuota()])
     } finally {
       setRefreshing(false)
     }
-  }, [refetch])
+  }, [refetch, refetchQuota])
+
+  const openCreate = () => {
+    if (quotaIsExhausted(quota, "teams")) {
+      toast.info(quotaExhaustedMessage("teams"))
+      return
+    }
+    guard(() => router.push({ pathname: "/(drawer)/team/team-form" }))
+  }
 
   const confirmDelete = async (id: string, nombre: string) => {
     setCheckingDelete(true)
@@ -162,7 +174,7 @@ export default function TeamScreen() {
   if (isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: () => guard(() => router.push({ pathname: "/(drawer)/team/team-form" })), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
+        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: openCreate, bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
         <LoadingScreen />
       </View>
     )
@@ -171,9 +183,10 @@ export default function TeamScreen() {
   return (
     <AuthGate>
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: () => guard(() => router.push({ pathname: "/(drawer)/team/team-form" })), bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
+        <CustomHeader title="Equipo" rightActions={canCreate ? [{ icon: "add", onPress: openCreate, bg: Palette.cyan, color: Palette.black, ref: addButtonRef }] : []} />
         <PullToRefresh scrollRef={scrollViewRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ paddingHorizontal: Pad.xl, paddingTop: Gap.base, paddingBottom: 48, gap: Gap.md }}>
+          <AccountQuotaStatus quota={quota} resources={["teams"]} />
           {error ? (
             <ErrorState message={(error as Error).message} onRetry={() => refetch()} />
           ) : teams.length === 0 ? (

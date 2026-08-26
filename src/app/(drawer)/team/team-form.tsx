@@ -16,6 +16,8 @@ import { AuthGate } from "@/shared/components/AuthGate"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import { authClient } from "@/infrastructure/auth/client"
 import { canCreateTeam, type UserRole } from "@/domain/interfaces/user"
+import { useAccountQuota } from "@/features/users/hooks/useAccountQuota"
+import { quotaExhaustedMessage, quotaIsExhausted } from "@/features/users/quota"
 
 interface FormState {
   nombre: string
@@ -206,6 +208,7 @@ export default function TeamFormScreen() {
   const isEdit = Boolean(teamId)
   const { data: session } = authClient.useSession()
   const canCreate = canCreateTeam((session?.user as { rol?: UserRole } | undefined)?.rol)
+  const { data: quota, isLoading: quotaLoading } = useAccountQuota(session?.user?.id, !isEdit)
 
   const { data: team, isLoading, error } = useTeam(teamId ?? undefined)
 
@@ -241,6 +244,19 @@ export default function TeamFormScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="Nuevo equipo" onBack={() => router.back()} />
         <ErrorState message="No tienes permisos para crear equipos" fullScreen />
+      </View>
+    )
+  }
+
+  if (!isEdit && quotaLoading) {
+    return <LoadingScreen />
+  }
+
+  if (!isEdit && quotaIsExhausted(quota, "teams")) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Palette.black }}>
+        <CustomHeader title="Nuevo equipo" onBack={() => router.back()} />
+        <ErrorState message={quotaExhaustedMessage("teams")} fullScreen />
       </View>
     )
   }

@@ -115,6 +115,7 @@ describe("useUpdatePartidoResult", () => {
 
     expect(mocks.updateResult).toHaveBeenCalledWith("partido-1", expect.objectContaining({ expectedVersion: 4, allocations: payload.allocations }))
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["goleadores", "division-1"], exact: true })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["account-quota"] })
     expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["rondas-playoff", "division-1"] }))
   })
 

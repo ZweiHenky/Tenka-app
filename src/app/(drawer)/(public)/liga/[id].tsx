@@ -22,8 +22,7 @@ import { useTablaPosiciones } from "@/features/tabla-posicion/hooks/useTablaPosi
 import StandingsTable from "@/features/tabla-posicion/components/StandingsTable"
 import CustomHeader from "@/shared/components/CustomHeader"
 import { useRondasPlayoff } from "@/features/ronda-playoff/hooks/useRondasPlayoff"
-import { useDivisionCampeon, useHistorialCampeones } from "@/features/division-campeon/hooks/useDivisionCampeon"
-import HistorialCampeonesList from "@/features/division-campeon/components/HistorialCampeonesList"
+import { useDivisionCampeon } from "@/features/division-campeon/hooks/useDivisionCampeon"
 import CampeonBanner from "@/features/division-campeon/components/CampeonBanner"
 import BracketView from "@/features/ronda-playoff/components/BracketView"
 import type { JornadaResponse } from "@/features/jornada/api/jornadas"
@@ -47,6 +46,8 @@ import CourtSchedulePicker from "@/features/division/components/CourtSchedulePic
 import { capabilitiesFor, formatFromCodigo, hayPartidosDeEliminatoria, publicDivisionTabs, type PublicDivisionTab } from "@/features/division/utils/competition-format"
 import { courtScheduleLines, selectedCourtSchedule } from "@/features/division/utils/court-schedule-selection"
 import { divisionLabel } from "@/features/division/utils/division-label"
+import { env } from "@/infrastructure/config/env"
+import { publicAppLink } from "@/shared/utils/public-app-link"
 
 function toLocalDateDisplay(dateStr: string): string {
   const [y, m, d] = dateStr.split("T")[0].split("-").map(Number)
@@ -166,7 +167,7 @@ export default function PublicLeagueScreen() {
 
   const handleShareLeague = useCallback(() => {
     const text = `${league?.nombre ?? "Liga"} - Tenka`
-    Share.share({ message: `${text}\n\nhttps://tenka.studio/liga/${id}`, title: text })
+    Share.share({ message: `${text}\n\n${publicAppLink(env.APP_ENV, `/liga/${id}`)}`, title: text })
   }, [league, id])
 
   const qc = useQueryClient()
@@ -176,11 +177,9 @@ export default function PublicLeagueScreen() {
   // No está atada a su pestaña: es lo que decide si esa pestaña existe.
   const { data: rondas = [] } = useRondasPlayoff(currentDivisionId ?? null, isFocused)
   const { data: campeon = null } = useDivisionCampeon(currentDivisionId, isFocused)
-  // Sin atar a la pestaña: junto con las rondas es lo que decide si la pestaña existe.
-  const { data: historialCampeones = [] } = useHistorialCampeones(currentDivisionId, isFocused)
   const capabilities = capabilitiesFor(formatFromCodigo(currentDivision?.tipoCompetencia?.codigo))
   // `!== false` a propósito: una respuesta vieja sin el campo no debe apagar la pestaña.
-  const tabKeys = publicDivisionTabs(capabilities.faseLiga, hayPartidosDeEliminatoria(rondas), currentDivision?.registrarGoleo !== false, historialCampeones.length > 0)
+  const tabKeys = publicDivisionTabs(capabilities.faseLiga, hayPartidosDeEliminatoria(rondas), currentDivision?.registrarGoleo !== false)
   // Un enlace a ?tab=posiciones sobre un cuadro puro dejaría la pantalla en blanco.
   const activeTab: PublicDivisionTab = tabKeys.includes(tab) ? tab : "info"
 
@@ -957,9 +956,6 @@ export default function PublicLeagueScreen() {
           {activeTab === "eliminatoria" ? (
             <View style={{ gap: Gap.lg }}>
               {campeon ? <View style={{ marginHorizontal: Pad.base }}><CampeonBanner campeon={campeon} /></View> : null}
-              {historialCampeones.length > 0 ? (
-                <View style={{ marginHorizontal: Pad.base }}><HistorialCampeonesList titulos={historialCampeones} /></View>
-              ) : null}
               <BracketView rounds={bracketRounds} />
             </View>
           ) : null}

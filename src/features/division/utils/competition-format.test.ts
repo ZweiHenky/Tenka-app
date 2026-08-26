@@ -138,18 +138,3 @@ describe("publicDivisionTabs", () => {
     expect(publicDivisionTabs(true, true)).toEqual(publicDivisionTabs(true, true, true))
   })
 })
-
-describe("publicDivisionTabs con historial", () => {
-  // Sin esto, una división reiniciada escondería su palmarés hasta que alguien genere otro cuadro.
-  it("muestra Eliminatoria sin cuadro cuando hay títulos anteriores", () => {
-    expect(publicDivisionTabs(true, false, true, true)).toContain("eliminatoria")
-  })
-
-  it("sigue sin mostrarla cuando no hay ni cuadro ni historial", () => {
-    expect(publicDivisionTabs(true, false, true, false)).not.toContain("eliminatoria")
-  })
-
-  it("omitir el argumento equivale a no tener historial", () => {
-    expect(publicDivisionTabs(true, false, true)).toEqual(publicDivisionTabs(true, false, true, false))
-  })
-})

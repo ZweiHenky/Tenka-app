@@ -13,6 +13,11 @@ export interface DivisionEquipoByDivision extends DivisionEquipoLink {
   equipo: EquipoResponse
 }
 
+export interface ReplaceTeamResponse extends DivisionEquipoByDivision {
+  equipoReemplazadoId: string
+  partidosActualizados: number
+}
+
 interface ApiRes<T> {
   success: boolean
   data?: T
@@ -26,6 +31,11 @@ export const divisionEquipoApi = {
     api.get<ApiRes<DivisionEquipoLink[]>>(`/api/divisiones-equipos/equipo/${equipoId}`).then((r) => r.data.data!),
   create: (data: { divisionId: string; equipoId: string }) =>
     api.post<ApiRes<DivisionEquipoLink>>("/api/divisiones-equipos", data).then((r) => r.data.data!),
+  replace: (divisionId: string, equipoActualId: string, equipoNuevoId: string) =>
+    api.post<ApiRes<ReplaceTeamResponse>>(
+      `/api/divisiones-equipos/${divisionId}/${equipoActualId}/reemplazo`,
+      { equipoNuevoId },
+    ).then((r) => r.data.data!),
   remove: (divisionId: string, equipoId: string) =>
     api.delete(`/api/divisiones-equipos/${divisionId}/${equipoId}`),
   updateSaldo: (divisionId: string, equipoId: string, saldoPendiente: string) =>

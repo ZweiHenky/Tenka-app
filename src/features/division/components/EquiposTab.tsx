@@ -20,7 +20,7 @@ interface Props {
   onToggleArbitraje: (id: string) => void
   onRemove: (nombre: string, equipoId: string) => void
   onManagePlayers: (equipoId: string) => void
-  onScannerOpen: () => void
+  onAddPress: () => void
   onToggleSelectAll: () => void
   linksError: Error | null
   refetchLinks: () => void
@@ -33,7 +33,7 @@ export default function EquiposTab({
   onToggleArbitraje,
   onRemove,
   onManagePlayers,
-  onScannerOpen,
+  onAddPress,
   onToggleSelectAll,
   linksError,
   refetchLinks,
@@ -46,7 +46,7 @@ export default function EquiposTab({
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel="Agregar equipo"
-          onPress={onScannerOpen}
+          onPress={onAddPress}
           style={{ flex: 1, minHeight: 44, borderRadius: Radius.md, backgroundColor: Palette.cyan, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, paddingHorizontal: Pad.md }}
         >
           <MaterialIcons name="group-add" size={20} color={Palette.black} />

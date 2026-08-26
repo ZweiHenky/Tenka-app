@@ -516,8 +516,7 @@ liga, y `divisionEquipo.findByEquipo` trae `division.campeon` con los ids.
 - **Generar un cuadro nuevo archiva el vigente** (temporada nueva). Borrar el cuadro **no lo toca**: sigue vigente para poder corregirlo con "Quitar campeón". **Reiniciar también archiva**, funciona con la división Finalizada y la devuelve a En Curso. Borrar la división deja los títulos huérfanos, legibles por sus snapshots.
 - **El campeón de goleo es la misma fila que el de equipo**, así que hereda todo lo anterior sin código propio. Se ve en `PlayerAchievementsCard`, montada en `PlayerDetailScreen` —que cubre la ficha pública y la privada— y en `my-profile`, que es una pantalla aparte.
 - Por eso `useGenerateRondas` limpia `division-campeon` e invalida `campeones-historial`, y `useDeleteRondasByDivision` **ya no** toca el campeón. Con el `staleTime` de 5 minutos, equivocarse aquí deja el banner mostrando al campeón de la temporada pasada.
-- `publicDivisionTabs` recibe `hayCuadro || hayHistorial`: sin eso, una división reiniciada escondería su palmarés hasta que alguien generase otro cuadro.
-- `HistorialCampeonesList` ("Títulos anteriores") va **solo en la pública**, bajo el `CampeonBanner` de la pestaña Eliminatoria. En la administrativa no: ahí el dueño opera la temporada en curso y el historial es ruido — el banner del vigente sí se queda. El palmarés del equipo lo cubre su pestaña Logros, que lista vigentes y archivados. Va en gris; el dorado se reserva al vigente.
+- La pestaña pública **Eliminatoria** no muestra el historial: contiene el cuadro y, si existe, el `CampeonBanner` vigente. El palmarés histórico se consulta desde los perfiles de equipos y jugadores.
 - El distintivo de campeón en la ficha del equipo mira `division.campeones`, un arreglo, e incluye los archivados: el equipo ganó esa división aunque después se rehiciera el cuadro.
 
 ## Horario por cancha
@@ -559,7 +558,7 @@ queda para `DivisionInfoSheet`, que es un panel de consulta y no una superficie 
 
 **Goleo** solo si la división lo tiene encendido — ver "Tabla de goleo por división".
 
-**Las pestañas públicas salen de `publicDivisionTabs`** ([features/division/utils/competition-format.ts](src/features/division/utils/competition-format.ts)): **Posiciones** solo con fase de liga —en un cuadro puro la tabla nunca se llena, porque `recalcular` excluye los partidos de eliminatoria— y **Eliminatoria** solo cuando hay cuadro o títulos anteriores. Si la pestaña guardada o enlazada no está disponible, cae a Info.
+**Las pestañas públicas salen de `publicDivisionTabs`** ([features/division/utils/competition-format.ts](src/features/division/utils/competition-format.ts)): **Posiciones** solo con fase de liga —en un cuadro puro la tabla nunca se llena, porque `recalcular` excluye los partidos de eliminatoria— y **Eliminatoria** solo cuando hay partidos en el cuadro. El historial de títulos no habilita esa pestaña. Si la pestaña guardada o enlazada no está disponible, cae a Info.
 
 **"Hay cuadro" se mide por partidos, no por rondas**, y con una sola función: `hayPartidosDeEliminatoria`. Una ronda puede quedar creada y vacía, y eso dibujaba la pestaña sobre un cuadro que no existe. La comparten las **dos** pantallas: la administrativa mostraba la eliminatoria siempre y la pública contaba rondas, así que cada una decidía distinto.
 
@@ -973,13 +972,15 @@ Orden: Publicar (izquierda), Reiniciar (derecha). Condicional: Publicar solo vis
 - **Calificaciones y comentarios de ligas** — sistema de reseñas para ligas públicas (estrellas + texto)
 - **QR impreso de partido para árbitros** — actualmente la captura arbitral usa un deep link por token (`#token`); pendiente imprimir el QR en la programación/jornada para escaneo directo
 
-## Pricing Oficial (decidido 13 Jul 2026)
+## Pricing Oficial (modelo futuro aprobado)
 
-Cobro por **división activa al mes**. Ligas típicas: 3-10 divisiones, 15-30 equipos c/u, arbitraje $300-$500/partido. Estado de México.
+Billing, RevenueCat y las compras de Apple/Google **no están implementados hoy**, y todavía no hay un precio de pago aprobado. Al implementarse, la app mostrará únicamente el precio mensual localizado que entregue la tienda; no se deben hardcodear importes.
 
-| Etapa | Precio por división/mes |
-|---|---:|
-| Lanzamiento (primeros 3 meses) | $149 MXN |
-| Precio estándar | $199 MXN |
+- Niveles fijos de 2 a 15 divisiones administrables; más de 15 requiere Enterprise manual.
+- Se paga la capacidad completa elegida, se use o no. Cada división ocupa un slot durante todo el período y finalizarla, cancelarla o eliminarla no cambia el precio ni libera el slot; el estado deportivo no interviene en billing.
+- El upgrade se habilita inmediatamente solo después de verificar y sincronizar RevenueCat; el downgrade se aplica en la siguiente renovación.
+- El plan gratuito conserva la semántica actual: LIGA con 1 liga, 1 división total y 40 equipos propios; CAPITÁN con 10 equipos propios; equipos ajenos por QR fuera del límite; administrador ilimitado.
+- Tras 7 días de gracia o al expirar, no se borran datos ni se cambian estados: las divisiones que excedan la capacidad quedan públicas o en modo lectura.
+- Las suscripciones de billing son independientes de las suscripciones gratuitas a notificaciones de OneSignal.
 
-Sin escala por volumen inicialmente. Se puede agregar descuento progresivo después (ej. 6+ divisiones a $149).
+La especificación autoritativa completa está en `../PAID-SUBSCRIPTIONS-PLAN.md`.

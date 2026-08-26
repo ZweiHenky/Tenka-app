@@ -25,6 +25,8 @@ import {
   type CourtFormEntry,
   type DivisionFormState,
 } from "@/features/division/utils/division-form"
+import { useAccountQuota } from "@/features/users/hooks/useAccountQuota"
+import { quotaExhaustedMessage, quotaIsExhausted } from "@/features/users/quota"
 
 interface FormContentProps {
   id: string
@@ -360,8 +362,9 @@ export default function DivisionFormScreen() {
   const { data: league, isLoading: leagueLoading, error: leagueError } = useLeague(id!, isFocused)
   const lookups = useLookups({ categorias: isFocused, tipos: isFocused, tiposCompetencia: isFocused })
   const { data: division, isLoading: divisionLoading, error: divisionError } = useDivision(divisionIdParam ?? "", isFocused)
+  const { data: quota, isLoading: quotaLoading } = useAccountQuota(league?.userId, isFocused && !isEdit)
 
-  if (leagueLoading || (isEdit && divisionLoading) || lookups.isLoading) {
+  if (leagueLoading || (isEdit && divisionLoading) || lookups.isLoading || (!isEdit && quotaLoading)) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title={isEdit ? "Editar división" : "Nueva división"} />
@@ -375,6 +378,15 @@ export default function DivisionFormScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title="Error" onBack={() => router.back()} />
         <ErrorState message={((leagueError || divisionError) as Error).message} onRetry={() => {}} fullScreen />
+      </View>
+    )
+  }
+
+  if (!isEdit && quotaIsExhausted(quota, "divisions")) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Palette.black }}>
+        <CustomHeader title="Nueva división" onBack={() => router.back()} />
+        <ErrorState message={quotaExhaustedMessage("divisions")} fullScreen />
       </View>
     )
   }

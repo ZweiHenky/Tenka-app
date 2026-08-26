@@ -11,9 +11,10 @@ interface Props {
   onClose: () => void
   scannerError?: string
   onRetry?: () => void
+  promptText?: string
 }
 
-export default function QRScannerModal({ visible, onBarcodeScanned, onClose, scannerError, onRetry }: Props) {
+export default function QRScannerModal({ visible, onBarcodeScanned, onClose, scannerError, onRetry, promptText = "Escanea el código QR del equipo" }: Props) {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const [restarting, setRestarting] = useState(false)
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -73,7 +74,7 @@ export default function QRScannerModal({ visible, onBarcodeScanned, onClose, sca
                 <View style={{ alignItems: "center" }}>
                   <View style={{ width: 240, height: 240, borderWidth: 3, borderColor: Palette.cyan, borderRadius: Radius.xl }} />
                   <Text style={{ color: Palette.white, fontSize: 16, marginTop: Gap.lg, textAlign: "center" }}>
-                    Escanea el código QR del equipo
+                    {promptText}
                   </Text>
                 </View>
               )}

@@ -622,8 +622,20 @@ export default function DivisionScheduleManager({ divisionId, faseLiga = true, e
     return weekDates.filter((fecha) => localDateFromString(fecha) >= tomorrow)
   }, [weekDates])
 
-  // Solo amistosos y complementos: los regulares los fija el número de equipos habilitados.
-  const handleAddSlot = useCallback((tipo: 'amistoso' | 'complemento') => {
+  // Regulares visibles: `getActiveSlots` recorta los fantasmas, así que el conteo contra
+  // `maxRegularSlots` debe medir lo que la pantalla muestra.
+  const regularCount = useMemo(
+    () => activeSlots.filter((slot) => (slot.tipo ?? 'regular') === 'regular').length,
+    [activeSlots],
+  )
+  const puedeAgregarRegular = faseLiga && !playoffMode && regularCount < maxRegularSlots
+
+  // Amistosos y complementos siempre; un regular solo cuando falta cupo para los equipos habilitados.
+  const handleAddSlot = useCallback((tipo: 'regular' | 'amistoso' | 'complemento') => {
+    if (tipo === 'regular' && !puedeAgregarRegular) {
+      toast.info("Ya tienes todos los partidos regulares de esta jornada")
+      return
+    }
     // Prefer the court the user is currently looking at.
     // The viewed court is only a valid preference if the division plays there; otherwise fall
     // back to the first configured one so the slot never lands on an unconfigured court.
@@ -648,7 +660,7 @@ export default function DivisionScheduleManager({ divisionId, faseLiga = true, e
     } else {
       toast.info(addSlotFailureMessage(reason))
     }
-  }, [activeCourtFilter, activeSlots, addSlot, addSlotCourtBlocked, courtOrder, courtSchedules, divisionId, showCanchaPicker, toast])
+  }, [activeCourtFilter, activeSlots, addSlot, addSlotCourtBlocked, courtOrder, courtSchedules, divisionId, puedeAgregarRegular, showCanchaPicker, toast])
 
   // Real court bookings from the backend block a move just like draft slots do.
   // Only applies when a court is in play; single-court leagues keep the draft-only check.
@@ -1027,14 +1039,25 @@ export default function DivisionScheduleManager({ divisionId, faseLiga = true, e
           {faseLiga ? (
             <View style={{ flexDirection: "row", gap: Gap.sm }}>
               {!playoffMode ? (
-                <TouchableOpacity
-                  onPress={() => handleAddSlot('complemento')}
-                  activeOpacity={0.7}
-                  style={{ flex: 1, backgroundColor: Palette.warning, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
-                >
-                  <MaterialIcons name="group-add" size={18} color={Palette.black} />
-                  <Text style={{ color: Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Completar</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    onPress={() => handleAddSlot('regular')}
+                    activeOpacity={0.7}
+                    disabled={!puedeAgregarRegular}
+                    style={{ flex: 1, backgroundColor: Palette.cyan, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm, opacity: puedeAgregarRegular ? 1 : 0.4 }}
+                  >
+                    <MaterialIcons name="sports-soccer" size={18} color={Palette.black} />
+                    <Text style={{ color: Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Regular</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleAddSlot('complemento')}
+                    activeOpacity={0.7}
+                    style={{ flex: 1, backgroundColor: Palette.warning, borderRadius: Radius.md, padding: Pad.md, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: Gap.sm }}
+                  >
+                    <MaterialIcons name="group-add" size={18} color={Palette.black} />
+                    <Text style={{ color: Palette.black, fontSize: 13, fontFamily: Fonts.semiBold }}>Completar</Text>
+                  </TouchableOpacity>
+                </>
               ) : null}
               <TouchableOpacity
                 onPress={() => handleAddSlot('amistoso')}
