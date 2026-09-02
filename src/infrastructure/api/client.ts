@@ -2,6 +2,7 @@ import { create } from "axios"
 import { authClient } from "@/infrastructure/auth/client"
 import { env } from "@/infrastructure/config/env"
 import { enrichRateLimitError } from "@/infrastructure/api/rate-limit"
+import { redactUrlQuery } from "@/infrastructure/api/url-redaction"
 
 interface TransportMetadata {
   requestId: string
@@ -51,7 +52,7 @@ async function logTransportError(error: any) {
     xhr: request ? {
       status: request.status,
       readyState: request.readyState,
-      responseURL: request.responseURL,
+      responseURL: redactUrlQuery(request.responseURL),
       requestId: request.getResponseHeader?.("x-request-id") ?? undefined,
       nativeError: safeNativeError(request),
     } : undefined,

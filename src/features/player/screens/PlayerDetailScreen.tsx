@@ -53,8 +53,6 @@ export default function PlayerDetailScreen() {
     )
   }
 
-  const dorsal = jugador.equipos?.[0]?.dorsal
-
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
       <CustomHeader title="Detalle jugador" />
@@ -65,12 +63,10 @@ export default function PlayerDetailScreen() {
               <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 104, height: 104 }} resizeMode="cover" />
             </View>
             <Text style={{ color: Palette.text, fontSize: 24, fontFamily: Fonts.displayBold, textAlign: "center" }}>{jugador.nombre}</Text>
-            <Text style={{ color: Palette.cyan, fontFamily: Fonts.semiBold, fontSize: 14 }}>{formatPosicion(jugador.posicion)}{dorsal != null ? ` · #${dorsal}` : ""}</Text>
+            <Text style={{ color: Palette.cyan, fontFamily: Fonts.semiBold, fontSize: 14 }}>{formatPosicion(jugador.posicion)}</Text>
           </View>
 
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.md }}>
-            <InfoRow icon="tag" label="Dorsal" value={dorsal != null ? `#${dorsal}` : "No asignado"} />
-            <Divider />
             <InfoRow icon="sports-soccer" label="Posición" value={formatPosicion(jugador.posicion)} />
             <Divider />
             <InfoRow icon="cake" label="Edad" value={jugador.edad != null ? `${jugador.edad} años` : "No registrada"} muted={jugador.edad == null} />
@@ -85,12 +81,12 @@ export default function PlayerDetailScreen() {
           <PlayerAchievementsCard logros={logros} />
 
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.md }}>
-            <Text style={{ color: Palette.text, fontFamily: Fonts.display, fontSize: 16 }}>Equipos</Text>
+            <Text style={{ color: Palette.text, fontFamily: Fonts.display, fontSize: 16 }}>Dorsales por equipo</Text>
             {jugador.equipos && jugador.equipos.length > 0 ? (
               jugador.equipos.map((eq) => (
                 <TouchableOpacity key={eq.equipoId} activeOpacity={0.8} onPress={() => router.push({ pathname: "/(drawer)/(public)/equipo/[id]", params: { id: eq.equipoId } })} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.sm }}>
                   <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: Palette.cyan, fontFamily: Fonts.displayBold, fontSize: 12 }}>{eq.dorsal}</Text>
+                    <Text style={{ color: Palette.cyan, fontFamily: Fonts.displayBold, fontSize: 12 }}>#{eq.dorsal}</Text>
                   </View>
                   <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, flex: 1 }}>{eq.equipo?.nombre ?? eq.equipoId}</Text>
                   <MaterialIcons name="chevron-right" size={20} color={Palette.textMuted} />

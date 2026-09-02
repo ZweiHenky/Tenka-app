@@ -33,7 +33,6 @@ function formatPosicion(posicion: string) {
 }
 
 function ProfileCard({ jugador }: { jugador: Jugador }) {
-  const dorsal = jugador.equipos?.[0]?.dorsal;
   return (
     <View
       style={{
@@ -96,26 +95,6 @@ function ProfileCard({ jugador }: { jugador: Jugador }) {
             {formatPosicion(jugador.posicion)}
           </Text>
         </View>
-        {dorsal != null ? (
-          <View
-            style={{
-              backgroundColor: Palette.cyan10,
-              borderRadius: Radius.full,
-              paddingHorizontal: Pad.md,
-              paddingVertical: Pad.micro,
-            }}
-          >
-            <Text
-              style={{
-                color: Palette.cyan,
-                fontFamily: Fonts.semiBold,
-                fontSize: 13,
-              }}
-            >
-              #{dorsal}
-            </Text>
-          </View>
-        ) : null}
       </View>
       {jugador.edad != null ? (
         <Text style={{ color: Palette.textSecondary, fontSize: 14 }}>
@@ -144,7 +123,7 @@ function EquiposSection({ jugador }: { jugador: Jugador }) {
       <Text
         style={{ color: Palette.text, fontFamily: Fonts.display, fontSize: 16 }}
       >
-        Equipos
+        Dorsales por equipo
       </Text>
       {equipos.map((eq) => (
         <TouchableOpacity
@@ -184,7 +163,7 @@ function EquiposSection({ jugador }: { jugador: Jugador }) {
                 fontSize: 12,
               }}
             >
-              {eq.dorsal}
+              #{eq.dorsal}
             </Text>
           </View>
           <Text
@@ -314,7 +293,7 @@ export default function MyProfileScreen() {
               targetRef: profileCardRef,
               title: "Tu perfil de jugador",
               description:
-                "Revisa tu foto, nombre, posición y dorsal. Son los datos que ven los demás en ligas y equipos.",
+                "Revisa tu foto, nombre y posición. Tus dorsales se muestran por separado en cada equipo.",
               spotlightPadding: 8,
               tooltipPosition: "bottom",
             },

@@ -1,4 +1,4 @@
-import { equiposDisponiblesParaRegulares } from "@/features/division/utils/descanso"
+import { equiposDisponiblesParaRegulares, exigeEquipoQueDescansa } from "@/features/division/utils/descanso"
 import { useCallback, useRef, useState } from "react"
 import { useGenerateNextJornada } from "@/features/jornada/hooks/useJornadas"
 import { getActiveSlots, useDivisionScheduleStore } from "@/stores/divisionSchedule"
@@ -63,9 +63,7 @@ export function useJornadaGeneration({
       return
     }
 
-    const oddCount = (habilitados?.length ?? 0) % 2 !== 0
     const complementoSlots = schedule.slots.filter((slot) => slot.tipo === "complemento")
-    const hasComplementoSlot = complementoSlots.length > 0
     const incompleteComplemento = complementoSlots.find((slot) => !slot.equipoLocalId || !slot.equipoVisitanteId)
     if (incompleteComplemento) {
       if (!incompleteComplemento.equipoLocalId && !incompleteComplemento.equipoVisitanteId) toast.error("Asigna ambos equipos del partido de complemento antes de generar la jornada")
@@ -73,7 +71,9 @@ export function useJornadaGeneration({
       else toast.error("Asigna el equipo que repetirá partido sin puntos en el complemento")
       return
     }
-    if (!playoffMode && oddCount && !hasComplementoSlot && !schedule.descansoEquipoId) {
+    const descansoObligatorio = faseLiga && !playoffMode
+      && exigeEquipoQueDescansa(habilitados, schedule.slots)
+    if (descansoObligatorio && !schedule.descansoEquipoId) {
       toast.error("Selecciona qué equipo descansa antes de generar la jornada")
       return
     }
@@ -118,7 +118,7 @@ export function useJornadaGeneration({
     }
 
     const slotsParaJornada = prepareJornadaSlots(plannedSlots, habilitados ?? [], playoffMode, courtOrder)
-    const descansoEquipoId = hasComplementoSlot ? undefined : schedule.descansoEquipoId
+    const descansoEquipoId = descansoObligatorio ? schedule.descansoEquipoId : undefined
     // Omitirlo significa "todos los equipos de la división", que es lo correcto en un cuadro.
     // Mandar `[]` lo rechazaría el backend, que valida `min(2)` cuando el campo viene.
     const equipoIds = faseLiga ? habilitados : undefined

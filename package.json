@@ -28,6 +28,7 @@
     "expo-image-picker": "~57.0.13",
     "expo-linear-gradient": "~57.0.1",
     "expo-linking": "~57.0.7",
+    "expo-location": "~57.0.14",
     "expo-network": "~57.0.1",
     "expo-print": "~57.0.1",
     "expo-router": "~57.0.16",

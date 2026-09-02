@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { View, Text, TouchableOpacity, Image, ActivityIndicator } from "react-native"
+import { View, Text, TouchableOpacity, Image, ActivityIndicator, Switch } from "react-native"
 import { router } from "expo-router"
 import { useQueryClient } from "@tanstack/react-query"
 import { authClient } from "@/infrastructure/auth/client"
@@ -16,6 +16,9 @@ import { waitForIdle } from "@/shared/utils/wait-for-idle"
 import { isRateLimitError } from "@/infrastructure/api/rate-limit"
 import type { League } from "@/domain/interfaces/league"
 import { accountQuotaKey } from "@/features/users/quota"
+import { useNearbyLocationPreferenceStore } from "@/stores/nearbyLocationPreferenceStore"
+import { isNearbyLeagueQuery } from "@/features/league/hooks/leagueQueryKey"
+import { clearNearbyLocationSession } from "@/features/location/useNearbyLocation"
 
 export default function ProfileScreen() {
   const guard = useNavGuard()
@@ -28,6 +31,9 @@ export default function ProfileScreen() {
   const [activatingRole, setActivatingRole] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const nearbyLocationEnabled = useNearbyLocationPreferenceStore((state) => state.enabled)
+  const nearbyLocationHydrated = useNearbyLocationPreferenceStore((state) => state.hasHydrated)
+  const setNearbyLocationEnabled = useNearbyLocationPreferenceStore((state) => state.setEnabled)
   const qc = useQueryClient()
   const toast = useToast()
 
@@ -114,6 +120,14 @@ export default function ProfileScreen() {
     }
   }, [handleUserUpdated, phoneVisibleOverride, refetchSession, user])
 
+  const handleToggleNearbyLocation = useCallback((enabled: boolean) => {
+    if (!enabled) clearNearbyLocationSession()
+    setNearbyLocationEnabled(enabled)
+    if (!enabled) {
+      qc.removeQueries({ predicate: (query) => isNearbyLeagueQuery(query.queryKey) })
+    }
+  }, [qc, setNearbyLocationEnabled])
+
   if (isPending) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
@@ -168,6 +182,28 @@ export default function ProfileScreen() {
               isSaving={savingPhoneVisibility}
               onToggle={handleTogglePhoneVisibility}
             />
+          </View>
+
+          <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.xl, gap: Gap.md }}>
+            <Text style={{ fontSize: 12, fontWeight: "600", color: Palette.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+              Privacidad y ubicación
+            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: Gap.base }}>
+              <View style={{ flex: 1, gap: Gap.micro }}>
+                <Text style={{ color: Palette.text, fontSize: 16, fontWeight: "600" }}>Ligas cercanas</Text>
+                <Text style={{ color: Palette.textMuted, fontSize: 13, lineHeight: 19 }}>
+                  Usa tu ubicación aproximada para ordenar el inicio. Tenka no la guarda.
+                </Text>
+              </View>
+              <Switch
+                value={nearbyLocationEnabled}
+                disabled={!nearbyLocationHydrated}
+                onValueChange={handleToggleNearbyLocation}
+                trackColor={{ false: Palette.surfaceLight, true: Palette.cyanDark }}
+                thumbColor={nearbyLocationEnabled ? Palette.cyan : Palette.textMuted}
+                ios_backgroundColor={Palette.surfaceLight}
+              />
+            </View>
           </View>
 
           {(user as any).rol !== "LIGA" && (user as any).rol !== "ADMINISTRADOR" ? (

@@ -37,9 +37,14 @@ describe("equiposAbsorbidosPorComplementos", () => {
 })
 
 describe("equiposDisponiblesParaRegulares", () => {
-  it("descuenta solo lo absorbido", () => {
-    expect(equiposDisponiblesParaRegulares(habilitados(8), [complemento("s1", "e0", "e1")])).toBe(7)
+  it("mantiene todos los regulares cuando los habilitados son pares", () => {
+    expect(equiposDisponiblesParaRegulares(habilitados(8), [complemento("s1", "e0", "e1")])).toBe(8)
     expect(equiposDisponiblesParaRegulares(habilitados(8), [])).toBe(8)
+  })
+
+  it("absorbe como máximo el descanso natural de una jornada impar", () => {
+    const slots = [complemento("s1", "e0", "e5"), complemento("s2", "e1", "e6")]
+    expect(equiposDisponiblesParaRegulares(habilitados(7), slots)).toBe(6)
   })
 })
 
@@ -59,13 +64,8 @@ describe("exigeEquipoQueDescansa", () => {
     expect(exigeEquipoQueDescansa(habilitados(7), slots)).toBe(true)
   })
 
-  /**
-   * El hueco que ya existía: con 20 habilitados la regla vieja miraba solo la paridad de los
-   * habilitados —par, no pedía descanso— pero quedaban 19 disponibles y el servidor rechazaba la
-   * jornada con "deja un equipo sin programar".
-   */
-  it("habilitados pares con un complemento que absorbe: sí hace falta", () => {
-    expect(exigeEquipoQueDescansa(habilitados(20), [complemento("s1", "e0", "e1")])).toBe(true)
+  it("habilitados pares con complemento conservan sus regulares y no exigen descanso", () => {
+    expect(exigeEquipoQueDescansa(habilitados(20), [complemento("s1", "e0", "e1")])).toBe(false)
   })
 
   it("con menos de tres equipos no se pide nada", () => {

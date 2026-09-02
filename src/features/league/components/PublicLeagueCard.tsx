@@ -14,6 +14,7 @@ import { formatDiasCortos } from "@/features/division/utils/divisionDays"
 import CourtSchedulePicker from "@/features/division/components/CourtSchedulePicker"
 import { courtScheduleLines, selectedCourtSchedule } from "@/features/division/utils/court-schedule-selection"
 import { divisionLabel } from "@/features/division/utils/division-label"
+import { formatDistance } from "@/features/league/utils/format-distance"
 
 interface Props {
   league: PublicLeagueListDto
@@ -37,6 +38,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
   const snapPoints = useMemo(() => ["50%"], [])
   const toggleFav = useLigaFavoritaStore((s) => s.toggle)
   const esFav = useLigaFavoritaStore((s) => s.esFavorito(l.id))
+  const distanceText = formatDistance(l.distanceKm)
 
   const current = l.divisiones && l.divisiones.length > 0
     ? (selectedDivision ? l.divisiones.find((d) => d.id === selectedDivision) ?? l.divisiones[0] : l.divisiones[0])
@@ -236,7 +238,10 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
             style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, paddingTop: Pad.sm, borderTopWidth: 1, borderTopColor: Palette.border }}
           >
             <MaterialIcons name="location-on" size={16} color={Palette.cyan} />
-            <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, flex: 1 }} numberOfLines={1}>{ubicacionTexto}</Text>
+            <Text style={{ color: Palette.textMuted, fontSize: 13, fontFamily: Fonts.sans, flex: 1 }} numberOfLines={1}>
+              {distanceText ? <Text style={{ color: Palette.success, fontFamily: Fonts.semiBold }}>{distanceText} - </Text> : null}
+              {ubicacionTexto}
+            </Text>
           </TouchableOpacity>
         ) : null}
       </View>

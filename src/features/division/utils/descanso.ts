@@ -6,16 +6,16 @@ interface SlotParaDescanso {
 }
 
 /**
- * Equipos que un complemento **saca** del reparto de partidos regulares.
+ * Equipos candidatos a que un complemento los saque del reparto de partidos regulares.
  *
  * Solo cuenta el lado de "Puntos", y solo si ese equipo no está asignado en un slot **regular**: el
- * servidor lo reserva (`usedTeamIds.add`) y por eso absorbe al equipo sobrante cuando los
+ * servidor puede reservarlo (`usedTeamIds.add`) para absorber al equipo sobrante cuando los
  * habilitados son impares. Si ya tiene un regular, está repitiendo a propósito y sigue contando
- * para el reparto.
+ * para el reparto. La paridad se aplica después en `equiposDisponiblesParaRegulares`.
  *
  * Lo que lo libera es únicamente un slot regular, porque son los únicos que el servidor procesa
- * antes y que alimentan `usedTeamIds`. Un amistoso u otro complemento no reservan a nadie, así que
- * un equipo que solo aparezca ahí se sigue absorbiendo.
+ * antes y que alimentan `usedTeamIds`. Un amistoso u otro complemento no lo libera; si hay un
+ * descanso por cubrir, un equipo que solo aparezca ahí sigue siendo candidato a absorberlo.
  */
 export function equiposAbsorbidosPorComplementos(slots: readonly SlotParaDescanso[]): string[] {
   const enRegular = new Set<string>()
@@ -37,13 +37,21 @@ export function equiposAbsorbidosPorComplementos(slots: readonly SlotParaDescans
   return absorbidos
 }
 
-/** Cuántos equipos quedan realmente para emparejar en los partidos regulares. */
+/**
+ * Cuántos equipos quedan para emparejar en los partidos regulares.
+ *
+ * Un complemento solo sustituye el descanso natural de una jornada impar. Con habilitados pares,
+ * o después de absorber ya a un equipo, los demás equipos de Puntos conservan su regular para que
+ * el complemento realmente sea un partido adicional.
+ */
 export function equiposDisponiblesParaRegulares(
   habilitados: readonly string[],
   slots: readonly SlotParaDescanso[],
 ): number {
   const absorbidos = new Set(equiposAbsorbidosPorComplementos(slots))
-  return habilitados.filter((id) => !absorbidos.has(id)).length
+  const puedeAbsorberDescanso = habilitados.length % 2 !== 0
+    && habilitados.some((id) => absorbidos.has(id))
+  return habilitados.length - Number(puedeAbsorberDescanso)
 }
 
 /**

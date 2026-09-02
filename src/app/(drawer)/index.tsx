@@ -18,6 +18,8 @@ import AppBottomSheetModal from "@/shared/components/AppBottomSheetModal"
 import { useLigaFavoritaStore } from "@/stores/ligaFavoritaStore"
 import LogoImage from "@/shared/components/LogoImage"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { useNearbyLocation } from "@/features/location/useNearbyLocation"
+import NearbyLocationBar from "@/features/location/NearbyLocationBar"
 
 interface AccordionFilterSectionProps {
   title: string
@@ -99,13 +101,7 @@ export default function Home() {
   const insets = useSafeAreaInsets()
   const isFocused = useIsFocused()
   const { startTour } = useTourGuide()
-
-  const lookups = useLookups({
-    ubicaciones: isFocused,
-    categorias: isFocused && filterOpen,
-    tipos: isFocused && filterOpen,
-    estadosLiga: isFocused && filterOpen,
-  })
+  const nearbyLocation = useNearbyLocation()
   const favoritos = useLigaFavoritaStore((s) => s.favoritos)
 
   const filters = useMemo(() => ({
@@ -113,7 +109,9 @@ export default function Home() {
     categoriaId: selectedCategoriaIds.size === 1 ? [...selectedCategoriaIds][0] : undefined,
     tipoId: selectedTipoIds.size === 1 ? [...selectedTipoIds][0] : undefined,
     estadoLigaId: selectedEstadoIds.size === 1 ? [...selectedEstadoIds][0] : undefined,
-  }), [debouncedSearch, selectedCategoriaIds, selectedTipoIds, selectedEstadoIds])
+    latitude: nearbyLocation.coordinates?.latitude,
+    longitude: nearbyLocation.coordinates?.longitude,
+  }), [debouncedSearch, selectedCategoriaIds, selectedTipoIds, selectedEstadoIds, nearbyLocation.coordinates])
 
   const qc = useQueryClient()
   const { data, isLoading, fetchNextPage, isFetchingNextPage, hasNextPage, error } = useLigasInfinitas(filters, isFocused)
@@ -121,16 +119,24 @@ export default function Home() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await qc.resetQueries({ queryKey: ["ligas-infinitas", filters], exact: true })
+      if (nearbyLocation.coordinates) await nearbyLocation.refresh()
+      await qc.resetQueries({ queryKey: ["ligas-infinitas"] })
     } finally {
       setRefreshing(false)
     }
-  }, [filters, qc])
+  }, [nearbyLocation, qc])
 
   const ligas = useMemo(() => {
     const todas = data?.pages.flatMap((p) => p.rows) ?? []
     return todas
   }, [data])
+  const needsUbicacionFallback = ligas.some((liga) => !liga.ubicacion?.nombreCompleto)
+  const lookups = useLookups({
+    ubicaciones: isFocused && needsUbicacionFallback,
+    categorias: isFocused && filterOpen,
+    tipos: isFocused && filterOpen,
+    estadosLiga: isFocused && filterOpen,
+  })
   const initialLoading = isLoading && !refreshing
   const loadingNextPage = isFetchingNextPage && !refreshing
 
@@ -146,7 +152,7 @@ export default function Home() {
     const card = (
       <PublicLeagueCard
         league={item}
-        ubicacionTexto={lookups.ubicaciones.find((u) => u.id === item.ubicacionId)?.nombreCompleto}
+        ubicacionTexto={item.ubicacion?.nombreCompleto ?? lookups.ubicaciones.find((u) => u.id === item.ubicacionId)?.nombreCompleto}
       />
     )
     if (index === 0) {
@@ -271,6 +277,13 @@ export default function Home() {
                 ) : null}
               </TouchableOpacity>
             </View>
+
+            <NearbyLocationBar
+              status={nearbyLocation.status}
+              label={nearbyLocation.label}
+              onActivate={() => { void nearbyLocation.activate() }}
+              onRefresh={() => { void nearbyLocation.refresh() }}
+            />
 
             {favoritos.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Gap.md, paddingVertical: Gap.sm }}>

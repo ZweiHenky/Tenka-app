@@ -1,0 +1,5 @@
+export function formatDistance(distanceKm: number | undefined): string | undefined {
+  if (distanceKm === undefined || !Number.isFinite(distanceKm) || distanceKm < 0) return undefined
+  if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m`
+  return `${distanceKm.toFixed(1)} km`
+}

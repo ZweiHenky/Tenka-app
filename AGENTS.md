@@ -249,6 +249,7 @@ Root Stack
 - **Components**: `DivisionRosterGroups`, `DivisionTeamPlayersCard`
 - **Utils**: `rosterGroups.ts`, `phone.ts`
 - **Datos**: el perfil "Mi perfil" se vincula al User por `phoneNumber` (requiere teléfono verificado)
+- **Dorsal**: no existe un dorsal global en `Jugador`. Siempre se resuelve por `equipoId` desde `EquipoJugador`; los perfiles lo muestran en "Dorsales por equipo" y nunca deben usar `equipos[0]`. Solo el dueño del equipo lo edita desde su plantilla. La actualización sincroniza `DivisionJugador`, mientras los partidos ya capturados conservan su snapshot histórico.
 
 ### goleador
 - **API** (`api/goleadores.ts`): findByDivision
@@ -621,6 +622,12 @@ backend interpreta como "todos los equipos de la división". Mandar `[]` no sirv
 tiene `min(2)` sobre el campo cuando viene. El botón de generar sigue la misma regla:
 `faseLiga ? habilitados.length >= 2 : activeSlots.length > 0`.
 
+**El complemento solo absorbe el descanso de un grupo impar.** Con habilitados pares, Puntos
+conserva su regular automático y juega además el complemento; con impares, como máximo un equipo de
+Puntos libre ocupa el lugar del descanso. `utils/descanso.ts`, `DivisionScheduleManager`,
+`prepareJornadaSlots` y `useJornadaGeneration` deben conservar la misma cuenta. La generación debe
+enviar `descansoEquipoId` cuando Puntos ya tiene regular y el grupo sigue impar.
+
 **Un solo overlay de "operación en curso"**, en `DivisionConfirmDialogs`: `busyLabel` elige el
 texto entre generar jornada, generar eliminatorias, eliminarlas y reiniciar la división. Los
 confirmadores de esas dos últimas se cierran **al confirmar**, no en `onSuccess`, o quedarían dos
@@ -768,6 +775,29 @@ un tutorial le sale en cada apertura a todos los usuarios.
 
 Nada de esto lo atrapan `tsc` ni el lint: todas las variantes compilan. Lo cubren los tests de
 `shared/utils/__tests__/tour-config.test.ts`.
+
+## Ligas cercanas
+
+El Home puede ordenar el listado publico por cercania mediante `expo-location`. La activacion es una
+tarjeta discreta; nunca se solicita permiso al entrar si sigue `undetermined`. Un permiso ya
+concedido si se usa automaticamente. Solo se pide foreground, sin watchers ni persistencia de
+coordenadas. Pull-to-refresh y la barra compacta fuerzan una posicion nueva; al volver a primer
+plano se renueva solo si pasaron 5 minutos. `features/location/location-policy.ts` fija 3 decimales,
+ultima ubicacion de hasta 5 minutos/1 km y timeout de 8 segundos. La etiqueta visible sale de
+`reverseGeocodeAsync` y vive solo en memoria; si falla muestra `Tu ubicacion actual`.
+
+Las mismas coordenadas normalizadas van al request y a la query key. El DTO nuevo trae
+`ubicacion.nombreCompleto`; el lookup completo de ubicaciones se habilita solo como fallback para un
+backend anterior. `distanceKm` es opcional y se formatea en la tarjeta. Los diagnosticos HTTP deben
+redactar siempre el query string, porque contiene la ubicacion aproximada.
+
+La preferencia local `nearby-leagues-preference` guarda solamente si la funcion esta habilitada.
+El switch de Cuenta la puede apagar: limpia la ubicacion de sesion, deja de consultar GPS y elimina
+las queries cercanas del cache. La barra de Home permanece visible para reactivarla. La hidratacion
+de la preferencia termina antes de consultar permisos, para no hacer una lectura fugaz al iniciar.
+
+`expo-location` tiene los tres flags de background en `false`; no agregar `location` a
+`UIBackgroundModes` ni `ACCESS_BACKGROUND_LOCATION`. Cualquier cambio del plugin exige build nativo.
 
 ## Data Fetching
 

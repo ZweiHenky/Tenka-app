@@ -11,7 +11,7 @@ import { MaterialIcons } from "@expo/vector-icons"
 import { Radius, Pad, Gap, Palette, Fonts } from "@/constants/theme"
 import LogoImage from "@/shared/components/LogoImage"
 import { useTeam } from "@/features/team/hooks/useTeams"
-import { useAssignJugadorToTeam, useBuscarJugadorParaEquipo, useRemoveJugadorFromTeam, useJugadores } from "@/features/jugador/hooks/useJugadores"
+import { useAssignJugadorToTeam, useBuscarJugadorParaEquipo, useRemoveJugadorFromTeam, useUpdateJugador, useJugadores } from "@/features/jugador/hooks/useJugadores"
 import { POSICIONES_JUGADOR, type BuscarJugadorEquipoResult } from "@/domain/interfaces/player"
 import { normalizeJugadorPhone } from "@/features/jugador/utils/phone"
 import { divisionEquipoApi } from "@/features/division-equipo/api/division-equipo"
@@ -29,6 +29,7 @@ import { useCampeonatosEquipo } from "@/features/division-campeon/hooks/useDivis
 import { useToast } from "@/shared/components/Toast"
 import TeamDetailHeaderCard from "@/features/team/components/TeamDetailHeaderCard"
 import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { parseDorsal } from "@/features/jugador/utils/dorsal"
 
 const PAISES_COMUNES: CountryCode[] = [
   "MX", "US", "CA", "AR", "BO", "BR", "CL", "CO", "CR", "CU", "DO", "EC",
@@ -54,6 +55,7 @@ export default function TeamDetailScreen() {
   })
   const buscarJugador = useBuscarJugadorParaEquipo()
   const assignJugador = useAssignJugadorToTeam()
+  const updateJugador = useUpdateJugador()
   const removeJugadorFromTeam = useRemoveJugadorFromTeam()
   const [refreshing, setRefreshing] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; jugadorId: string; nombre: string } | null>(null)
@@ -62,6 +64,9 @@ export default function TeamDetailScreen() {
   const [dorsal, setDorsal] = useState("")
   const [foundPlayer, setFoundPlayer] = useState<BuscarJugadorEquipoResult | null>(null)
   const [flowError, setFlowError] = useState("")
+  const [editTarget, setEditTarget] = useState<{ jugadorId: string; nombre: string; dorsal: number } | null>(null)
+  const [editDorsal, setEditDorsal] = useState("")
+  const [editError, setEditError] = useState("")
   const [countryCode, setCountryCode] = useState<CountryCode>("MX")
   const [callingCode, setCallingCode] = useState("52")
   const [countryPickerOpen, setCountryPickerOpen] = useState(false)
@@ -82,7 +87,7 @@ export default function TeamDetailScreen() {
   const { data: session } = authClient.useSession()
   const { startTour, endTour } = useTourGuide()
 
-  const blocked = searchOpen || countryPickerOpen || !!deleteTarget || refreshing
+  const blocked = searchOpen || countryPickerOpen || !!deleteTarget || !!editTarget || refreshing
 
   useEffect(() => {
     if (blocked) endTour()
@@ -112,7 +117,7 @@ export default function TeamDetailScreen() {
           id: "team-detail-player",
           targetRef: firstPlayerRef,
           title: "Administra tu plantilla",
-          description: "Toca un jugador para consultar su perfil. Usa el icono de eliminar para retirarlo de este equipo.",
+           description: "Toca un jugador para consultar su perfil. Usa los iconos para editar su dorsal en este equipo o retirarlo.",
           spotlightPadding: 8,
           tooltipPosition: "top",
         })
@@ -209,9 +214,9 @@ export default function TeamDetailScreen() {
 
   const handleAssign = async () => {
     if (!id || !foundPlayer || foundPlayer.yaPertenece) return
-    const dorsalNumber = Number(dorsal)
-    if (!dorsal.trim() || !Number.isInteger(dorsalNumber)) {
-      setFlowError("Ingresa un dorsal válido")
+    const dorsalNumber = parseDorsal(dorsal)
+    if (dorsalNumber === null) {
+      setFlowError("Ingresa un dorsal válido entre 0 y 999")
       return
     }
     Keyboard.dismiss()
@@ -227,6 +232,43 @@ export default function TeamDetailScreen() {
 
   const confirmDelete = (jugadorId: string, nombre: string) => {
     setDeleteTarget({ id: jugadorId, jugadorId, nombre })
+  }
+
+  const openDorsalEditor = (jugadorId: string, nombre: string, dorsalActual: number) => {
+    setEditTarget({ jugadorId, nombre, dorsal: dorsalActual })
+    setEditDorsal(String(dorsalActual))
+    setEditError("")
+  }
+
+  const closeDorsalEditor = () => {
+    if (updateJugador.isPending) return
+    setEditTarget(null)
+    setEditDorsal("")
+    setEditError("")
+  }
+
+  const handleUpdateDorsal = async () => {
+    if (!id || !editTarget) return
+    const nextDorsal = parseDorsal(editDorsal)
+    if (nextDorsal === null) {
+      setEditError("Ingresa un dorsal válido entre 0 y 999")
+      return
+    }
+    if (nextDorsal === editTarget.dorsal) {
+      closeDorsalEditor()
+      return
+    }
+
+    Keyboard.dismiss()
+    setEditError("")
+    try {
+      await updateJugador.mutateAsync({ id: editTarget.jugadorId, data: { equipoId: id, dorsal: nextDorsal } })
+      setEditTarget(null)
+      setEditDorsal("")
+      toast.success("Dorsal actualizado")
+    } catch (error: any) {
+      setEditError(error?.message || "No se pudo actualizar el dorsal")
+    }
   }
 
   const handleDeleteConfirm = () => {
@@ -272,7 +314,7 @@ export default function TeamDetailScreen() {
                  <Text style={{ color: Palette.black, fontFamily: Fonts.semiBold, fontSize: 12 }}>Buscar jugador</Text>
               </TouchableOpacity>
             </View>
-            <Text style={{ color: Palette.textMuted, fontSize: 12 }}>Todos los jugadores del equipo</Text>
+           <Text style={{ color: Palette.textMuted, fontSize: 12 }}>Cada dorsal pertenece únicamente a este equipo</Text>
             {loadingPlayers ? (
               <ActivityIndicator color={Palette.cyan} />
             ) : jugadores.length === 0 ? (
@@ -287,10 +329,20 @@ export default function TeamDetailScreen() {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 15 }}>{j.nombre}</Text>
-                      <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{formatPosicion(j.posicion)} · #{dorsal ?? "-"}</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => confirmDelete(j.id, j.nombre)} style={{ padding: Pad.sm }}>
-                      <MaterialIcons name="delete-outline" size={20} color={Palette.danger} />
+                       <Text style={{ color: Palette.textMuted, fontSize: 12 }}>{formatPosicion(j.posicion)} · Dorsal #{dorsal ?? "-"}</Text>
+                     </View>
+                     {dorsal != null ? (
+                       <TouchableOpacity
+                         accessibilityRole="button"
+                         accessibilityLabel={`Editar dorsal de ${j.nombre}`}
+                         onPress={(event) => { event.stopPropagation(); openDorsalEditor(j.id, j.nombre, dorsal) }}
+                         style={{ padding: Pad.sm }}
+                       >
+                         <MaterialIcons name="edit" size={20} color={Palette.cyan} />
+                       </TouchableOpacity>
+                     ) : null}
+                     <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Eliminar a ${j.nombre} del equipo`} onPress={(event) => { event.stopPropagation(); confirmDelete(j.id, j.nombre) }} style={{ padding: Pad.sm }}>
+                       <MaterialIcons name="delete-outline" size={20} color={Palette.danger} />
                     </TouchableOpacity>
                   </TouchableOpacity>
                 )
@@ -416,7 +468,7 @@ export default function TeamDetailScreen() {
              ) : (
                <>
                  <View style={{ gap: Gap.sm }}>
-                   <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 13 }}>Dorsal</Text>
+                    <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 13 }}>Dorsal en este equipo</Text>
                    <TextInput
                      accessibilityLabel="Dorsal del jugador"
                      value={dorsal}
@@ -450,9 +502,51 @@ export default function TeamDetailScreen() {
            <Text style={{ color: Palette.danger, fontFamily: Fonts.medium }}>Cancelar</Text>
          </TouchableOpacity>
          {keyboardH ? <View style={{ height: keyboardH }} /> : null}
+         </AppBottomSheetModal>
+
+       <AppBottomSheetModal visible={!!editTarget} onClose={closeDorsalEditor} title="Editar dorsal" snapPoints={["55%"]}>
+         <View style={{ gap: Gap.lg }}>
+           <View style={{ gap: Gap.micro }}>
+             <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 16 }}>{editTarget?.nombre}</Text>
+             <Text style={{ color: Palette.textMuted, fontSize: 13 }}>Dorsal en {team.nombre}</Text>
+           </View>
+           <View style={{ gap: Gap.sm }}>
+             <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium, fontSize: 13 }}>Número de dorsal</Text>
+             <TextInput
+               accessibilityLabel="Nuevo dorsal del jugador en este equipo"
+               autoFocus
+               editable={!updateJugador.isPending}
+               value={editDorsal}
+               onChangeText={(value) => { setEditDorsal(value.replace(/\D/g, "")); setEditError("") }}
+               onSubmitEditing={handleUpdateDorsal}
+               returnKeyType="done"
+               placeholder="10"
+               placeholderTextColor={Palette.textMuted}
+               keyboardType="number-pad"
+               maxLength={3}
+               selectTextOnFocus
+               style={{ minHeight: 48, backgroundColor: Palette.surfaceLight, borderWidth: 1, borderColor: editError ? Palette.danger : Palette.border, borderRadius: Radius.md, paddingHorizontal: Pad.base, color: Palette.text, fontSize: 16 }}
+             />
+             {editError ? <Text accessibilityRole="alert" style={{ color: Palette.danger, fontFamily: Fonts.medium, fontSize: 13 }}>{editError}</Text> : null}
+           </View>
+           <TouchableOpacity
+             accessibilityRole="button"
+             accessibilityLabel="Guardar nuevo dorsal"
+             accessibilityState={{ disabled: updateJugador.isPending }}
+             disabled={updateJugador.isPending}
+             onPress={handleUpdateDorsal}
+             style={{ minHeight: 48, borderRadius: Radius.md, backgroundColor: Palette.cyan, alignItems: "center", justifyContent: "center", opacity: updateJugador.isPending ? 0.6 : 1 }}
+           >
+             {updateJugador.isPending ? <ActivityIndicator size="small" color={Palette.black} /> : <Text style={{ color: Palette.black, fontFamily: Fonts.semiBold }}>Guardar dorsal</Text>}
+           </TouchableOpacity>
+           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancelar edición de dorsal" disabled={updateJugador.isPending} onPress={closeDorsalEditor} style={{ minHeight: 48, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.border, alignItems: "center", justifyContent: "center", opacity: updateJugador.isPending ? 0.5 : 1 }}>
+             <Text style={{ color: Palette.textSecondary, fontFamily: Fonts.medium }}>Cancelar</Text>
+           </TouchableOpacity>
+           {keyboardH ? <View style={{ height: keyboardH }} /> : null}
+         </View>
        </AppBottomSheetModal>
 
-      <Modal visible={countryPickerOpen} transparent animationType="slide" onRequestClose={() => setCountryPickerOpen(false)}>
+       <Modal visible={countryPickerOpen} transparent animationType="slide" onRequestClose={() => setCountryPickerOpen(false)}>
         <View style={{ flex: 1, backgroundColor: Palette.black, paddingTop: Pad.xl }}>
           <CountryModalProvider>
             <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: Pad.base, paddingVertical: Pad.sm }}>

@@ -1,5 +1,6 @@
 import { api } from "@/infrastructure/api/client"
 import type { League, CreateLeagueInput } from "@/domain/interfaces/league"
+import { buildLeagueQuery } from "./league-query"
 
 interface ApiRes<T> {
   success: boolean
@@ -19,6 +20,8 @@ export interface LigaFilterParams {
   categoriaId?: string
   tipoId?: string
   estadoLigaId?: string
+  latitude?: number
+  longitude?: number
 }
 
 export interface PublicLeagueListDto {
@@ -28,6 +31,8 @@ export interface PublicLeagueListDto {
   logo: string | null
   cancha: string | null
   ubicacionId: string
+  ubicacion?: { nombreCompleto: string }
+  distanceKm?: number
   divisiones: {
     id: string
     nombre: string
@@ -82,21 +87,12 @@ export interface ProgramacionRecienteLigaDto {
   divisiones: ProgramacionRecienteDivisionDto[]
 }
 
-function buildQuery(p: LigaFilterParams): string {
-  let q = `page=${p.page}&limit=${p.limit}`
-  if (p.search) q += `&search=${encodeURIComponent(p.search)}`
-  if (p.categoriaId) q += `&categoriaId=${p.categoriaId}`
-  if (p.tipoId) q += `&tipoId=${p.tipoId}`
-  if (p.estadoLigaId) q += `&estadoLigaId=${p.estadoLigaId}`
-  return q
-}
-
 export const leagueApi = {
   listByUser: (userId: string) =>
     api.get<ApiRes<Pick<League, "id" | "nombre" | "logo">[]>>(`/api/ligas?userId=${userId}`).then((r) => r.data.data!),
 
   listPaginated: (params: LigaFilterParams) =>
-    api.get<ApiRes<PaginatedResponse<PublicLeagueListDto>>>(`/api/ligas?${buildQuery(params)}`).then((r) => ({ ...r.data.data!, page: params.page, limit: params.limit })),
+    api.get<ApiRes<PaginatedResponse<PublicLeagueListDto>>>(`/api/ligas?${buildLeagueQuery(params)}`).then((r) => ({ ...r.data.data!, page: params.page, limit: params.limit })),
 
   getById: (id: string) => api.get<ApiRes<League>>(`/api/ligas/${id}`).then((r) => r.data.data!),
 

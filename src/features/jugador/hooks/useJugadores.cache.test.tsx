@@ -3,12 +3,13 @@ import type { ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { useAssignJugadorToDivision, useCreateJugador, useDeleteJugador, useRemoveJugadorFromDivision, useRemoveJugadorFromTeam } from "./useJugadores"
+import { useAssignJugadorToDivision, useCreateJugador, useDeleteJugador, useRemoveJugadorFromDivision, useRemoveJugadorFromTeam, useUpdateJugador } from "./useJugadores"
 
-const mocks = vi.hoisted(() => ({ create: vi.fn(), removeTeam: vi.fn(), assignDivision: vi.fn(), removeDivision: vi.fn(), removePlayer: vi.fn() }))
+const mocks = vi.hoisted(() => ({ create: vi.fn(), update: vi.fn(), removeTeam: vi.fn(), assignDivision: vi.fn(), removeDivision: vi.fn(), removePlayer: vi.fn() }))
 vi.mock("@/features/jugador/api/jugadores", () => ({
   jugadorApi: {
     create: mocks.create,
+    update: mocks.update,
     removeFromTeam: mocks.removeTeam,
     assignToDivision: mocks.assignDivision,
     removeFromDivision: mocks.removeDivision,
@@ -49,6 +50,23 @@ describe("player roster cache updates", () => {
     expect(client.getQueryData<any[]>(["jugadores", "equipo", "team-1"])).toEqual([])
     expect(client.getQueryData<any[]>(["jugadores", "equipo", "team-2"])?.[0].equipos.map((entry: any) => entry.equipoId)).toEqual(["team-2"])
     expect(client.getQueryData<any[]>(["jugadores", "division", "division-1", "team-1"])?.length).toBe(1)
+  })
+
+  it("updates a team dorsal in player and division projections", async () => {
+    const { client, wrapper } = setup()
+    const updated = { ...player, equipos: [{ ...player.equipos[0], dorsal: 12 }] }
+    const divisionLink = { divisionId: "division-1", equipoId: "team-1", jugadorId: player.id, dorsal: 7, createdAt: "", jugador: player }
+    client.setQueryData(["jugadores", "equipo", "team-1"], [player])
+    client.setQueryData(["jugadores", "division", "division-1", "team-1"], [divisionLink])
+    client.setQueryData(["jugadores", "me"], player)
+    mocks.update.mockResolvedValue(updated)
+    const { result } = renderHook(() => useUpdateJugador(), { wrapper })
+
+    await act(async () => { await result.current.mutateAsync({ id: player.id, data: { equipoId: "team-1", dorsal: 12 } }) })
+
+    expect(client.getQueryData<any[]>(["jugadores", "equipo", "team-1"])?.[0].equipos[0].dorsal).toBe(12)
+    expect(client.getQueryData<any[]>(["jugadores", "division", "division-1", "team-1"])?.[0].dorsal).toBe(12)
+    expect(client.getQueryData<any>(["jugadores", "me"])?.equipos[0].dorsal).toBe(12)
   })
 
   it("upserts and removes an exact division roster row", async () => {

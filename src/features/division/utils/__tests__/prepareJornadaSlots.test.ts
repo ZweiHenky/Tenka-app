@@ -44,6 +44,30 @@ describe("prepareJornadaSlots", () => {
     expect(result.map((slot) => slot.tipo)).toEqual(["amistoso", "amistoso"])
   })
 
+  it("keeps every regular slot when an even schedule has a complemento", () => {
+    const regulars: TimeSlotConfig[] = Array.from({ length: 4 }, (_, index) => ({
+      id: `slot-${index + 1}`,
+      fecha: "2026-07-27",
+      horaInicio: `${String(8 + index).padStart(2, "0")}:00`,
+      horaFin: `${String(9 + index).padStart(2, "0")}:00`,
+      tipo: "regular",
+    }))
+    const complemento: TimeSlotConfig = {
+      id: "extra-1",
+      fecha: "2026-07-27",
+      horaInicio: "12:00",
+      horaFin: "13:00",
+      tipo: "complemento",
+      equipoLocalId: "a",
+      equipoVisitanteId: "b",
+    }
+
+    const result = prepareJornadaSlots([...regulars, complemento], ["a", "b", "c", "d", "e", "f", "g", "h"], false)
+
+    expect(result.filter((slot) => slot.tipo === "regular")).toHaveLength(4)
+    expect(result.filter((slot) => slot.tipo === "complemento")).toHaveLength(1)
+  })
+
   it("serializes only jornada DTO fields including canchaId", () => {
     const result = prepareJornadaSlots([{
       id: "local-only",

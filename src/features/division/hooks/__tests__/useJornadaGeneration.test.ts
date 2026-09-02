@@ -175,6 +175,22 @@ describe("useJornadaGeneration", () => {
     )
   })
 
+  it("sends the resting team when Puntos already has a regular", async () => {
+    mocks.store.habilitados = { [divisionId]: ["a", "b", "c"] }
+    mocks.store.schedules[divisionId] = {
+      slots: [
+        { id: "slot-1", fecha: "2026-07-27", horaInicio: "08:00", horaFin: "09:00", tipo: "regular", equipoLocalId: "a" },
+        { id: "extra-1", fecha: "2026-07-27", horaInicio: "09:00", horaFin: "10:00", tipo: "complemento", equipoLocalId: "a", equipoVisitanteId: "b" },
+      ],
+      descansoEquipoId: "c",
+    }
+    const { result } = renderGeneration()
+
+    await act(async () => { await result.current.handleGenerateJornada() })
+
+    expect(mocks.mutateAsync.mock.calls[0][0].descansoEquipoId).toBe("c")
+  })
+
   it("requires the Sin puntos team in a complemento", () => {
     mocks.store.habilitados = { [divisionId]: ["a", "b", "c"] }
     mocks.store.schedules[divisionId] = {

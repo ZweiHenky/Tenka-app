@@ -42,7 +42,7 @@ export default function DivisionTeamPlayersCard({ divisionId, equipoId, equipoNo
         ) : (
           plantilla.map((j) => {
             const active = enabled.has(j.id)
-            const dorsal = j.equipos?.[0]?.dorsal
+            const dorsal = j.equipos?.find((membership) => membership.equipoId === equipoId)?.dorsal
             return (
               <TouchableOpacity
                 key={j.id}

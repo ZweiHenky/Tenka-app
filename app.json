@@ -13,7 +13,13 @@
       "usesAppleSignIn": true,
       "infoPlist": {
             "ITSAppUsesNonExemptEncryption": false,
-            "NSLocationWhenInUseUsageDescription": "Tenka utiliza tu ubicación para buscar canchas y ligas cercanas."
+            "UIBackgroundModes": [
+                "remote-notification"
+                ],
+            "NSLocationWhenInUseUsageDescription": "Tenka usa tu ubicación aproximada para mostrarte primero las ligas más cercanas. Tu ubicación no se publica ni se comparte con las ligas."
+        },
+      "entitlements": {
+            "aps-environment": "production"
         }
     },
     "android": {
@@ -78,7 +84,23 @@
       "bundler": "metro"
     },
     "plugins": [
+      [
+        "onesignal-expo-plugin",
+        {
+              "mode": "production",
+              "disableLocation": true
+        }
+      ],
       "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Tenka usa tu ubicación aproximada para mostrarte primero las ligas más cercanas. Tu ubicación no se publica ni se comparte con las ligas.",
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -93,12 +115,6 @@
         }
       ],
       "expo-secure-store",
-      [
-        "onesignal-expo-plugin",
-        {
-          "mode": "development"
-        }
-      ],
       "expo-sharing",
       "expo-web-browser",
       "expo-font",
@@ -112,23 +128,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "build": {
-          "experimental": {
-            "ios": {
-              "appExtensions": [
-                {
-                  "targetName": "OneSignalNotificationServiceExtension",
-                  "bundleIdentifier": "studio.tenka.app.OneSignalNotificationServiceExtension",
-                  "entitlements": {
-                    "com.apple.security.application-groups": [
-                      "group.studio.tenka.app.onesignal"
-                    ]
-                  }
-                }
-              ]
-            }
-          }
-        },
+        "build": {},
         "projectId": "cdf4ecbf-c8e0-4a41-8cb8-99993b37163c"
       }
     },
