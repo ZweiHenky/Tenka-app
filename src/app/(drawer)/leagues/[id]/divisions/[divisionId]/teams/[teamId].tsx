@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { ActivityIndicator, Image, Text, TouchableOpacity, View } from "react-native"
-import { useIsFocused, useLocalSearchParams } from "expo-router"
+import { router, useIsFocused, useLocalSearchParams } from "expo-router"
 import { useQuery } from "@tanstack/react-query"
 import { MaterialIcons } from "@expo/vector-icons"
 import { Fonts, Gap, Pad, Palette, Radius } from "@/constants/theme"
@@ -87,7 +87,7 @@ export default function DivisionTeamPlayersScreen() {
   if (error || !team || !division) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Jugadores" />
+        <CustomHeader title="Jugadores" onBack={() => router.back()} />
         <ErrorState message={error ? (error as Error).message : "No se encontró el equipo o la división"} onRetry={handleRefresh} fullScreen />
       </View>
     )
@@ -95,7 +95,7 @@ export default function DivisionTeamPlayersScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title="Jugadores división" />
+      <CustomHeader title="Jugadores división" onBack={() => router.back()} />
       <PullToRefresh refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, paddingBottom: 48, gap: Gap.lg }}>
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.base, gap: Gap.sm }}>

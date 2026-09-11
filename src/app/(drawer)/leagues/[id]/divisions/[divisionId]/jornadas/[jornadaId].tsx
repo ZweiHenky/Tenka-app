@@ -210,7 +210,7 @@ export default function JornadaDetailScreen() {
   if (isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="" />
+        <CustomHeader title="" onBack={() => router.back()} />
         <LoadingScreen />
       </View>
     )
@@ -219,7 +219,7 @@ export default function JornadaDetailScreen() {
   if (error) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Error" />
+        <CustomHeader title="Error" onBack={() => router.back()} />
         <ErrorState message={(error as Error).message} onRetry={() => refetch()} fullScreen />
       </View>
     )
@@ -227,8 +227,11 @@ export default function JornadaDetailScreen() {
 
   if (!jornada) {
     return (
-      <View style={{ flex: 1, backgroundColor: Palette.black, justifyContent: "center", alignItems: "center" }}>
-        <Text style={{ color: Palette.text, fontSize: 16 }}>Jornada no encontrada</Text>
+      <View style={{ flex: 1, backgroundColor: Palette.black }}>
+        <CustomHeader title="Jornada" onBack={() => router.back()} />
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <Text style={{ color: Palette.text, fontSize: 16 }}>Jornada no encontrada</Text>
+        </View>
       </View>
     )
   }
@@ -236,7 +239,7 @@ export default function JornadaDetailScreen() {
   return (
     <AuthGate>
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title={`Jornada ${jornada.numero}`} />
+        <CustomHeader title={`Jornada ${jornada.numero}`} onBack={() => router.back()} />
         <PullToRefresh
           onRefresh={handleRefresh}
           refreshing={refreshing}

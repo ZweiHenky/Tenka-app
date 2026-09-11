@@ -18,7 +18,7 @@ import ErrorState from "@/shared/components/ErrorState"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import { TabBar } from "@/shared/components/TabBar"
-import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { useHistoryAwareNavigation } from "@/shared/hooks/useHistoryAwareNavigation"
 import { env } from "@/infrastructure/config/env"
 import { publicAppLink } from "@/shared/utils/public-app-link"
 
@@ -27,7 +27,7 @@ function formatPosicion(posicion: string) {
 }
 
 export default function PublicTeamDivisionSelectorScreen() {
-  const guard = useNavGuard()
+  const openRoute = useHistoryAwareNavigation()
   const { id } = useLocalSearchParams<{ id: string }>()
   const [tab, setTab] = useState<"jugadores" | "divisiones" | "logros">("jugadores")
   const isFocused = useIsFocused()
@@ -60,12 +60,12 @@ export default function PublicTeamDivisionSelectorScreen() {
     Share.share({ message: `${title}\n\n${publicAppLink(env.APP_ENV, `/equipo/${id}`)}`, title })
   }
 
-  if (isLoading) return <LoadingScreen />
+  if (isLoading) return <View style={{ flex: 1, backgroundColor: Palette.black }}><CustomHeader title="Equipo" onBack={() => router.back()} /><LoadingScreen /></View>
 
   if (error || !team) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Equipo" />
+        <CustomHeader title="Equipo" onBack={() => router.back()} />
         <ErrorState message={error ? (error as Error).message : "Equipo no encontrado"} onRetry={() => refetch()} fullScreen />
       </View>
     )
@@ -73,7 +73,7 @@ export default function PublicTeamDivisionSelectorScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title={team.nombre} rightActions={[{ icon: "share", onPress: handleShare }]} />
+      <CustomHeader title={team.nombre} onBack={() => router.back()} rightActions={[{ icon: "share", onPress: handleShare }]} />
       <PullToRefresh refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, paddingBottom: 48, gap: Gap.lg }}>
           <TeamDetailHeaderCard nombre={team.nombre} logo={team.logo} codigo={team.codigo} />
@@ -99,7 +99,11 @@ export default function PublicTeamDivisionSelectorScreen() {
                     <TouchableOpacity
                       key={jugador.id}
                       activeOpacity={0.8}
-                      onPress={() => guard(() => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: jugador.id } }))}
+                      onPress={() => openRoute(
+                        { pathname: "/(public)/jugador/[id]", params: { id: jugador.id, returnTeamId: id! } },
+                        "jugador/[id]",
+                        { id: jugador.id },
+                      )}
                       style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}
                     >
                        <Image source={jugador.foto ? { uri: jugador.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 48, height: 48, borderRadius: Radius.full }} resizeMode="cover" />
@@ -145,10 +149,11 @@ export default function PublicTeamDivisionSelectorScreen() {
                   <TouchableOpacity
                     key={link.divisionId}
                     activeOpacity={0.78}
-                    onPress={() => guard(() => router.push({
-                      pathname: "/(drawer)/(public)/equipo/[id]/division/[divisionId]",
-                      params: { id, divisionId: link.divisionId },
-                    }))}
+                    onPress={() => openRoute(
+                      { pathname: "/(public)/equipo/[id]/division/[divisionId]", params: { id, divisionId: link.divisionId } },
+                      "equipo/[id]/division/[divisionId]",
+                      { id: id!, divisionId: link.divisionId },
+                    )}
                     style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.base }}
                   >
                     <LogoImage uri={division?.liga?.logo} size={46} backgroundColor={Palette.surfaceLight} />

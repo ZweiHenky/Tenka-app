@@ -117,7 +117,7 @@ export function NotificationBootstrap() {
 
     const onClick = (event: any) => {
       const href = parseNotificationHref(event?.notification?.additionalData?.url)
-      if (href) router.navigate(href)
+      if (href) router.navigate(href, { withAnchor: true })
     }
 
     OneSignal.Notifications.addEventListener("click", onClick)

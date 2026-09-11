@@ -39,7 +39,7 @@ import { formatTimeInTimeZone, toDateKeyInTimeZone } from "@/shared/utils/date-t
 import { getPlayoffRoundMatchCounts } from "@/features/division/utils/playoff"
 import { useGoleadores } from "@/features/goleador/hooks/useGoleadores"
 import GoleadoresTable from "@/features/goleador/components/GoleadoresTable"
-import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { useHistoryAwareNavigation } from "@/shared/hooks/useHistoryAwareNavigation"
 import { parseTimeRanges } from "@/shared/utils/time-range"
 import { formatDiasCortos } from "@/features/division/utils/divisionDays"
 import CourtSchedulePicker from "@/features/division/components/CourtSchedulePicker"
@@ -99,7 +99,7 @@ export default function PublicLeagueScreen() {
   const subscriptions = useDivisionNotificationStore((s) => s.subscriptions)
   const { data: league, isLoading, error: leagueError, refetch: refetchLeague } = useLeague(id!)
   const toast = useToast()
-  const guard = useNavGuard()
+  const openRoute = useHistoryAwareNavigation()
 
   useEffect(() => {
     if (!leagueError || !esFav) return
@@ -267,19 +267,16 @@ export default function PublicLeagueScreen() {
 
   const goToTeam = useCallback((teamId?: string | null) => {
     if (!teamId || !currentDivisionId) return
-    guard(() => {
-      router.push({
-        pathname: "/(drawer)/(public)/equipo/[id]/division/[divisionId]",
-        params: { id: teamId, divisionId: currentDivisionId },
-      })
-    })
-  }, [currentDivisionId, router, guard])
+    openRoute(
+      { pathname: "/(public)/equipo/[id]/division/[divisionId]", params: { id: teamId, divisionId: currentDivisionId } },
+      "equipo/[id]/division/[divisionId]",
+      { id: teamId, divisionId: currentDivisionId },
+    )
+  }, [currentDivisionId, openRoute])
 
   const goToPlayer = useCallback((jugadorId: string) => {
-    guard(() => {
-      router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: jugadorId } })
-    })
-  }, [router, guard])
+    openRoute({ pathname: "/(public)/jugador/[id]", params: { id: jugadorId } }, "jugador/[id]", { id: jugadorId })
+  }, [openRoute])
 
   const rondaMap = useMemo(() => {
     const map: Record<string, string> = {}
@@ -386,7 +383,7 @@ export default function PublicLeagueScreen() {
                     : null
                   return (
                   <View key={p.id}>
-                     <TouchableOpacity activeOpacity={0.7} onPress={() => router.push({ pathname: "/(drawer)/(public)/partido/[partidoId]", params: { partidoId: p.id } })} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, paddingVertical: Pad.sm }}>
+                     <TouchableOpacity activeOpacity={0.7} onPress={() => openRoute({ pathname: "/(public)/partido/[partidoId]", params: { partidoId: p.id } }, "partido/[partidoId]", { partidoId: p.id })} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, paddingVertical: Pad.sm }}>
                        <View style={{ width: 72, alignItems: "center", gap: Gap.sm }}>
                          {badgeTipo ? (
                            <View style={{ maxWidth: 72, backgroundColor: badgeTipo.bg, borderRadius: Radius.sm, borderWidth: 1, borderColor: badgeTipo.border, paddingHorizontal: 6, paddingVertical: 2 }}>
@@ -447,7 +444,7 @@ export default function PublicLeagueScreen() {
         </View>
       </View>
     )
-  }, [leagueTimeZone, rondaMap, router])
+  }, [leagueTimeZone, openRoute, rondaMap])
 
   const direccionContent = ubicacionNombre ? (
     <View style={{ gap: Gap.md }}>
@@ -866,7 +863,7 @@ export default function PublicLeagueScreen() {
   if (isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="" />
+        <CustomHeader title="" onBack={() => router.back()} />
         <LoadingScreen />
       </View>
     )
@@ -875,7 +872,7 @@ export default function PublicLeagueScreen() {
   if (leagueError) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Error" />
+        <CustomHeader title="Error" onBack={() => router.back()} />
         <ErrorState message={(leagueError as Error).message} onRetry={() => refetchLeague()} fullScreen />
       </View>
     )
@@ -891,7 +888,7 @@ export default function PublicLeagueScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title="Información" rightActions={[{ icon: "share", onPress: handleShareLeague }]} />
+      <CustomHeader title="Información" onBack={() => router.back()} rightActions={[{ icon: "share", onPress: handleShareLeague }]} />
       <PullToRefresh scrollRef={scrollViewRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
         <View style={{ paddingBottom: 48 }}>
           {headerContent}

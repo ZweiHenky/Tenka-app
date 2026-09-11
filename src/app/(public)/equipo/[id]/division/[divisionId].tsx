@@ -12,12 +12,12 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import ErrorState from "@/shared/components/ErrorState"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import PullToRefresh from "@/shared/components/PullToRefresh"
-import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { useHistoryAwareNavigation } from "@/shared/hooks/useHistoryAwareNavigation"
 import { env } from "@/infrastructure/config/env"
 import { publicAppLink } from "@/shared/utils/public-app-link"
 
 export default function PublicDivisionTeamScreen() {
-  const guard = useNavGuard()
+  const openRoute = useHistoryAwareNavigation()
   const { id, divisionId } = useLocalSearchParams<{ id: string; divisionId: string }>()
   const { data: team, isLoading: loadingTeam, error: teamError, refetch: refetchTeam } = useTeam(id)
   const { data: divisionLinks = [], isLoading: loadingDivisions, error: divisionsError, refetch: refetchDivisions } = useQuery({
@@ -47,13 +47,13 @@ export default function PublicDivisionTeamScreen() {
     Share.share({ message: `${title}\n\n${publicAppLink(env.APP_ENV, `/equipo/${id}/division/${divisionId}`)}`, title })
   }
 
-  if (loadingTeam || loadingDivisions) return <LoadingScreen />
+  if (loadingTeam || loadingDivisions) return <View style={{ flex: 1, backgroundColor: Palette.black }}><CustomHeader title="Equipo" onBack={() => router.back()} /><LoadingScreen /></View>
 
   const error = teamError || divisionsError
   if (error || !team || !contextLink?.division) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Equipo" />
+        <CustomHeader title="Equipo" onBack={() => router.back()} />
         <ErrorState
           message={error ? (error as Error).message : "El equipo no participa en esta división o la división no está disponible"}
           onRetry={handleRefresh}
@@ -65,12 +65,12 @@ export default function PublicDivisionTeamScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title={team.nombre} rightActions={[{ icon: "share", onPress: handleShare }]} />
+      <CustomHeader title={team.nombre} onBack={() => router.back()} rightActions={[{ icon: "share", onPress: handleShare }]} />
       <PullToRefresh refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, paddingBottom: 48, gap: Gap.lg }}>
           <TouchableOpacity
             activeOpacity={0.7}
-            onPress={() => guard(() => router.push({ pathname: "/(drawer)/(public)/equipo/[id]", params: { id: id! } }))}
+            onPress={() => openRoute({ pathname: "/(public)/equipo/[id]", params: { id: id! } }, "equipo/[id]", { id: id! })}
             style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, minHeight: 42, backgroundColor: Palette.cyan10, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.cyan20 }}
           >
             <MaterialIcons name="visibility" size={18} color={Palette.cyan} />
@@ -86,7 +86,11 @@ export default function PublicDivisionTeamScreen() {
             ) : playersError ? (
               <ErrorState message={(playersError as Error).message} onRetry={() => refetchPlayers()} />
             ) : (
-              <DivisionRosterGroups players={players} onPlayerPress={(playerId) => guard(() => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: playerId } }))} />
+              <DivisionRosterGroups players={players} onPlayerPress={(playerId) => openRoute(
+                { pathname: "/(public)/jugador/[id]", params: { id: playerId, returnTeamId: id!, returnDivisionId: divisionId! } },
+                "jugador/[id]",
+                { id: playerId },
+              )} />
             )}
           </View>
         </View>

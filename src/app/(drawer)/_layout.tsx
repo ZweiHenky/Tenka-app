@@ -1,5 +1,5 @@
 import { Drawer, DrawerContentScrollView } from "expo-router/drawer"
-import { router, usePathname } from "expo-router"
+import { router, usePathname, type Href } from "expo-router"
 import { ActivityIndicator, Text, View, TouchableOpacity, Image } from "react-native"
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -13,6 +13,15 @@ import { waitForIdle } from "@/shared/utils/wait-for-idle"
 import ErrorState from "@/shared/components/ErrorState"
 
 type DrawerRoute = "index" | "my-profile" | "team" | "leagues" | "account" | "support"
+
+const drawerHrefs: Record<DrawerRoute, Href> = {
+  index: "/(drawer)",
+  "my-profile": "/(drawer)/my-profile",
+  team: "/(drawer)/team",
+  leagues: "/(drawer)/leagues",
+  account: "/(drawer)/account",
+  support: "/(drawer)/support",
+}
 
 function routeMatches(route: string, pathname: string): boolean {
   if (route === "index") return pathname === "/"
@@ -113,10 +122,8 @@ function CustomDrawerContent(props: any) {
               <TouchableOpacity
                 key={item.route}
                 onPress={() => {
-                  if (item.route === "leagues") {
-                    router.push("/(drawer)/leagues")
-                  } else if (item.route === "my-profile") {
-                    router.push("/(drawer)/my-profile")
+                  if (focused) {
+                    router.dismissTo(drawerHrefs[item.route])
                   } else {
                     navigation.navigate(item.route)
                   }
@@ -155,6 +162,7 @@ function CustomDrawerContent(props: any) {
 export default function DrawerLayout() {
   return (
     <Drawer
+      backBehavior="history"
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{
         drawerStyle: { width: 260 },
@@ -166,12 +174,10 @@ export default function DrawerLayout() {
       }}
     >
       <Drawer.Screen name="index" options={{ title: "Tenka" }} />
-      <Drawer.Screen name="my-profile" options={{ title: "Mi perfil" }} />
-      <Drawer.Screen name="team" options={{ title: "Mis equipos" }} />
-      <Drawer.Screen name="player" options={{ drawerItemStyle: { display: "none" } }} />
-      <Drawer.Screen name="(public)" options={{ drawerItemStyle: { display: "none" } }} />
-      <Drawer.Screen name="leagues" options={{ title: "Mis ligas" }} />
-      <Drawer.Screen name="account" options={{ title: "Cuenta" }} />
+      <Drawer.Screen name="my-profile" options={{ title: "Mi perfil", popToTopOnBlur: true }} />
+      <Drawer.Screen name="team" options={{ title: "Mis equipos", popToTopOnBlur: true }} />
+      <Drawer.Screen name="leagues" options={{ title: "Mis ligas", popToTopOnBlur: true }} />
+      <Drawer.Screen name="account" options={{ title: "Cuenta", popToTopOnBlur: true }} />
       <Drawer.Screen name="support" options={{ title: "Ayuda" }} />
     </Drawer>
   )

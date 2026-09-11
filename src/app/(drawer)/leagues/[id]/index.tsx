@@ -229,7 +229,7 @@ export default function LeagueDetailScreen() {
   if (isLoading || (tab === "divisiones" && (lookups.isLoading || divisionsLoading))) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="" />
+        <CustomHeader title="" onBack={() => router.back()} />
         <LoadingScreen />
       </View>
     )
@@ -238,7 +238,7 @@ export default function LeagueDetailScreen() {
   if (leagueError) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Error" />
+        <CustomHeader title="Error" onBack={() => router.back()} />
         <ErrorState message={(leagueError as Error).message} onRetry={() => refetchLeague()} fullScreen />
       </View>
     )
@@ -246,9 +246,12 @@ export default function LeagueDetailScreen() {
 
   if (!league) {
     return (
-      <View style={{ flex: 1, backgroundColor: Palette.black, justifyContent: "center", alignItems: "center", padding: Pad.xl }}>
-        <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.xl, alignItems: "center" }}>
-          <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.sans }}>Liga no encontrada</Text>
+      <View style={{ flex: 1, backgroundColor: Palette.black }}>
+        <CustomHeader title="Liga" onBack={() => router.back()} />
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: Pad.xl }}>
+          <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.xl, alignItems: "center" }}>
+            <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.sans }}>Liga no encontrada</Text>
+          </View>
         </View>
       </View>
     )
@@ -262,7 +265,7 @@ export default function LeagueDetailScreen() {
   return (
     <AuthGate>
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title={league.nombre} />
+        <CustomHeader title={league.nombre} onBack={() => router.back()} />
         <PullToRefresh scrollRef={scrollRef} onScroll={(event) => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
             <View ref={tabBarRef} onLayout={() => setTabBarReady(true)}>

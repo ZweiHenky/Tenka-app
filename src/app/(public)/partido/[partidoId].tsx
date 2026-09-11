@@ -6,12 +6,14 @@ import CustomHeader from "@/shared/components/CustomHeader"
 import PullToRefresh from "@/shared/components/PullToRefresh"
 import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
+import { useHistoryAwareNavigation } from "@/shared/hooks/useHistoryAwareNavigation"
 import { usePartido } from "@/features/partido/hooks/usePartidos"
 import PublicMatchScoreCard from "@/features/partido/components/PublicMatchScoreCard"
 import MatchScorers from "@/features/partido/components/MatchScorers"
 import MatchLineups from "@/features/partido/components/MatchLineups"
 
 export default function PublicPartidoDetailScreen() {
+  const openRoute = useHistoryAwareNavigation()
   const { partidoId } = useLocalSearchParams<{ partidoId: string }>()
   const [refreshing, setRefreshing] = useState(false)
   const { data: partido, isLoading, error, refetch } = usePartido(partidoId ?? "")
@@ -25,7 +27,7 @@ export default function PublicPartidoDetailScreen() {
   if (error) return <View style={{ flex: 1, backgroundColor: Palette.black }}><CustomHeader title="Partido" onBack={() => router.back()} /><ErrorState message={error.message} onRetry={() => refetch()} fullScreen /></View>
   if (!partido) return <View style={{ flex: 1, backgroundColor: Palette.black }}><CustomHeader title="Partido" onBack={() => router.back()} /><View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}><Text style={{ color: Palette.text, fontFamily: Fonts.sans }}>Partido no encontrado</Text></View></View>
 
-  const goToPlayer = (playerId: string) => router.push(`/(drawer)/(public)/jugador/${playerId}`)
+  const goToPlayer = (playerId: string) => openRoute(`/(public)/jugador/${playerId}`, "jugador/[id]", { id: playerId })
   const localName = partido.equipoLocal?.nombre ?? "Local"
   const visitorName = partido.equipoVisitante?.nombre ?? "Visitante"
 

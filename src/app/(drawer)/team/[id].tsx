@@ -280,13 +280,13 @@ export default function TeamDetailScreen() {
   }
 
   if (isLoading) {
-    return <LoadingScreen />
+    return <View style={{ flex: 1, backgroundColor: Palette.black }}><CustomHeader title="Equipo" onBack={() => router.back()} /><LoadingScreen /></View>
   }
 
   if (error || !team) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Equipo" />
+        <CustomHeader title="Equipo" onBack={() => router.back()} />
         <ErrorState message={error ? (error as Error).message : "Equipo no encontrado"} onRetry={() => refetch()} fullScreen />
       </View>
     )
@@ -294,7 +294,7 @@ export default function TeamDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title={team.nombre} />
+      <CustomHeader title={team.nombre} onBack={() => router.back()} />
       <PullToRefresh scrollRef={scrollRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
           <TeamDetailHeaderCard nombre={team.nombre} logo={team.logo} codigo={team.codigo} />
@@ -323,7 +323,7 @@ export default function TeamDetailScreen() {
               jugadores.map((j, i) => {
                  const dorsal = j.equipos?.find((equipo) => equipo.equipoId === id)?.dorsal
                 const card = (
-                  <TouchableOpacity key={j.id} activeOpacity={0.8} onPress={() => guard(() => router.push(`/(drawer)/player/${j.id}`))} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}>
+                  <TouchableOpacity key={j.id} activeOpacity={0.8} onPress={() => guard(() => router.push({ pathname: "/(public)/jugador/[id]", params: { id: j.id, returnTeamId: id! } }))} style={{ flexDirection: "row", alignItems: "center", gap: Gap.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, padding: Pad.sm }}>
                     <View style={{ width: 48, height: 48, borderRadius: Radius.full, overflow: "hidden", backgroundColor: Palette.surfaceLight }}>
                        <Image source={j.foto ? { uri: j.foto } : require("@/assets/ejemplos/logo.png")} style={{ width: 48, height: 48 }} resizeMode="cover" />
                     </View>

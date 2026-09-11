@@ -61,7 +61,7 @@ export default function ManageLeagueScreen() {
   if (isLoading || lookups.isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="" />
+        <CustomHeader title="" onBack={() => router.back()} />
         <LoadingScreen />
       </View>
     )
@@ -70,7 +70,7 @@ export default function ManageLeagueScreen() {
   if (leagueError) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Error" />
+        <CustomHeader title="Error" onBack={() => router.back()} />
         <ErrorState message={(leagueError as Error).message} onRetry={() => refetchLeague()} fullScreen />
       </View>
     )
@@ -87,7 +87,7 @@ export default function ManageLeagueScreen() {
   return (
     <AuthGate>
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title={`Gestionar ${league.nombre}`} />
+        <CustomHeader title={`Gestionar ${league.nombre}`} onBack={() => router.back()} />
         <PullToRefresh onRefresh={handleRefresh} refreshing={refreshing}>
           <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, overflow: "hidden" }}>

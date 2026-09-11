@@ -1,6 +1,10 @@
 import { Stack } from "expo-router"
 import { AuthGate } from "@/shared/components/AuthGate"
 
+export const unstable_settings = {
+  initialRouteName: "index",
+}
+
 export default function TeamLayout() {
   return (
     <AuthGate><Stack screenOptions={{ headerShown: false }}>

@@ -3,6 +3,7 @@ import ErrorState from "@/shared/components/ErrorState"
 import JornadaListCard from "@/features/jornada/components/JornadaListCard"
 import { router } from "expo-router"
 import { Gap } from "@/constants/theme"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 interface JornadaItem {
   id: string
@@ -29,6 +30,8 @@ export default function JornadasTab({
   ligaCompletada,
   onDelete,
 }: Props) {
+  const guard = useNavGuard()
+
   return (
     <View style={{ gap: Gap.md }}>
       {jornadasError ? (
@@ -38,7 +41,7 @@ export default function JornadasTab({
           jornadas={jornadas}
           disabled={ligaCompletada}
           disabledMessage="Temporada completada. Reinicia la liga para continuar."
-          onNavigate={(jornadaId) => router.push(`/(drawer)/leagues/${ligaId}/divisions/${divisionId}/jornadas/${jornadaId}`)}
+          onNavigate={(jornadaId) => guard(() => router.push(`/(drawer)/leagues/${ligaId}/divisions/${divisionId}/jornadas/${jornadaId}`))}
           onDelete={onDelete}
           flat
         />

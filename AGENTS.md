@@ -71,13 +71,6 @@ src/
         team-form.tsx     # Form de equipo
         [id].tsx          # Detalle del equipo + divisiones + jugadores
         [id]/divisions/[divisionId].tsx  # División del equipo (detalle)
-      player/             # Detalle de jugador (oculto del drawer)
-        [id].tsx
-      (public)/           # Vistas públicas sin login (oculto del drawer)
-        liga/[id].tsx              # Detalle público de liga (posiciones/horario/goleo)
-        equipo/[id].tsx            # Detalle público de equipo (jugadores/divisiones)
-        equipo/[id]/division/[divisionId].tsx
-        jugador/[id].tsx           # Detalle público de jugador
       leagues/            # Mis ligas (folder + stack)
         index.tsx         # CRUD de ligas
         league-form.tsx   # Form de liga (crear/editar)
@@ -95,6 +88,11 @@ src/
     (public)/
       _layout.tsx
       arbitro/index.tsx   # Captura arbitral por token (deep link #token)
+      liga/[id].tsx       # Detalle público de liga (posiciones/horario/goleo)
+      equipo/[id].tsx     # Detalle público de equipo (jugadores/divisiones)
+      equipo/[id]/division/[divisionId].tsx
+      jugador/[id].tsx    # Detalle público canónico de jugador
+      partido/[partidoId].tsx
     (auth)/
       _layout.tsx
       sign-in.tsx         # Google/Apple sign-in
@@ -156,8 +154,6 @@ Root Stack
     index            Home / Feed de ligas públicas
     my-profile       Mi perfil de jugador (+ form)
     team             Mis equipos (CRUD + detalle + divisiones)
-    player           Detalle de jugador (oculto del drawer)
-    (public)         Vistas públicas liga/equipo/jugador (oculto del drawer)
     leagues → Stack  Mis ligas
       index                    CRUD de ligas
       [id]/index               Detalle de liga + divisiones
@@ -169,6 +165,10 @@ Root Stack
     support          Ayuda/FAQ
   (public) → Stack
     arbitro/index    Captura arbitral por token (#token en deep link)
+    liga/[id]        Detalle público de liga
+    equipo/[id]      Detalle público de equipo
+    jugador/[id]     Detalle público canónico de jugador
+    partido/[partidoId] Detalle público de partido
   (auth) → Stack
     sign-in          Google / Apple
 ```
@@ -182,10 +182,9 @@ Root Stack
 | `(drawer)/my-profile/form.tsx` | Crear/editar perfil de jugador (nombre, posición, foto, edad) |
 | `(drawer)/team/index.tsx` | CRUD de equipos del usuario, QR por equipo |
 | `(drawer)/team/[id].tsx` | Detalle de equipo: jugadores + divisiones |
-| `(drawer)/player/[id].tsx` | Detalle de jugador (privado, oculto del drawer) |
-| `(drawer)/(public)/liga/[id].tsx` | Detalle público de liga: posiciones / horario / goleo + favorito + notificarme |
-| `(drawer)/(public)/equipo/[id].tsx` | Detalle público de equipo: jugadores / divisiones |
-| `(drawer)/(public)/jugador/[id].tsx` | Detalle público de jugador |
+| `(public)/liga/[id].tsx` | Detalle público de liga: posiciones / horario / goleo + favorito + notificarme |
+| `(public)/equipo/[id].tsx` | Detalle público de equipo: jugadores / divisiones |
+| `(public)/jugador/[id].tsx` | Detalle público canónico de jugador |
 | `(drawer)/leagues/index.tsx` | CRUD de ligas con logo, cancha, ubicación |
 | `(drawer)/leagues/[id]/index.tsx` | Detalle de liga + CRUD de divisiones |
 | `(drawer)/leagues/[id]/divisions/[divisionId].tsx` | Hub de división: info, Publicar/Regresar/Reiniciar, equipos, jornadas, playoffs |
@@ -355,6 +354,7 @@ Las tiras horizontales del **cuerpo** de una pantalla (las pestañas de cancha y
 |------|-------------|
 | **`anonymousApi`** | Instancia de axios **sin la cookie de sesión**, en `src/infrastructure/api/client.ts`. Úsala en endpoints que se autentican con su propio token (el acceso de árbitro): mandar además la cookie haría que la petición llevara dos identidades, y la acción podría quedar atribuida a quien tenga la sesión abierta en el teléfono. Comparte request-id, logging y manejo de errores con `api`. |
 | **`useNavGuard(ms = 600)`** | Previene doble navegación (double-tap) en `router.push`. En `src/shared/hooks/useNavGuard.ts`. Se usa como `const guard = useNavGuard()` y se envuelve cada navegación: `guard(() => router.push(...))`. Aplicado a todas las pantallas con push: Home, ligas (CRUD + división + jornadas + partidos), equipos, públicas (liga/equipo/jugador), mi perfil y cuenta. Ignora taps si el último fue hace menos de `ms`. |
+| **`useHistoryAwareNavigation()`** | Navega entre fichas públicas sin formar ciclos: hace `dismissTo` si la misma entidad ya está en el historial y `push` si todavía no existe. La identidad compara nombre de ruta + ids dinámicos y omite parámetros de contexto como `returnTeamId`. |
 | **`useDebounce`** | Debounce genérico (usado en el buscador del Home) |
 
 ## Form Unsaved-Changes Pattern
@@ -699,7 +699,7 @@ Cuando sobran slots (bajaron los equipos habilitados) recorta **el último de la
 - Bootstrap en `src/app/_layout.tsx` mediante `<NotificationBootstrap />`
 - Inicializa OneSignal, solicita permiso en Android, hace login/logout según sesión de Better Auth
 - Click en notificación navega a `data.url` usando Expo Router
-- Deep link de jornada generada: `/(drawer)/(public)/liga/{ligaId}?divisionId={divisionId}&tab=horario`
+- Deep link de jornada generada: `/(public)/liga/{ligaId}?divisionId={divisionId}&tab=horario`
 - Cobertura: usuarios registrados (dueños/capitanes vía external_id) + seguidores anónimos (vía tag `division_{divisionId}` agregado desde botón "Notificarme de esta división")
 - Las suscripciones se sincronizan con el backend (`/api/notification-subscriptions`)
 - Favoritos de liga ya no gestionan tags de OneSignal

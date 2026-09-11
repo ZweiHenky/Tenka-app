@@ -489,12 +489,13 @@ export default function DivisionDetailScreen() {
   }, [divisionId, ligaId, resetDivision, toast])
 
   if (loadDiv) {
-    return <LoadingScreen />
+    return <View style={{ flex: 1, backgroundColor: Palette.black }}><CustomHeader title="División" onBack={() => router.back()} /><LoadingScreen /></View>
   }
 
   if (divError) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
+        <CustomHeader title="División" onBack={() => router.back()} />
         <ErrorState message={(divError as Error).message} onRetry={() => refetchDiv()} fullScreen />
       </View>
     )
@@ -502,9 +503,12 @@ export default function DivisionDetailScreen() {
 
   if (!division) {
     return (
-      <View style={{ flex: 1, backgroundColor: Palette.black, justifyContent: "center", alignItems: "center", padding: Pad.xl }}>
-        <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.xl, alignItems: "center", borderWidth: 1, borderColor: Palette.border }}>
-          <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.sans }}>División no encontrada</Text>
+      <View style={{ flex: 1, backgroundColor: Palette.black }}>
+        <CustomHeader title="División" onBack={() => router.back()} />
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: Pad.xl }}>
+          <View style={{ backgroundColor: Palette.surfaceLight, borderRadius: Radius.lg, padding: Pad.xl, alignItems: "center", borderWidth: 1, borderColor: Palette.border }}>
+            <Text style={{ color: Palette.text, fontSize: 16, fontFamily: Fonts.sans }}>División no encontrada</Text>
+          </View>
         </View>
       </View>
     )
@@ -543,6 +547,7 @@ export default function DivisionDetailScreen() {
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader
           title={division.nombre}
+          onBack={() => router.back()}
           rightActions={[
             { icon: "info-outline", onPress: () => setInfoSheetOpen(true), ref: infoActionRef, onLayout: () => setInfoActionReady(true) },
             { icon: "more-vert", onPress: () => setActionSheetOpen(true), ref: optionsActionRef, onLayout: () => setOptionsActionReady(true) },

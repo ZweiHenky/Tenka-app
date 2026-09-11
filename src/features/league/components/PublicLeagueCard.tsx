@@ -15,6 +15,7 @@ import CourtSchedulePicker from "@/features/division/components/CourtSchedulePic
 import { courtScheduleLines, selectedCourtSchedule } from "@/features/division/utils/court-schedule-selection"
 import { divisionLabel } from "@/features/division/utils/division-label"
 import { formatDistance } from "@/features/league/utils/format-distance"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
 
 interface Props {
   league: PublicLeagueListDto
@@ -31,6 +32,7 @@ function colorEstado(nombre: string): string {
 }
 
 export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
+  const guard = useNavGuard()
   const [selectedDivision, setSelectedDivision] = useState<string | null>(null)
   const [selectedCancha, setSelectedCancha] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -62,7 +64,7 @@ export default function PublicLeagueCard({ league: l, ubicacionTexto }: Props) {
     setPickerOpen(false)
   }
 
-  const handleNav = () => router.push({ pathname: "/(drawer)/(public)/liga/[id]", params: { id: l.id } })
+  const handleNav = () => guard(() => router.push({ pathname: "/(public)/liga/[id]", params: { id: l.id } }))
 
   return (
     <TouchableOpacity activeOpacity={0.85} onPress={handleNav} style={{ borderRadius: Radius.lg, backgroundColor: Palette.surface, borderWidth: 1, borderColor: Palette.border, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.25, shadowRadius: 6 }}>

@@ -3,10 +3,9 @@ import type { Href } from "expo-router"
 const SEGMENT = "([^/?#]+)"
 
 type NotificationPathname =
-  | "/(drawer)/(public)/liga/[id]"
-  | "/(drawer)/(public)/equipo/[id]"
-  | "/(drawer)/(public)/jugador/[id]"
-  | "/(drawer)/player/[id]"
+  | "/(public)/liga/[id]"
+  | "/(public)/equipo/[id]"
+  | "/(public)/jugador/[id]"
   | "/(drawer)/team/[id]"
   | "/(drawer)/team/[id]/divisions/[divisionId]"
   | "/(drawer)/leagues/[id]"
@@ -15,10 +14,10 @@ type NotificationPathname =
   | "/(drawer)/leagues/[id]/divisions/[divisionId]/partidos/[partidoId]"
 
 const notificationRoutes: { pattern: RegExp; pathname: NotificationPathname; paramNames: string[] }[] = [
-  { pattern: new RegExp(`^/(?:\\(drawer\\)/)?(?:\\(public\\)/)?liga/${SEGMENT}$`), pathname: "/(drawer)/(public)/liga/[id]", paramNames: ["id"] },
-  { pattern: new RegExp(`^/(?:\\(drawer\\)/)?(?:\\(public\\)/)?equipo/${SEGMENT}$`), pathname: "/(drawer)/(public)/equipo/[id]", paramNames: ["id"] },
-  { pattern: new RegExp(`^/(?:\\(drawer\\)/)?(?:\\(public\\)/)?jugador/${SEGMENT}$`), pathname: "/(drawer)/(public)/jugador/[id]", paramNames: ["id"] },
-  { pattern: new RegExp(`^/(?:\\(drawer\\)/)?player/${SEGMENT}$`), pathname: "/(drawer)/player/[id]", paramNames: ["id"] },
+  { pattern: new RegExp(`^/(?:\\(drawer\\)/)?(?:\\(public\\)/)?liga/${SEGMENT}$`), pathname: "/(public)/liga/[id]", paramNames: ["id"] },
+  { pattern: new RegExp(`^/(?:\\(drawer\\)/)?(?:\\(public\\)/)?equipo/${SEGMENT}$`), pathname: "/(public)/equipo/[id]", paramNames: ["id"] },
+  { pattern: new RegExp(`^/(?:\\(drawer\\)/)?(?:\\(public\\)/)?jugador/${SEGMENT}$`), pathname: "/(public)/jugador/[id]", paramNames: ["id"] },
+  { pattern: new RegExp(`^/(?:\\(drawer\\)/)?player/${SEGMENT}$`), pathname: "/(public)/jugador/[id]", paramNames: ["id"] },
   { pattern: new RegExp(`^/(?:\\(drawer\\)/)?team/${SEGMENT}$`), pathname: "/(drawer)/team/[id]", paramNames: ["id"] },
   { pattern: new RegExp(`^/(?:\\(drawer\\)/)?team/${SEGMENT}/divisions/${SEGMENT}$`), pathname: "/(drawer)/team/[id]/divisions/[divisionId]", paramNames: ["id", "divisionId"] },
   { pattern: new RegExp(`^/(?:\\(drawer\\)/)?leagues/${SEGMENT}$`), pathname: "/(drawer)/leagues/[id]", paramNames: ["id"] },

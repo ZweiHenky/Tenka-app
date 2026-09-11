@@ -106,12 +106,12 @@ export default function TeamDivisionPlayersScreen() {
   const loading = loadingTeam || loadingDivision
   const error = teamError || divisionError
 
-  if (loading) return <LoadingScreen />
+  if (loading) return <View style={{ flex: 1, backgroundColor: Palette.black }}><CustomHeader title="División" onBack={() => router.back()} /><LoadingScreen /></View>
 
   if (error || !team || !division) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="División" />
+        <CustomHeader title="División" onBack={() => router.back()} />
         <ErrorState message={error ? (error as Error).message : "No se encontró la división"} onRetry={handleRefresh} fullScreen />
       </View>
     )
@@ -119,7 +119,7 @@ export default function TeamDivisionPlayersScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title={team.nombre} />
+      <CustomHeader title={team.nombre} onBack={() => router.back()} />
       <PullToRefresh scrollRef={scrollRef} onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }} refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
           <View ref={divisionCardRef}>
@@ -127,7 +127,7 @@ export default function TeamDivisionPlayersScreen() {
           </View>
 
           {division.liga?.id ? (
-            <TouchableOpacity onPress={() => guard(() => router.push({ pathname: "/(drawer)/(public)/liga/[id]", params: { id: division.liga!.id, divisionId } }))} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, minHeight: 42, backgroundColor: Palette.cyan10, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.cyan20 }}>
+            <TouchableOpacity onPress={() => guard(() => router.push({ pathname: "/(public)/liga/[id]", params: { id: division.liga!.id, divisionId } }))} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Gap.sm, minHeight: 42, backgroundColor: Palette.cyan10, borderRadius: Radius.md, borderWidth: 1, borderColor: Palette.cyan20 }}>
               <MaterialIcons name="visibility" size={18} color={Palette.cyan} />
               <Text style={{ color: Palette.cyan, fontFamily: Fonts.medium, fontSize: 13 }}>Ver liga pública</Text>
             </TouchableOpacity>
@@ -141,7 +141,7 @@ export default function TeamDivisionPlayersScreen() {
             <ActivityIndicator color={Palette.cyan} />
           ) : (
             <View ref={habSectionRef} onLayout={() => setHabSectionReady(true)}>
-              <DivisionRosterGroups players={habilitados} onPlayerPress={(playerId) => guard(() => router.push({ pathname: "/(drawer)/(public)/jugador/[id]", params: { id: playerId } }))} />
+              <DivisionRosterGroups players={habilitados} onPlayerPress={(playerId) => guard(() => router.push({ pathname: "/(public)/jugador/[id]", params: { id: playerId, returnTeamId: equipoId!, returnDivisionId: divisionId! } }))} />
             </View>
           )}
         </View>

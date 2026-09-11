@@ -148,7 +148,7 @@ export default function PartidoDetailScreen() {
   if (isLoading || isLeagueLoading || isDivisionLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="" />
+        <CustomHeader title="" onBack={() => router.back()} />
         <LoadingScreen />
       </View>
     )

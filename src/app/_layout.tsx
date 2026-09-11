@@ -16,6 +16,10 @@ import { Fonts } from "@/constants/theme"
 import { ToastProvider } from "@/shared/components/Toast"
 import { NotificationBootstrap } from "@/infrastructure/notifications/NotificationBootstrap"
 
+export const unstable_settings = {
+  initialRouteName: "(drawer)",
+}
+
 SplashScreen.preventAutoHideAsync()
 
 const queryClient = new QueryClient({

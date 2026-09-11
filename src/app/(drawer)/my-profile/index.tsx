@@ -132,7 +132,7 @@ function EquiposSection({ jugador }: { jugador: Jugador }) {
           onPress={() =>
             guard(() =>
               router.push({
-                pathname: "/(drawer)/(public)/equipo/[id]",
+                pathname: "/(public)/equipo/[id]",
                 params: { id: eq.equipoId },
               })
             )

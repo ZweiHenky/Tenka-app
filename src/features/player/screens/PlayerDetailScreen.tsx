@@ -15,13 +15,21 @@ import LoadingScreen from "@/shared/components/LoadingScreen"
 import ErrorState from "@/shared/components/ErrorState"
 import EmptyState from "@/shared/components/EmptyState"
 import PullToRefresh from "@/shared/components/PullToRefresh"
+import { useNavGuard } from "@/shared/hooks/useNavGuard"
+import { useHistoryAwareNavigation } from "@/shared/hooks/useHistoryAwareNavigation"
 
 function formatPosicion(posicion: string) {
   return POSICIONES_JUGADOR.find((p) => p.id === posicion)?.nombre ?? posicion
 }
 
 export default function PlayerDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const guard = useNavGuard()
+  const openRoute = useHistoryAwareNavigation()
+  const { id, returnTeamId, returnDivisionId } = useLocalSearchParams<{
+    id: string
+    returnTeamId?: string
+    returnDivisionId?: string
+  }>()
   const { data: jugador, isLoading, error, refetch } = useJugador(id)
   const { data: logros = [] } = useCampeonatosJugador(id)
   const { data: divisiones = [], isLoading: loadingDivs } = useQuery({
@@ -41,13 +49,13 @@ export default function PlayerDetailScreen() {
   }
 
   if (isLoading) {
-    return <LoadingScreen />
+    return <View style={{ flex: 1, backgroundColor: Palette.black }}><CustomHeader title="Jugador" onBack={() => router.back()} /><LoadingScreen /></View>
   }
 
   if (error || !jugador) {
     return (
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
-        <CustomHeader title="Jugador" />
+        <CustomHeader title="Jugador" onBack={() => router.back()} />
         <ErrorState message={error ? (error as Error).message : "Jugador no encontrado"} onRetry={() => refetch()} fullScreen />
       </View>
     )
@@ -55,7 +63,7 @@ export default function PlayerDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Palette.black }}>
-      <CustomHeader title="Detalle jugador" />
+      <CustomHeader title="Detalle jugador" onBack={() => router.back()} />
       <PullToRefresh refreshing={refreshing} onRefresh={handleRefresh}>
         <View style={{ padding: Pad.xl, gap: Gap.lg, paddingBottom: 48 }}>
           <View style={{ backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Pad.xl, alignItems: "center", gap: Gap.md }}>
@@ -84,7 +92,18 @@ export default function PlayerDetailScreen() {
             <Text style={{ color: Palette.text, fontFamily: Fonts.display, fontSize: 16 }}>Dorsales por equipo</Text>
             {jugador.equipos && jugador.equipos.length > 0 ? (
               jugador.equipos.map((eq) => (
-                <TouchableOpacity key={eq.equipoId} activeOpacity={0.8} onPress={() => router.push({ pathname: "/(drawer)/(public)/equipo/[id]", params: { id: eq.equipoId } })} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.sm }}>
+                <TouchableOpacity
+                  key={eq.equipoId}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    if (eq.equipoId === returnTeamId) {
+                      guard(() => router.back())
+                      return
+                    }
+                    openRoute({ pathname: "/(public)/equipo/[id]", params: { id: eq.equipoId } }, "equipo/[id]", { id: eq.equipoId })
+                  }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.sm }}
+                >
                   <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
                     <Text style={{ color: Palette.cyan, fontFamily: Fonts.displayBold, fontSize: 12 }}>#{eq.dorsal}</Text>
                   </View>
@@ -105,7 +124,22 @@ export default function PlayerDetailScreen() {
               <EmptyState message="No está habilitado en ninguna división" icon="emoji-events" />
             ) : (
               divisiones.map((dj) => (
-                <TouchableOpacity key={`${dj.divisionId}-${dj.equipoId}`} activeOpacity={0.8} onPress={() => router.push({ pathname: "/(drawer)/(public)/equipo/[id]/division/[divisionId]", params: { id: dj.equipoId, divisionId: dj.divisionId } })} style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.sm }}>
+                <TouchableOpacity
+                  key={`${dj.divisionId}-${dj.equipoId}`}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    if (dj.equipoId === returnTeamId && dj.divisionId === returnDivisionId) {
+                      guard(() => router.back())
+                      return
+                    }
+                    openRoute(
+                      { pathname: "/(public)/equipo/[id]/division/[divisionId]", params: { id: dj.equipoId, divisionId: dj.divisionId } },
+                      "equipo/[id]/division/[divisionId]",
+                      { id: dj.equipoId, divisionId: dj.divisionId },
+                    )
+                  }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: Gap.sm, backgroundColor: Palette.surfaceLight, borderRadius: Radius.md, padding: Pad.sm }}
+                >
                   <LogoImage uri={dj.division.liga?.logo} size={38} backgroundColor={Palette.cyan10} radius={Radius.lg} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Palette.text, fontFamily: Fonts.semiBold, fontSize: 14 }}>{dj.division.nombre}</Text>
