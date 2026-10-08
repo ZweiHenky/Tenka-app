@@ -54,6 +54,7 @@ import AddTeamModeSheet from "@/features/division/components/AddTeamModeSheet"
 import ConfirmationModal from "@/shared/components/ConfirmationModal"
 import { useAccountQuota } from "@/features/users/hooks/useAccountQuota"
 import { accountQuotaKey, increasesActiveDivisionCapacity, quotaExhaustedMessage, quotaIsExhausted, refreshQuotaAfterError } from "@/features/users/quota"
+import ManagementAccessGate from "@/features/billing/components/ManagementAccessGate"
 
 export default function DivisionDetailScreen() {
   const toast = useToast()
@@ -544,6 +545,12 @@ export default function DivisionDetailScreen() {
 
   return (
     <AuthGate>
+      <ManagementAccessGate
+        access={division.managementAccess}
+        reason={division.managementReason}
+        resourceName={division.nombre}
+        onViewPublic={() => router.push({ pathname: "/(public)/liga/[id]", params: { id: ligaId!, divisionId: divisionId! } })}
+      >
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader
           title={division.nombre}
@@ -829,6 +836,7 @@ export default function DivisionDetailScreen() {
         onReset={handleReset}
         dataLoading={actionSheetOpen && (leagueOptionsLoading || rondasLoading)}
       />
+      </ManagementAccessGate>
     </AuthGate>
   )
 }

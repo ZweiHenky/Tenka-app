@@ -1004,7 +1004,11 @@ Orden: Publicar (izquierda), Reiniciar (derecha). Condicional: Publicar solo vis
 
 ## Pricing Oficial (modelo futuro aprobado)
 
-Billing, RevenueCat y las compras de Apple/Google **no están implementados hoy**, y todavía no hay un precio de pago aprobado. Al implementarse, la app mostrará únicamente el precio mensual localizado que entregue la tienda; no se deben hardcodear importes.
+Billing y RevenueCat siguen sin conceder acceso pagado desde el cliente. Existe comercio Google Play únicamente para una build Android `local` o `preview` con catálogo `PREVIEW` y `EXPO_PUBLIC_BILLING_GOOGLE_SANDBOX_PURCHASES=true`; `production` permanece bloqueado. La compra inicial exige ademas `purchasesEnabled=true`. Para cambios Google `TWO_STEP`, el preview es puro y cada confirmacion crea primero un intento durable: `CHARGE_PRORATED_PRICE` para la capacidad intermedia y, solo tras verificacion canonica, `DEFERRED` para la periodicidad final. La app reporta el outcome, solicita sync y recupera la operacion al reiniciar sin repetir el primer paso; un segundo paso ya habilitado puede continuar durante una pausa operacional. Nunca autoriza desde `CustomerInfo`. Los importes visibles siempre vienen localizados desde la tienda y no se hardcodean.
+
+Los recursos administrativos pueden traer `managementAccess` y `managementReason` desde el backend. `ManagementAccessGate`, `BillingReadOnlyState` y `BillingPaywall` son la unica traduccion de esa decision a superficie de UI; no inferir acceso desde rol, cuota, OneSignal ni `CustomerInfo`. Los campos son opcionales por compatibilidad con backends anteriores y flags apagados: ausentes conservan la pantalla legacy. `READ_ONLY` sustituye la pantalla administrativa por consulta publica y acceso a planes; `BLOCKED` muestra el paywall o el mensaje de evidencia/rol correspondiente.
+
+Durante la transicion migratoria, el estado de billing puede traer `migrationOverlayActive`, `migrationDeadline`, `migrationPaused`, `migrationSelectedDivisionId` y `migrationDivisions`. La pantalla de Planes muestra el plazo o su pausa y permite una unica seleccion explicita; esa eleccion se guarda en el backend y nunca se infiere de `CustomerInfo` ni del orden local de divisiones.
 
 - Niveles fijos de 2 a 15 divisiones administrables; más de 15 requiere Enterprise manual.
 - Se paga la capacidad completa elegida, se use o no. Cada división ocupa un slot durante todo el período y finalizarla, cancelarla o eliminarla no cambia el precio ni libera el slot; el estado deportivo no interviene en billing.

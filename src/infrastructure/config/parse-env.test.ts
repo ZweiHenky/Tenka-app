@@ -10,6 +10,8 @@ const valid: PublicEnvInput = {
   EXPO_PUBLIC_GOOGLE_PLACES_WEB_API_KEY: "web-key",
   EXPO_PUBLIC_GOOGLE_PLACES_ANDROID_SHA1: "00112233445566778899aabbccddeeff00112233",
   EXPO_PUBLIC_ONESIGNAL_APP_ID: "onesignal-id",
+  EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY: "appl_public-apple-key",
+  EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY: "goog_public-google-key",
   EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME: "cloud-name",
   EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET: "upload-preset",
 }
@@ -51,5 +53,31 @@ describe("parseEnv", () => {
 
   it("rejects an invalid Android SHA-1 fingerprint", () => {
     expect(() => parseEnv({ ...valid, EXPO_PUBLIC_GOOGLE_PLACES_ANDROID_SHA1: "invalid" })).toThrow("SHA-1 fingerprint")
+  })
+
+  it("exposes separate RevenueCat Public SDK keys", () => {
+    expect(parseEnv(valid)).toMatchObject({
+      REVENUECAT_APPLE_API_KEY: "appl_public-apple-key",
+      REVENUECAT_GOOGLE_API_KEY: "goog_public-google-key",
+    })
+  })
+
+  it("keeps Google sandbox purchases disabled unless explicitly enabled", () => {
+    expect(parseEnv(valid).BILLING_GOOGLE_SANDBOX_PURCHASES).toBe(false)
+    expect(parseEnv({
+      ...valid,
+      EXPO_PUBLIC_BILLING_GOOGLE_SANDBOX_PURCHASES: "true",
+    }).BILLING_GOOGLE_SANDBOX_PURCHASES).toBe(true)
+    expect(() => parseEnv({
+      ...valid,
+      EXPO_PUBLIC_BILLING_GOOGLE_SANDBOX_PURCHASES: "1",
+    })).toThrow("must be true or false")
+  })
+
+  it.each([
+    ["EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY", "goog_wrong-platform", "appl_"],
+    ["EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY", "sk_secret-key", "goog_"],
+  ] as const)("rejects an invalid %s", (name, value, expectedPrefix) => {
+    expect(() => parseEnv({ ...valid, [name]: value })).toThrow(expectedPrefix)
   })
 })

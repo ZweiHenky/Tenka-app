@@ -25,6 +25,21 @@ export interface TipoCompetenciaRef {
   codigo?: string
 }
 
+export type ManagementAccess = "FULL" | "LIMITED_SETUP" | "READ_ONLY" | "BLOCKED"
+export type ManagementReason =
+  | "ADMIN"
+  | "ENTERPRISE"
+  | "PAID_ASSIGNED"
+  | "FREE"
+  | "LOCAL_GRACE"
+  | "MIGRATION"
+  | "UNASSIGNED"
+  | "EXPIRED"
+  | "CAPACITY_REQUIRED"
+  | "ROLE_REQUIRED"
+  | "SHARED_RESOURCE_LOCKED"
+  | "INVALID_BILLING_EVIDENCE"
+
 export interface DivisionConRelaciones {
   id: string
   nombre: string
@@ -61,6 +76,11 @@ export interface DivisionConRelaciones {
   tipo?: TipoRef
   estadoLiga?: EstadoLigaRef
   tipoCompetencia?: TipoCompetenciaRef
+  managementAccess?: ManagementAccess
+  managementReason?: ManagementReason
+  migrationOverlayActive?: boolean
+  migrationDeadline?: string
+  migrationPaused?: boolean
 }
 
 export interface LigaCanchaRef {
@@ -122,6 +142,11 @@ export interface League {
   x?: string | null
   instagram?: string | null
   tiktok?: string | null
+  managementAccess?: ManagementAccess
+  managementReason?: ManagementReason
+  migrationOverlayActive?: boolean
+  migrationDeadline?: string
+  migrationPaused?: boolean
 }
 
 export interface CreateLeagueInput {
@@ -176,6 +201,11 @@ export interface Division {
    * el distintivo de campeón en la ficha del equipo.
    */
   campeones?: { equipoId: string | null }[]
+  managementAccess?: ManagementAccess
+  managementReason?: ManagementReason
+  migrationOverlayActive?: boolean
+  migrationDeadline?: string
+  migrationPaused?: boolean
 }
 
 export interface CreateDivisionInput {

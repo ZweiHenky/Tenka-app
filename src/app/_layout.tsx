@@ -15,6 +15,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Fonts } from "@/constants/theme"
 import { ToastProvider } from "@/shared/components/Toast"
 import { NotificationBootstrap } from "@/infrastructure/notifications/NotificationBootstrap"
+import { BillingBootstrap } from "@/infrastructure/billing/BillingBootstrap"
 
 export const unstable_settings = {
   initialRouteName: "(drawer)",
@@ -104,6 +105,7 @@ export default function RootLayout() {
               <Stack.Screen name="(public)" />
             </Stack>
             <NotificationBootstrap />
+            <BillingBootstrap />
           </BottomSheetModalProvider>
           <TourGuideOverlay />
           </KeyboardProvider>

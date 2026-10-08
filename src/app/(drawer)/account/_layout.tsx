@@ -10,6 +10,8 @@ export default function AccountLayout() {
     <AuthGate><Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="edit" />
+      <Stack.Screen name="billing" />
+      <Stack.Screen name="operational-control" />
     </Stack></AuthGate>
   )
 }

@@ -30,6 +30,7 @@ import { isRateLimitError } from "@/infrastructure/api/rate-limit"
 import { useAccountQuota } from "@/features/users/hooks/useAccountQuota"
 import { quotaExhaustedMessage, quotaIsExhausted } from "@/features/users/quota"
 import AccountQuotaStatus from "@/features/users/components/AccountQuotaStatus"
+import ManagementAccessGate from "@/features/billing/components/ManagementAccessGate"
 
 export default function LeagueDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -264,6 +265,12 @@ export default function LeagueDetailScreen() {
 
   return (
     <AuthGate>
+      <ManagementAccessGate
+        access={league.managementAccess}
+        reason={league.managementReason}
+        resourceName={league.nombre}
+        onViewPublic={() => router.push({ pathname: "/(public)/liga/[id]", params: { id: league.id } })}
+      >
       <View style={{ flex: 1, backgroundColor: Palette.black }}>
         <CustomHeader title={league.nombre} onBack={() => router.back()} />
         <PullToRefresh scrollRef={scrollRef} onScroll={(event) => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y }} onRefresh={handleRefresh} refreshing={refreshing}>
@@ -426,6 +433,7 @@ export default function LeagueDetailScreen() {
         onConfirm={confirmDelete}
         onClose={() => setDeleteTarget(null)}
       />
+      </ManagementAccessGate>
     </AuthGate>
   )
 }

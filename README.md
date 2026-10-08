@@ -67,6 +67,9 @@ Ver `.env.example`:
 | `EXPO_PUBLIC_GOOGLE_PLACES_WEB_API_KEY` | Places API (New), restringida por referentes web |
 | `EXPO_PUBLIC_GOOGLE_PLACES_ANDROID_SHA1` | SHA-1 del certificado del build Android |
 | `EXPO_PUBLIC_ONESIGNAL_APP_ID` | App ID de OneSignal para push notifications |
+| `EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY` | Public SDK Key de la app iOS en RevenueCat (`appl_`) |
+| `EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY` | Public SDK Key de la app Android en RevenueCat (`goog_`) |
+| `EXPO_PUBLIC_BILLING_GOOGLE_SANDBOX_PURCHASES` | Permite el checkout diagnóstico durable solo con `APP_ENV=local`, Android, catálogo `PREVIEW` y `purchasesEnabled`; el SDK no concede acceso |
 
 ## Estructura del Proyecto
 

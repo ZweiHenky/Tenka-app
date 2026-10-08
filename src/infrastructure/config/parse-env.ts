@@ -8,6 +8,9 @@ export type PublicEnvInput = {
   EXPO_PUBLIC_GOOGLE_PLACES_WEB_API_KEY?: string
   EXPO_PUBLIC_GOOGLE_PLACES_ANDROID_SHA1?: string
   EXPO_PUBLIC_ONESIGNAL_APP_ID?: string
+  EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY?: string
+  EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY?: string
+  EXPO_PUBLIC_BILLING_GOOGLE_SANDBOX_PURCHASES?: string
   EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME?: string
   EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET?: string
 }
@@ -19,6 +22,8 @@ const requiredNames = [
   "EXPO_PUBLIC_GOOGLE_PLACES_WEB_API_KEY",
   "EXPO_PUBLIC_GOOGLE_PLACES_ANDROID_SHA1",
   "EXPO_PUBLIC_ONESIGNAL_APP_ID",
+  "EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY",
+  "EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY",
   "EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME",
   "EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET",
 ] as const
@@ -64,6 +69,19 @@ export function parseEnv(input: PublicEnvInput) {
   }
   const normalizedSha1 = sha1.match(/.{2}/g)!.join(":").toUpperCase()
 
+  const revenueCatAppleApiKey = input.EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY!.trim()
+  if (!revenueCatAppleApiKey.startsWith("appl_") || revenueCatAppleApiKey.length === "appl_".length) {
+    throw new Error("EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY must be an Apple Public SDK Key starting with appl_")
+  }
+  const revenueCatGoogleApiKey = input.EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY!.trim()
+  if (!revenueCatGoogleApiKey.startsWith("goog_") || revenueCatGoogleApiKey.length === "goog_".length) {
+    throw new Error("EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY must be a Google Public SDK Key starting with goog_")
+  }
+  const sandboxPurchases = input.EXPO_PUBLIC_BILLING_GOOGLE_SANDBOX_PURCHASES?.trim() || "false"
+  if (sandboxPurchases !== "true" && sandboxPurchases !== "false") {
+    throw new Error("EXPO_PUBLIC_BILLING_GOOGLE_SANDBOX_PURCHASES must be true or false")
+  }
+
   return {
     APP_ENV: appEnv as AppEnv,
     API_URL: input.EXPO_PUBLIC_API_URL!.trim(),
@@ -72,6 +90,9 @@ export function parseEnv(input: PublicEnvInput) {
     GOOGLE_PLACES_WEB_API_KEY: input.EXPO_PUBLIC_GOOGLE_PLACES_WEB_API_KEY!.trim(),
     GOOGLE_PLACES_ANDROID_SHA1: normalizedSha1,
     ONESIGNAL_APP_ID: input.EXPO_PUBLIC_ONESIGNAL_APP_ID!.trim(),
+    REVENUECAT_APPLE_API_KEY: revenueCatAppleApiKey,
+    REVENUECAT_GOOGLE_API_KEY: revenueCatGoogleApiKey,
+    BILLING_GOOGLE_SANDBOX_PURCHASES: sandboxPurchases === "true",
     CLOUDINARY_CLOUD_NAME: input.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME!.trim(),
     CLOUDINARY_UPLOAD_PRESET: input.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET!.trim(),
   } as const

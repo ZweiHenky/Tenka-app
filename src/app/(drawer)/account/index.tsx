@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react"
 import { View, Text, TouchableOpacity, Image, ActivityIndicator, Switch } from "react-native"
-import { router } from "expo-router"
+import { MaterialIcons } from "@expo/vector-icons"
+import { router, type Href } from "expo-router"
 import { useQueryClient } from "@tanstack/react-query"
 import { authClient } from "@/infrastructure/auth/client"
 import { userApi } from "@/features/users/api/users"
@@ -16,14 +17,17 @@ import { waitForIdle } from "@/shared/utils/wait-for-idle"
 import { isRateLimitError } from "@/infrastructure/api/rate-limit"
 import type { League } from "@/domain/interfaces/league"
 import { accountQuotaKey } from "@/features/users/quota"
+import { billingKeys } from "@/features/billing/hooks/queryKeys"
 import { useNearbyLocationPreferenceStore } from "@/stores/nearbyLocationPreferenceStore"
 import { isNearbyLeagueQuery } from "@/features/league/hooks/leagueQueryKey"
 import { clearNearbyLocationSession } from "@/features/location/useNearbyLocation"
+import type { UserRole } from "@/domain/interfaces/user"
 
 export default function ProfileScreen() {
   const guard = useNavGuard()
   const { data: session, isPending, refetch: refetchSession } = authClient.useSession()
   const user = session?.user
+  const role = (user as { rol?: UserRole } | undefined)?.rol
   const [savingPhoneVisibility, setSavingPhoneVisibility] = useState(false)
   const [phoneVisibleOverride, setPhoneVisibleOverride] = useState<boolean | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -78,7 +82,10 @@ export default function ProfileScreen() {
     try {
       await userApi.activateLeagueRole()
       await refetchSession({ query: { disableCookieCache: true } })
-      await qc.invalidateQueries({ queryKey: accountQuotaKey })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: accountQuotaKey }),
+        user?.id ? qc.invalidateQueries({ queryKey: billingKeys.state(user.id) }) : Promise.resolve(),
+      ])
       toast.success("Tu cuenta ya puede administrar ligas.")
     } catch (error) {
       toast.error(getAuthErrorMessage(error, "No se pudo activar el rol de liga."))
@@ -206,7 +213,63 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {(user as any).rol !== "LIGA" && (user as any).rol !== "ADMINISTRADOR" ? (
+          <TouchableOpacity
+            onPress={() => guard(() => router.push("/(drawer)/account/billing" as Href))}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir planes y facturación"
+            activeOpacity={0.75}
+            style={{
+              minHeight: 72,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: Gap.base,
+              backgroundColor: Palette.surface,
+              borderRadius: Radius.xl,
+              borderWidth: 1,
+              borderColor: Palette.border,
+              padding: Pad.base,
+            }}
+          >
+            <View style={{ width: 44, height: 44, borderRadius: Radius.lg, backgroundColor: Palette.cyan10, alignItems: "center", justifyContent: "center" }}>
+              <MaterialIcons name="receipt-long" size={24} color={Palette.cyan} />
+            </View>
+            <View style={{ flex: 1, gap: Gap.micro }}>
+              <Text style={{ color: Palette.text, fontSize: 16, fontWeight: "600" }}>Planes y facturación</Text>
+              <Text style={{ color: Palette.textMuted, fontSize: 13 }}>Consulta capacidad, periodos y precios de tienda.</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color={Palette.textMuted} />
+          </TouchableOpacity>
+
+          {role === "ADMINISTRADOR" ? (
+            <TouchableOpacity
+              onPress={() => guard(() => router.push("/(drawer)/account/operational-control" as Href))}
+              accessibilityRole="button"
+              accessibilityLabel="Abrir control operacional de billing"
+              activeOpacity={0.75}
+              style={{
+                minHeight: 72,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: Gap.base,
+                backgroundColor: Palette.surface,
+                borderRadius: Radius.xl,
+                borderWidth: 1,
+                borderColor: Palette.warning,
+                padding: Pad.base,
+              }}
+            >
+              <View style={{ width: 44, height: 44, borderRadius: Radius.lg, backgroundColor: Palette.warning10, alignItems: "center", justifyContent: "center" }}>
+                <MaterialIcons name="admin-panel-settings" size={24} color={Palette.warning} />
+              </View>
+              <View style={{ flex: 1, gap: Gap.micro }}>
+                <Text style={{ color: Palette.text, fontSize: 16, fontWeight: "600" }}>Control operacional de billing</Text>
+                <Text style={{ color: Palette.textMuted, fontSize: 13 }}>Habilita o pausa compras nuevas del ambiente actual.</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={24} color={Palette.textMuted} />
+            </TouchableOpacity>
+          ) : null}
+
+          {role !== "LIGA" && role !== "ADMINISTRADOR" ? (
             <TouchableOpacity
               onPress={handleActivateLeagueRole}
               disabled={activatingRole}
